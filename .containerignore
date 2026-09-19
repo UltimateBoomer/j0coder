@@ -1,0 +1,9 @@
+target
+web/node_modules
+web/dist
+.git
+.env
+data
+*.log
+web/test-results
+**/__pycache__

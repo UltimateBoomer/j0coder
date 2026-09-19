@@ -1,0 +1,85 @@
+{
+  "title": "Folded Rows",
+  "statement": "## Task\nReverse the order of rows in a possibly ragged matrix, then reverse the values in each row. Preserve empty rows. Return the resulting nested array.\n\nThe input may be empty. Do not assume that rows have equal lengths.",
+  "difficulty": "medium",
+  "tags": [
+    "nested-arrays",
+    "transformation"
+  ],
+  "signature": {
+    "method": "foldRows",
+    "params": [
+      {
+        "name": "rows",
+        "ty": {
+          "array": {
+            "array": "int"
+          }
+        }
+      }
+    ],
+    "returns": {
+      "array": {
+        "array": "int"
+      }
+    }
+  },
+  "tests": [
+    {
+      "args": [
+        [
+          [
+            1,
+            2
+          ],
+          [],
+          [
+            3
+          ]
+        ]
+      ],
+      "expected": [
+        [
+          3
+        ],
+        [],
+        [
+          2,
+          1
+        ]
+      ],
+      "hidden": false
+    },
+    {
+      "args": [
+        []
+      ],
+      "expected": [],
+      "hidden": false
+    },
+    {
+      "args": [
+        [
+          [
+            2147483647,
+            -2147483648
+          ],
+          []
+        ]
+      ],
+      "expected": [
+        [],
+        [
+          -2147483648,
+          2147483647
+        ]
+      ],
+      "hidden": true
+    }
+  ],
+  "limits": {
+    "time_ms": 2000,
+    "memory_mib": 256,
+    "output_bytes": 1048576
+  }
+}

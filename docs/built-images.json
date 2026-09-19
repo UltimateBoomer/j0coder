@@ -1,0 +1,19 @@
+{
+  "engine": "Podman 5.8.4 (development rootless engine)",
+  "images": [
+    {
+      "name": "localhost/practice-app:1",
+      "id": "79327b75e1171c34349eed1318be597cb679021b8a559d8690b97dd9e02e8138",
+      "size_bytes": 235022891,
+      "architecture": "amd64",
+      "created": "2026-09-19T03:59:16.940553367Z"
+    },
+    {
+      "name": "localhost/practice-toolchain:1",
+      "id": "ba4ff8c398320096d3b6ea3c2721d880d7c4dd0798b3277b9fced497abb9895d",
+      "size_bytes": 779374313,
+      "architecture": "amd64",
+      "created": "2026-09-19T03:47:44.616555368Z"
+    }
+  ]
+}

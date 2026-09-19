@@ -1,0 +1,29 @@
+diff --git a/runsc/cgroup/cgroup_v2.go b/runsc/cgroup/cgroup_v2.go
+index c7ef021ad80..ab744dbb718 100644
+--- a/runsc/cgroup/cgroup_v2.go
++++ b/runsc/cgroup/cgroup_v2.go
+@@ -419,11 +419,20 @@ func (c *cgroupV2) CPUUsage() (uint64, error) {
+ 
+ // NumCPU returns the number of CPUs configured in 'cpuset/cpuset.cpus'.
+ func (c *cgroupV2) NumCPU() (int, error) {
+-	cpuset, err := getValue(c.MakePath(""), "cpuset.cpus.effective")
+-	if err != nil {
+-		return 0, err
++	// A rootless systemd manager may be delegated the CPU controller without
++	// cpuset. In that case cpuset.cpus.effective is absent from its subtree,
++	// but the nearest ancestor with cpuset still describes the CPUs available
++	// to the user. CPUQuota below remains the actual per-container limit.
++	for path := c.MakePath(""); ; path = filepath.Dir(path) {
++		cpuset, err := getValue(path, "cpuset.cpus.effective")
++		if err == nil {
++			return countCpuset(strings.TrimSpace(cpuset))
++		}
++		parent := filepath.Dir(path)
++		if !errors.Is(err, os.ErrNotExist) || parent == path || !strings.HasPrefix(parent, c.Mountpoint) {
++			return 0, err
++		}
+ 	}
+-	return countCpuset(strings.TrimSpace(cpuset))
+ }
+ 
+ func getMemoryLimit(path string) (string, error) {

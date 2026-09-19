@@ -1,0 +1,92 @@
+name: practice
+services:
+  postgres:
+    image: docker.io/library/postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
+    environment:
+      POSTGRES_DB: practice
+      POSTGRES_USER: practice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/configure.py}
+    volumes: [postgres:/var/lib/postgresql/data]
+    networks: [database]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U practice -d practice]
+      interval: 5s
+      retries: 20
+  redis:
+    image: docker.io/library/redis@sha256:0302cccee2b2043e61b497c8f4075467c5f7ba27a9f38be7e092634f2734baed
+    command: [redis-server, /usr/local/etc/redis/redis.conf]
+    volumes:
+      - redis:/data
+      - ./data/config/redis.conf:/usr/local/etc/redis/redis.conf:ro,Z
+    networks: [queue]
+    restart: unless-stopped
+  api:
+    image: ${APP_IMAGE:-localhost/practice-app:1}
+    environment:
+      DATABASE_URL: postgres://practice:${POSTGRES_PASSWORD}@postgres:5432/practice
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      MAX_TIME_MS: ${MAX_TIME_MS:-10000}
+      MAX_MEMORY_MIB: ${MAX_MEMORY_MIB:-1024}
+    networks: [database, queue, ingress]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+    read_only: true
+    tmpfs: [/tmp:size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  worker:
+    image: ${APP_IMAGE:-localhost/practice-app:1}
+    command: [worker]
+    user: '0:0'
+    environment:
+      DATABASE_URL: postgres://practice:${POSTGRES_PASSWORD}@postgres:5432/practice
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      CONTAINER_HOST: unix:///run/podman/podman.sock
+      TOOLCHAIN_IMAGE: ${TOOLCHAIN_IMAGE:-localhost/practice-toolchain:1}
+      SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:?Set SANDBOX_RUNTIME}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+    volumes:
+      - "${PODMAN_SOCKET:?Set PODMAN_SOCKET}:/run/podman/podman.sock"
+    networks: [database, queue]
+    security_opt: [label=disable]
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+  editor:
+    image: ${APP_IMAGE:-localhost/practice-app:1}
+    command: [editor]
+    user: '0:0'
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      CONTAINER_HOST: unix:///run/podman/podman.sock
+      TOOLCHAIN_IMAGE: ${TOOLCHAIN_IMAGE:-localhost/practice-toolchain:1}
+      SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:?Set SANDBOX_RUNTIME}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      EDITOR_CAPACITY: ${EDITOR_CAPACITY:-8}
+    volumes:
+      - "${PODMAN_SOCKET:?Set PODMAN_SOCKET}:/run/podman/podman.sock"
+    networks: [queue, ingress]
+    security_opt: [label=disable]
+    restart: unless-stopped
+    depends_on: [redis]
+  proxy:
+    image: docker.io/library/nginx@sha256:09ab424a8c788f8d0fe3a64429f6d19dfa526885c8609b748d0943a75dcb9f8c
+    ports: ['127.0.0.1:${PORT:-8080}:8080']
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro,Z
+    networks: [ingress]
+    depends_on: [api, editor]
+    restart: unless-stopped
+networks:
+  database: {internal: true}
+  queue: {internal: true}
+  ingress: {}
+volumes:
+  postgres: {}
+  redis: {}

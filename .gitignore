@@ -1,0 +1,11 @@
+/target
+/web/node_modules
+/web/dist
+.env
+/data
+/.dev
+/test-results
+
+__pycache__/
+*.pyc
+web/test-results/
