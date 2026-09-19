@@ -28,6 +28,8 @@ Rootless Podman is the only supported deployment model. Ordinary Compose service
 
 `configure.py` generates random PostgreSQL and Redis credentials and rootless socket/runtime paths; it refuses to overwrite `.env`. It defaults to loopback-only HTTP at `http://localhost:8080` with `COOKIE_SECURE=false`. For access from other machines, put an HTTPS reverse proxy in front of the loopback listener, set the exact `PUBLIC_ORIGIN`, and set `COOKIE_SECURE=true`. The proxy must support WebSockets. Do not expose database, Redis, or the Podman socket. `PORT` changes the loopback listener; `PUBLIC_ORIGIN` must match it.
 
+With SSH forwarding, use the same loopback hostname in the browser and `PUBLIC_ORIGIN`: `http://localhost:8080` and `http://127.0.0.1:8080` are different origins. For the latter, set `PUBLIC_ORIGIN=http://127.0.0.1:8080` in `.env` and recreate `api` and `editor` before signing in.
+
 `SANDBOX_RUNTIME` is an absolute path on the Podman server host. The installer verifies the pinned Git tag, uses a digest-pinned builder image, and installs `runsc` and its required sidecar directory under `.dev/`. The sandbox preflight invokes `dmesg` inside runsc, verifies gVisor identification, and checks its live cgroup limits. SELinux labeling is disabled on these containers because runsc rejects SELinux OCI labels; the other sandbox restrictions remain mandatory.
 
 Bootstrap an administrator without putting the password in shell history or process arguments:
@@ -43,6 +45,8 @@ Sign in, open **Authoring**, create users, and create/publish a problem. Authori
 ```sh
 PUBLIC_ORIGIN=http://localhost:8080 python3 scripts/seed.py
 ```
+
+Run the command on the development host, using the same origin configured in `.env`. For an SSH setup configured with `PUBLIC_ORIGIN=http://127.0.0.1:8080`, use `PUBLIC_ORIGIN=http://127.0.0.1:8080 python3 scripts/seed.py` instead.
 
 No public registration is provided. Changing a draft never changes a published version. Each submission remains associated with the version it used.
 
