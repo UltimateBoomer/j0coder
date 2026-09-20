@@ -329,7 +329,8 @@ impl SandboxBackend for Podman {
 }
 pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
     let b = Podman::new();
-    let wrapped = job.signature.wrapper(job.language, source);
+    let wrapped = job.language.wrapper(&job.signature, source);
+    let execution = job.language.execution();
     let mut artifact = None;
     let mut result = Outcome {
         elapsed_ms: 0,
@@ -339,9 +340,15 @@ pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
         cases: vec![],
         diagnostic: None,
     };
-    if job.language == Language::Cpp {
+    if execution.compilation_required {
         match b
-            .execute(wrapped.as_bytes(), "solution.cpp", "", &job.limits, true)
+            .execute(
+                wrapped.as_bytes(),
+                execution.source_filename,
+                "",
+                &job.limits,
+                true,
+            )
             .await?
         {
             Ok(c) if c.exit == 0 => artifact = c.artifact,
@@ -368,8 +375,8 @@ pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
     }
     for case in tests {
         let (name, code) = match &artifact {
-            Some(a) => ("program.b64", a.as_bytes()),
-            None => ("solution.py", wrapped.as_bytes()),
+            Some(a) => (execution.compiled_artifact_filename, a.as_bytes()),
+            None => (execution.source_filename, wrapped.as_bytes()),
         };
         let r = b
             .execute(

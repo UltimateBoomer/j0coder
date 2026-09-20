@@ -2,6 +2,7 @@ use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Type {
@@ -25,22 +26,6 @@ impl Type {
             _ => 0,
         }
     }
-    pub fn cpp(&self) -> String {
-        match self {
-            Self::Int => "int32_t".into(),
-            Self::Bool => "bool".into(),
-            Self::String => "std::string".into(),
-            Self::Array(t) => format!("std::vector<{}>", t.cpp()),
-        }
-    }
-    pub fn py(&self) -> String {
-        match self {
-            Self::Int => "int".into(),
-            Self::Bool => "bool".into(),
-            Self::String => "str".into(),
-            Self::Array(t) => format!("list[{}]", t.py()),
-        }
-    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Parameter {
@@ -59,112 +44,9 @@ fn identifier(s: &str) -> bool {
         && s.bytes()
             .enumerate()
             .all(|(i, c)| c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
-        && ![
-            "class",
-            "return",
-            "def",
-            "int",
-            "bool",
-            "str",
-            "auto",
-            "void",
-            "public",
-            "private",
-            "self",
-            "Solution",
-            "main",
-            "template",
-            "for",
-            "while",
-            "if",
-            "else",
-            "try",
-            "catch",
-            "lambda",
-            "import",
-            "from",
-            "pass",
-            "True",
-            "False",
-            "None",
-            "delete",
-            "new",
-            "operator",
-            "switch",
-            "case",
-            "break",
-            "continue",
-            "const",
-            "static",
-            "virtual",
-            "typename",
-            "namespace",
-            "using",
-            "async",
-            "await",
-            "yield",
-            "raise",
-            "with",
-            "as",
-            "in",
-            "is",
-            "and",
-            "or",
-            "not",
-            "global",
-            "nonlocal",
-            "assert",
-            "finally",
-            "except",
-            "do",
-            "double",
-            "float",
-            "char",
-            "long",
-            "short",
-            "unsigned",
-            "signed",
-            "sizeof",
-            "this",
-            "null",
-            "nullptr",
-            "true",
-            "false",
-            "enum",
-            "struct",
-            "union",
-            "extern",
-            "volatile",
-            "register",
-            "inline",
-            "friend",
-            "protected",
-            "throw",
-            "typedef",
-            "asm",
-            "alignas",
-            "alignof",
-            "compl",
-            "bitand",
-            "bitor",
-            "xor",
-            "typeid",
-            "concept",
-            "requires",
-            "constexpr",
-            "consteval",
-            "constinit",
-            "threadlocal",
-            "noexcept",
-            "decltype",
-            "mutable",
-            "export",
-            "explicit",
-            "wchar",
-            "match",
-            "del",
-        ]
-        .contains(&s)
+        && [Language::Cpp, Language::Python]
+            .iter()
+            .all(|language| !language.is_reserved(s))
 }
 impl Signature {
     pub fn validate(&self) -> Result<()> {
@@ -184,53 +66,6 @@ impl Signature {
         args.as_array().is_some_and(|a| {
             a.len() == self.params.len() && a.iter().zip(&self.params).all(|(v, p)| p.ty.valid(v))
         })
-    }
-    pub fn starter(&self, lang: Language) -> String {
-        let ps = self
-            .params
-            .iter()
-            .map(|p| match lang {
-                Language::Cpp => format!("{} {}", p.ty.cpp(), p.name),
-                Language::Python => format!("{}: {}", p.name, p.ty.py()),
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        match lang {
-            Language::Cpp => format!(
-                "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {{\npublic:\n    {} {}({}) {{\n        return {{}};\n    }}\n}};\n",
-                self.returns.cpp(),
-                self.method,
-                ps
-            ),
-            Language::Python => format!(
-                "class Solution:\n    def {}(self{}{}) -> {}:\n        pass\n",
-                self.method,
-                if ps.is_empty() { "" } else { ", " },
-                ps,
-                self.returns.py()
-            ),
-        }
-    }
-    pub fn wrapper(&self, lang: Language, source: &str) -> String {
-        match lang {
-            Language::Python => format!(
-                "{}\n\nimport json as _json\nimport os as _os\n_args = _json.loads(input())\n_result = Solution().{}(*_args)\nwith open('/work/result', 'w') as _f:\n    _json.dump(_result, _f, ensure_ascii=False, allow_nan=False)\n",
-                source, self.method
-            ),
-            Language::Cpp => {
-                let args = self
-                    .params
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| format!("a.at({i}).get<{}>()", p.ty.cpp()))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                format!(
-                    "#include <nlohmann/json.hpp>\n#include <fstream>\n#include <iostream>\n{}\nint main() {{ auto a=nlohmann::json::parse(std::cin); auto r=Solution().{}({}); std::ofstream f(\"/work/result\"); f << nlohmann::json(r).dump(); }}\n",
-                    source, self.method, args
-                )
-            }
-        }
     }
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

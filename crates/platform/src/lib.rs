@@ -1,6 +1,7 @@
 pub mod api;
 pub mod contract;
 pub mod editor;
+mod languages;
 pub mod queue;
 pub mod sandbox;
 pub fn env(key: &str, default: &str) -> String {

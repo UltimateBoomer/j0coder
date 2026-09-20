@@ -110,10 +110,7 @@ pub async fn upgrade(
 // Only text-document operations are admitted. Workspace commands, configuration changes,
 // arbitrary URIs, file operations, and client-selected executable paths are never forwarded.
 fn safe_message(v: &Value, language: Language) -> bool {
-    let uri = match language {
-        Language::Cpp => "file:///workspace/solution.cpp",
-        Language::Python => "file:///workspace/solution.py",
-    };
+    let uri = language.editor_uri();
     if let Some(method) = v.get("method").and_then(Value::as_str)
         && ![
             "initialize",
@@ -156,16 +153,7 @@ fn safe_message(v: &Value, language: Language) -> bool {
 async fn bridge(mut socket: WebSocket, t: Ticket, session: &str) -> anyhow::Result<()> {
     let b = Podman::new();
     let name = format!("practice-editor-{session}");
-    let cmd = match t.language {
-        Language::Cpp => vec![
-            "clangd",
-            "--background-index=false",
-            "--clang-tidy=false",
-            "--log=error",
-            "--compile-commands-dir=/workspace",
-        ],
-        Language::Python => vec!["pyright-langserver", "--stdio"],
-    };
+    let cmd = t.language.lsp_command();
     let mut args = vec![
         "create",
         "--timeout=3600",
@@ -195,7 +183,7 @@ async fn bridge(mut socket: WebSocket, t: Ticket, session: &str) -> anyhow::Resu
         "-i",
         &b.image,
     ];
-    args.extend(cmd);
+    args.extend(cmd.iter().copied());
     let id = String::from_utf8(b.checked(&args).await?)?
         .trim()
         .to_string();

@@ -223,9 +223,15 @@ async fn problem(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Re
     let p: Value = r.get("public");
     let sig: Signature =
         serde_json::from_value(p["signature"].clone()).map_err(|e| anyhow::anyhow!(e))?;
-    Ok(Json(
-        json!({"id":id,"version":r.get::<Uuid,_>("id"),"problem":p,"starters":{"cpp":sig.starter(Language::Cpp),"python":sig.starter(Language::Python)}}),
-    ))
+    Ok(Json(json!({
+        "id": id,
+        "version": r.get::<Uuid, _>("id"),
+        "problem": p,
+        "starters": {
+            "cpp": Language::Cpp.starter(&sig)?,
+            "python": Language::Python.starter(&sig)?,
+        }
+    })))
 }
 async fn drafts(State(a): State<App>, h: HeaderMap) -> Result<Json<Value>> {
     admin(&a, &h, false).await?;
