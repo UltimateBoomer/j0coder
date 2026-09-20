@@ -214,7 +214,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
                 continue;
             };
             let job: Job = serde_json::from_str(&payload)?;
-            anyhow::ensure!(job.schema == 1, "unsupported job");
+            anyhow::ensure!([1, 2].contains(&job.schema), "unsupported job");
             let prefix = format!("practice:{}:{}", job.id, job.generation);
             let lease = format!("{prefix}:lease");
             let done = format!("{prefix}:done");
@@ -477,13 +477,16 @@ mod integration {
             id,
             version,
             language: Language::Python,
-            signature: Signature {
+            signature: Some(Signature {
                 method: "solve".into(),
                 params: vec![],
                 returns: Type::Int,
-            },
+            }),
+            interface: None,
             limits: Limits::default(),
             mode: "submit".into(),
+            type_definitions: vec![],
+            comparison: Comparison::default(),
         };
         sqlx::query("INSERT INTO submissions(id,user_id,version_id,idempotency_key,request_hash,source,job) VALUES($1,$2,$3,'test','test','test',$4)").bind(id).bind(u).bind(version).bind(serde_json::to_value(&job)?).execute(&db).await?;
         let (source, tests) = load_payload(&db, &job).await?;

@@ -1,6 +1,7 @@
 use crate::contract::*;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{process::Stdio, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -371,7 +372,11 @@ pub async fn judge_with_shutdown(
     shutdown: &crate::shutdown::Shutdown,
 ) -> Result<Outcome> {
     let b = Podman::new();
-    let wrapped = job.language.wrapper(&job.signature, source)?;
+    let wrapped = match (&job.signature, &job.interface) {
+        (Some(signature), _) => job.language.wrapper(signature, source)?,
+        (_, Some(interface)) => job.language.wrapper_interface(interface, source)?,
+        _ => anyhow::bail!("job has no interface"),
+    };
     let execution = job.language.execution();
     let mut artifact = None;
     let mut result = Outcome {
@@ -427,7 +432,7 @@ pub async fn judge_with_shutdown(
             .execute(
                 code,
                 name,
-                &serde_json::to_string(&case.args)?,
+                &serde_json::to_string(&case_input(case))?,
                 &job.limits,
                 false,
                 shutdown,
@@ -437,22 +442,13 @@ pub async fn judge_with_shutdown(
             Err(v) => (Some(v), None, String::new()),
             Ok(c) if c.exit != 0 => (Some(Verdict::RuntimeError), None, c.log),
             Ok(c) => {
-                let valid = c
-                    .output
-                    .as_ref()
-                    .is_some_and(|v| job.signature.returns.valid(v));
-                let verdict = if !valid {
-                    Some(Verdict::RuntimeError)
-                } else {
-                    case.expected.as_ref().map(|expected| {
-                        if c.output.as_ref() == Some(expected) {
-                            Verdict::Accepted
-                        } else {
-                            Verdict::WrongAnswer
-                        }
-                    })
+                let (verdict, detail) = compare_case(job, case, c.output.as_ref());
+                let log = match detail {
+                    Some(d) if c.log.is_empty() => d,
+                    Some(d) => format!("{}\n{}", c.log, d),
+                    None => c.log,
                 };
-                (verdict, c.output, c.log)
+                (verdict, c.output, log)
             }
         };
         if verdict.as_ref().is_none_or(|v| *v == Verdict::Accepted) {
@@ -468,6 +464,106 @@ pub async fn judge_with_shutdown(
         })
     }
     Ok(result)
+}
+
+fn case_input(case: &Case) -> Value {
+    if let Some(args) = &case.args {
+        return args.clone();
+    }
+    serde_json::json!({
+        "constructor_args": case.constructor_args.as_ref().unwrap(),
+        "operations": case.operations.as_ref().unwrap().iter().map(|o| serde_json::json!({"method":o.method,"args":o.args})).collect::<Vec<_>>()
+    })
+}
+
+fn compare_case(
+    job: &Job,
+    case: &Case,
+    output: Option<&Value>,
+) -> (Option<Verdict>, Option<String>) {
+    if let Some(sig) = &job.signature {
+        let Some(actual) = output else {
+            return (Some(Verdict::RuntimeError), None);
+        };
+        if !sig.returns.valid_with(actual, &job.type_definitions) {
+            return (Some(Verdict::RuntimeError), None);
+        }
+        return (
+            case.expected.as_ref().map(|e| {
+                if job.comparison.matches(&sig.returns, e, actual) {
+                    Verdict::Accepted
+                } else {
+                    Verdict::WrongAnswer
+                }
+            }),
+            None,
+        );
+    }
+    match job.interface.as_ref() {
+        None => (Some(Verdict::RuntimeError), None),
+        Some(crate::contract::Interface::Function { returns, .. }) => {
+            let Some(actual) = output else {
+                return (Some(Verdict::RuntimeError), None);
+            };
+            if !returns.valid_with(actual, &job.type_definitions) {
+                (Some(Verdict::RuntimeError), None)
+            } else {
+                (
+                    case.expected.as_ref().map(|e| {
+                        if job.comparison.matches(returns, e, actual) {
+                            Verdict::Accepted
+                        } else {
+                            Verdict::WrongAnswer
+                        }
+                    }),
+                    None,
+                )
+            }
+        }
+        Some(interface @ crate::contract::Interface::DataStructure { .. }) => {
+            let actual = match output.and_then(Value::as_array) {
+                Some(v) => v,
+                None => return (Some(Verdict::RuntimeError), None),
+            };
+            let Some(ops) = case.operations.as_ref() else {
+                return (Some(Verdict::RuntimeError), None);
+            };
+            if actual.len() != ops.len() {
+                return (
+                    Some(Verdict::RuntimeError),
+                    Some(format!(
+                        "trace returned {} results for {} operations",
+                        actual.len(),
+                        ops.len()
+                    )),
+                );
+            }
+            for (index, (op, value)) in ops.iter().zip(actual).enumerate() {
+                let Some(method) = interface.method(&op.method) else {
+                    return (Some(Verdict::RuntimeError), None);
+                };
+                if !method.returns.valid_with(value, &job.type_definitions) {
+                    return (
+                        Some(Verdict::RuntimeError),
+                        Some(format!(
+                            "operation {index} ({}) returned an invalid value",
+                            op.method
+                        )),
+                    );
+                }
+                if !job.comparison.matches(&method.returns, &op.expected, value) {
+                    return (
+                        Some(Verdict::WrongAnswer),
+                        Some(format!(
+                            "operation {index} ({}) produced the wrong result",
+                            op.method
+                        )),
+                    );
+                }
+            }
+            (Some(Verdict::Accepted), None)
+        }
+    }
 }
 
 pub fn not_run(tests: &[Case]) -> Vec<CaseResult> {

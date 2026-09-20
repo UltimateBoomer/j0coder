@@ -1,0 +1,2 @@
+def {{ name }}({% for parameter in parameters %}{{ parameter.name }}: {{ parameter.type }}{% if not loop.last %}, {% endif %}{% endfor %}) -> {{ return_type }}:
+    pass

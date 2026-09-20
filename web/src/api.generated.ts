@@ -84,6 +84,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/problems/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["validateProblem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getCatalogStatus"];
+        put: operations["updateCatalogSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/problems/{id}": {
         parameters: {
             query?: never;
@@ -168,8 +200,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        Type: ("int" | "bool" | "string") | {
+        Type: ("void" | "int" | "int64" | "float" | "bool" | "string") | {
             array: components["schemas"]["Type"];
+        } | {
+            nullable: components["schemas"]["Type"];
+        } | {
+            named: string;
         };
         Parameter: {
             name: string;
@@ -185,18 +221,57 @@ export interface components {
             memory_mib: number;
             output_bytes: number;
         };
-        Case: {
+        FunctionInterface: {
+            /** @constant */
+            kind: "function";
+            name: string;
+            params: components["schemas"]["Parameter"][];
+            returns: components["schemas"]["Type"];
+        };
+        Constructor: {
+            params: components["schemas"]["Parameter"][];
+        };
+        Method: {
+            name: string;
+            params: components["schemas"]["Parameter"][];
+            returns: components["schemas"]["Type"];
+        };
+        DataStructureInterface: {
+            /** @constant */
+            kind: "data_structure";
+            name: string;
+            constructor: {
+                params: components["schemas"]["Parameter"][];
+            };
+            methods: components["schemas"]["Method"][];
+        };
+        Interface: components["schemas"]["FunctionInterface"] | components["schemas"]["DataStructureInterface"];
+        FunctionCase: {
             args: unknown[];
-            expected?: unknown;
+            expected: unknown;
             hidden?: boolean;
         };
+        Operation: {
+            method: string;
+            args: unknown[];
+            expected: unknown;
+        };
+        StatefulCase: {
+            constructor_args: unknown[];
+            operations: components["schemas"]["Operation"][];
+            hidden?: boolean;
+        };
+        Case: components["schemas"]["FunctionCase"] | components["schemas"]["StatefulCase"];
         Problem: {
+            /** @enum {integer} */
+            schema?: 1 | 2 | 3;
             title: string;
             statement: string;
             /** @enum {string} */
             difficulty: "easy" | "medium" | "hard";
             tags: string[];
-            signature: components["schemas"]["Signature"];
+            signature?: components["schemas"]["Signature"];
+            interface?: components["schemas"]["Interface"];
             limits: components["schemas"]["Limits"];
             tests: components["schemas"]["Case"][];
         };
@@ -263,7 +338,9 @@ export interface components {
             /** Format: uuid */
             version: string;
             title: string;
+            summary: string;
             difficulty: string;
+            difficulty_score: number;
             tags: string[];
         };
         Error: {
@@ -520,6 +597,10 @@ export interface operations {
                 q?: string;
                 tag?: string;
                 difficulty?: string;
+                cursor?: string;
+                min_score?: number;
+                max_score?: number;
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -769,6 +850,7 @@ export interface operations {
                         id: string;
                         draft: components["schemas"]["Problem"];
                         version: string | null;
+                        managed: boolean;
                     }[];
                 };
             };
@@ -854,6 +936,253 @@ export interface operations {
                         /** Format: uuid */
                         id: string;
                     };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Login required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Idempotency conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacity exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Service unavailable */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    validateProblem: {
+        parameters: {
+            query?: never;
+            header: {
+                Origin: string;
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Problem"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        valid: boolean;
+                        content_hash: string;
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Login required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Idempotency conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacity exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Service unavailable */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getCatalogStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Login required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Idempotency conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacity exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Service unavailable */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateCatalogSettings: {
+        parameters: {
+            query?: never;
+            header: {
+                Origin: string;
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    repository_url: string;
+                    /** @enum {string} */
+                    strategy: "track_branch" | "pinned_commit";
+                    revision: string;
+                    poll_interval_seconds: number;
+                    enabled: boolean;
+                    generation: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Invalid request */

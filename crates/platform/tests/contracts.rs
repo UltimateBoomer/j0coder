@@ -37,7 +37,7 @@ fn starters_render_exactly_for_empty_and_typed_signatures() {
     };
     assert_eq!(
         Language::Cpp.starter(&empty).unwrap(),
-        "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    std::string empty() {\n        return {};\n    }\n};\n"
+        "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    string empty() {\n        return {};\n    }\n};\n"
     );
     assert_eq!(
         Language::Python.starter(&empty).unwrap(),
@@ -68,7 +68,7 @@ fn starters_render_exactly_for_empty_and_typed_signatures() {
     };
     assert_eq!(
         Language::Cpp.starter(&typed).unwrap(),
-        "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    std::vector<bool> combineValues(int32_t count, bool enabled, std::string label, std::vector<std::vector<int32_t>> matrix) {\n        return {};\n    }\n};\n"
+        "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    vector<bool> combineValues(int32_t count, bool enabled, string label, vector<vector<int32_t>> matrix) {\n        return {};\n    }\n};\n"
     );
     assert_eq!(
         Language::Python.starter(&typed).unwrap(),
@@ -86,7 +86,7 @@ fn wrappers_render_exactly_and_insert_source_literally() {
     let empty_source = "class Solution { public: int empty(){ return 0; } };";
     assert_eq!(
         Language::Cpp.wrapper(&empty, empty_source).unwrap(),
-        "#include <nlohmann/json.hpp>\n#include <fstream>\n#include <iostream>\nclass Solution { public: int empty(){ return 0; } };\nint main() { auto a=nlohmann::json::parse(std::cin); auto r=Solution().empty(); std::ofstream f(\"/work/result\"); f << nlohmann::json(r).dump(); }\n"
+        "#include <nlohmann/json.hpp>\n#include <fstream>\n#include <iostream>\nusing namespace std;\nclass Solution { public: int empty(){ return 0; } };\nint main() { auto a=nlohmann::json::parse(std::cin); auto r=Solution().empty(); std::ofstream f(\"/work/result\"); f << nlohmann::json(r).dump(); }\n"
     );
 
     let typed = Signature {
@@ -106,7 +106,7 @@ fn wrappers_render_exactly_and_insert_source_literally() {
     let cpp_source = "// {{ source }} {}\nclass Solution {};";
     assert_eq!(
         Language::Cpp.wrapper(&typed, cpp_source).unwrap(),
-        "#include <nlohmann/json.hpp>\n#include <fstream>\n#include <iostream>\n// {{ source }} {}\nclass Solution {};\nint main() { auto a=nlohmann::json::parse(std::cin); auto r=Solution().combineValues(a.at(0).get<int32_t>(),a.at(1).get<std::vector<std::vector<int32_t>>>()); std::ofstream f(\"/work/result\"); f << nlohmann::json(r).dump(); }\n"
+        "#include <nlohmann/json.hpp>\n#include <fstream>\n#include <iostream>\nusing namespace std;\n// {{ source }} {}\nclass Solution {};\nint main() { auto a=nlohmann::json::parse(std::cin); auto r=Solution().combineValues(a.at(0).get<int32_t>(),a.at(1).get<vector<vector<int32_t>>>()); std::ofstream f(\"/work/result\"); f << nlohmann::json(r).dump(); }\n"
     );
 
     let python_source = "# {{ source }} {}\nclass Solution: pass";
@@ -177,7 +177,10 @@ fn generated_wrappers_never_embed_tests() {
     let p: Problem = serde_json::from_str(include_str!("../../../samples/1.json")).unwrap();
     for lang in [Language::Cpp, Language::Python] {
         let wrapped = lang
-            .wrapper(&p.signature, &lang.starter(&p.signature).unwrap())
+            .wrapper(
+                p.signature.as_ref().unwrap(),
+                &lang.starter(p.signature.as_ref().unwrap()).unwrap(),
+            )
             .unwrap();
         assert!(!wrapped.contains("2147483648"));
         assert!(wrapped.contains("/work/result"));
@@ -187,9 +190,14 @@ fn generated_wrappers_never_embed_tests() {
 #[test]
 fn argument_counts_and_reserved_names() {
     let mut p: Problem = serde_json::from_str(include_str!("../../../samples/1.json")).unwrap();
-    assert!(!p.signature.args_valid(&json!([1, 2])));
-    assert!(!p.signature.args_valid(&json!([true, 2, 3])));
-    p.signature.params[0].name = "class".into();
+    assert!(!p.signature.as_ref().unwrap().args_valid(&json!([1, 2])));
+    assert!(
+        !p.signature
+            .as_ref()
+            .unwrap()
+            .args_valid(&json!([true, 2, 3]))
+    );
+    p.signature.as_mut().unwrap().params[0].name = "class".into();
     assert!(p.validate().is_err());
 }
 #[test]
@@ -226,7 +234,7 @@ fn write_trusted_wrapper_fixtures() {
             root.join(format!("{i}.cpp")),
             Language::Cpp
                 .wrapper(
-                    &p.signature,
+                    p.signature.as_ref().unwrap(),
                     &format!("#include <bits/stdc++.h>\n{}", sources[i].0),
                 )
                 .unwrap(),
@@ -235,7 +243,7 @@ fn write_trusted_wrapper_fixtures() {
         std::fs::write(
             root.join(format!("{i}.py")),
             Language::Python
-                .wrapper(&p.signature, sources[i].1)
+                .wrapper(p.signature.as_ref().unwrap(), sources[i].1)
                 .unwrap(),
         )
         .unwrap();
@@ -253,8 +261,11 @@ fn cpp_only_keywords_are_rejected() {
     for name in [
         "asm", "alignas", "alignof", "compl", "bitand", "bitor", "xor", "typeid", "concept",
     ] {
-        p.signature.method = name.into();
-        assert!(p.signature.validate().is_err(), "reserved method: {name}");
+        p.signature.as_mut().unwrap().method = name.into();
+        assert!(
+            p.signature.as_ref().unwrap().validate().is_err(),
+            "reserved method: {name}"
+        );
     }
 }
 
@@ -262,7 +273,10 @@ fn cpp_only_keywords_are_rejected() {
 fn python_only_keywords_are_rejected() {
     let mut p: Problem = serde_json::from_str(include_str!("../../../samples/1.json")).unwrap();
     for name in ["def", "lambda", "yield", "nonlocal", "match", "del"] {
-        p.signature.method = name.into();
-        assert!(p.signature.validate().is_err(), "reserved method: {name}");
+        p.signature.as_mut().unwrap().method = name.into();
+        assert!(
+            p.signature.as_ref().unwrap().validate().is_err(),
+            "reserved method: {name}"
+        );
     }
 }

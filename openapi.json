@@ -414,6 +414,34 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "min_score",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "max_score",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
           }
         ]
       }
@@ -644,12 +672,16 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "managed": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
                       "id",
                       "draft",
-                      "version"
+                      "version",
+                      "managed"
                     ]
                   }
                 }
@@ -836,6 +868,349 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/problems/validate": {
+      "post": {
+        "operationId": "validateProblem",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean"
+                    },
+                    "content_hash": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "valid",
+                    "content_hash"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Capacity exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/catalog": {
+      "get": {
+        "operationId": "getCatalogStatus",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Capacity exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": []
+      },
+      "put": {
+        "operationId": "updateCatalogSettings",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Login required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Capacity exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "repository_url": {
+                    "type": "string"
+                  },
+                  "strategy": {
+                    "type": "string",
+                    "enum": [
+                      "track_branch",
+                      "pinned_commit"
+                    ]
+                  },
+                  "revision": {
+                    "type": "string"
+                  },
+                  "poll_interval_seconds": {
+                    "type": "integer",
+                    "minimum": 10,
+                    "maximum": 86400
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "generation": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "repository_url",
+                  "strategy",
+                  "revision",
+                  "poll_interval_seconds",
+                  "enabled",
+                  "generation"
+                ]
               }
             }
           }
@@ -1527,7 +1902,10 @@
           {
             "type": "string",
             "enum": [
+              "void",
               "int",
+              "int64",
+              "float",
               "bool",
               "string"
             ]
@@ -1541,6 +1919,28 @@
             },
             "required": [
               "array"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "nullable": {
+                "$ref": "#/components/schemas/Type"
+              }
+            },
+            "required": [
+              "nullable"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "named": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "named"
             ]
           }
         ]
@@ -1601,7 +2001,105 @@
           "output_bytes"
         ]
       },
-      "Case": {
+      "FunctionInterface": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "function"
+          },
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Parameter"
+            }
+          },
+          "returns": {
+            "$ref": "#/components/schemas/Type"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "params",
+          "returns"
+        ]
+      },
+      "Constructor": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Parameter"
+            }
+          }
+        },
+        "required": [
+          "params"
+        ]
+      },
+      "Method": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Parameter"
+            }
+          },
+          "returns": {
+            "$ref": "#/components/schemas/Type"
+          }
+        },
+        "required": [
+          "name",
+          "params",
+          "returns"
+        ]
+      },
+      "DataStructureInterface": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "data_structure"
+          },
+          "name": {
+            "type": "string"
+          },
+          "constructor": {
+            "$ref": "#/components/schemas/Constructor"
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Method"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "constructor",
+          "methods"
+        ]
+      },
+      "Interface": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FunctionInterface"
+          },
+          {
+            "$ref": "#/components/schemas/DataStructureInterface"
+          }
+        ]
+      },
+      "FunctionCase": {
         "type": "object",
         "properties": {
           "args": {
@@ -1614,12 +2112,71 @@
           }
         },
         "required": [
-          "args"
+          "args",
+          "expected"
+        ]
+      },
+      "Operation": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "args": {
+            "type": "array",
+            "items": {}
+          },
+          "expected": {}
+        },
+        "required": [
+          "method",
+          "args",
+          "expected"
+        ]
+      },
+      "StatefulCase": {
+        "type": "object",
+        "properties": {
+          "constructor_args": {
+            "type": "array",
+            "items": {}
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Operation"
+            }
+          },
+          "hidden": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "constructor_args",
+          "operations"
+        ]
+      },
+      "Case": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FunctionCase"
+          },
+          {
+            "$ref": "#/components/schemas/StatefulCase"
+          }
         ]
       },
       "Problem": {
         "type": "object",
         "properties": {
+          "schema": {
+            "type": "integer",
+            "enum": [
+              1,
+              2,
+              3
+            ]
+          },
           "title": {
             "type": "string"
           },
@@ -1643,6 +2200,9 @@
           "signature": {
             "$ref": "#/components/schemas/Signature"
           },
+          "interface": {
+            "$ref": "#/components/schemas/Interface"
+          },
           "limits": {
             "$ref": "#/components/schemas/Limits"
           },
@@ -1658,7 +2218,6 @@
           "statement",
           "difficulty",
           "tags",
-          "signature",
           "limits",
           "tests"
         ]
@@ -1909,8 +2468,16 @@
           "title": {
             "type": "string"
           },
+          "summary": {
+            "type": "string"
+          },
           "difficulty": {
             "type": "string"
+          },
+          "difficulty_score": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
           },
           "tags": {
             "type": "array",
@@ -1923,7 +2490,9 @@
           "id",
           "version",
           "title",
+          "summary",
           "difficulty",
+          "difficulty_score",
           "tags"
         ]
       },

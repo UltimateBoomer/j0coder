@@ -13,10 +13,15 @@ impl LanguageImplementation for Python {
 
     fn type_spelling(&self, ty: &Type) -> String {
         match ty {
+            Type::Void => "None".into(),
             Type::Int => "int".into(),
+            Type::Int64 => "int".into(),
+            Type::Float => "float".into(),
             Type::Bool => "bool".into(),
             Type::String => "str".into(),
             Type::Array(inner) => format!("list[{}]", self.type_spelling(inner)),
+            Type::Nullable(inner) => format!("{} | None", self.type_spelling(inner)),
+            Type::Named(name) => name.clone(),
         }
     }
 

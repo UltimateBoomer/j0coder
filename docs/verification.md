@@ -35,7 +35,7 @@ Consequently, **the following are not claimed as verified**:
 
 ## Resource observations
 
-Before database-backed payloads were introduced, an idle disposable PostgreSQL container measured **30.34 MB** and the former Redis service measured **9.74 MB** (decimal units from `podman stats`). This predates the Valkey migration and is not a Valkey measurement or production capacity guarantee. The packaged API measured **65.15 MB** after integration traffic. Active runner and active editor memory totals require measurement on the final gVisor host. Per-container configured ceilings are 256 MiB per default test, 1 GiB compilation, and 512 MiB per editor; these are limits, **not measured usage**.
+Before database-backed payloads were introduced, an idle disposable PostgreSQL container measured **30.34 MB** and the legacy queue service measured **9.74 MB** (decimal units from `podman stats`). This predates the Valkey deployment and is not a Valkey measurement or production capacity guarantee. The packaged API measured **65.15 MB** after integration traffic. Active runner and active editor memory totals require measurement on the final gVisor host. Per-container configured ceilings are 256 MiB per default test, 1 GiB compilation, and 512 MiB per editor; these are limits, **not measured usage**.
 
 ## Remaining product limits
 

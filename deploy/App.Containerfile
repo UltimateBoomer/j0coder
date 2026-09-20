@@ -19,11 +19,11 @@ COPY crates/platform/templates crates/platform/templates
 COPY migrations migrations
 COPY openapi.json ./
 RUN --mount=type=cache,id=practice-cargo-registry,target=/usr/local/cargo/registry \
-    cargo build --locked --release --bin api --bin worker --bin editor
+    cargo build --locked --release --bin api --bin worker --bin editor --bin catalog-controller
 
 FROM docker.io/library/debian@sha256:b1a741487078b369e78119849663d7f1a5341ef2768798f7b7406c4240f86aef
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates podman && rm -rf /var/lib/apt/lists/*
-COPY --from=rust /build/target/release/api /build/target/release/worker /build/target/release/editor /usr/local/bin/
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git openssh-client podman && rm -rf /var/lib/apt/lists/*
+COPY --from=rust /build/target/release/api /build/target/release/worker /build/target/release/editor /build/target/release/catalog-controller /usr/local/bin/
 COPY --from=web /build/web/dist /app/web
 ENV WEB_DIR=/app/web
 WORKDIR /app

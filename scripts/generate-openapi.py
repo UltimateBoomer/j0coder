@@ -6,12 +6,20 @@ obj=lambda p,required=None:{'type':'object','properties':p,'required':required o
 string={'type':'string'};uuid={'type':'string','format':'uuid'};boolean={'type':'boolean'}
 array=lambda x:{'type':'array','items':x}
 schemas={
-'Type':{'oneOf':[{'type':'string','enum':['int','bool','string']},obj({'array':ref('Type')})]},
+'Type':{'oneOf':[{'type':'string','enum':['void','int','int64','float','bool','string']},obj({'array':ref('Type')}),obj({'nullable':ref('Type')}),obj({'named':string})]},
 'Parameter':obj({'name':string,'ty':ref('Type')}),
 'Signature':obj({'method':string,'params':array(ref('Parameter')),'returns':ref('Type')}),
 'Limits':obj({'time_ms':{'type':'integer'},'memory_mib':{'type':'integer'},'output_bytes':{'type':'integer'}}),
-'Case':obj({'args':array({}),'expected':{},'hidden':boolean},['args']),
-'Problem':obj({'title':string,'statement':string,'difficulty':{'type':'string','enum':['easy','medium','hard']},'tags':array(string),'signature':ref('Signature'),'limits':ref('Limits'),'tests':array(ref('Case'))}),
+'FunctionInterface':obj({'kind':{'const':'function'},'name':string,'params':array(ref('Parameter')),'returns':ref('Type')}),
+'Constructor':obj({'params':array(ref('Parameter'))}),
+'Method':obj({'name':string,'params':array(ref('Parameter')),'returns':ref('Type')}),
+'DataStructureInterface':obj({'kind':{'const':'data_structure'},'name':string,'constructor':ref('Constructor'),'methods':array(ref('Method'))}),
+'Interface':{'oneOf':[ref('FunctionInterface'),ref('DataStructureInterface')]},
+'FunctionCase':obj({'args':array({}),'expected':{},'hidden':boolean},['args','expected']),
+'Operation':obj({'method':string,'args':array({}),'expected':{}},['method','args','expected']),
+'StatefulCase':obj({'constructor_args':array({}),'operations':array(ref('Operation')),'hidden':boolean},['constructor_args','operations']),
+'Case':{'oneOf':[ref('FunctionCase'),ref('StatefulCase')]},
+'Problem':obj({'schema':{'type':'integer','enum':[1,2,3]},'title':string,'statement':string,'difficulty':{'type':'string','enum':['easy','medium','hard']},'tags':array(string),'signature':ref('Signature'),'interface':ref('Interface'),'limits':ref('Limits'),'tests':array(ref('Case'))},['title','statement','difficulty','tags','limits','tests']),
 'User':obj({'id':uuid,'username':string,'admin':boolean,'csrf':string}),
 'Credentials':obj({'username':string,'password':{'type':'string','minLength':12,'maxLength':256}}),
 'Language':{'type':'string','enum':['cpp','python']},
@@ -20,7 +28,7 @@ schemas={
 'Submission':obj({'id':uuid,'version':uuid,'status':{'type':'string','enum':['queued','running','completed']},'result':{'anyOf':[ref('Outcome'),{'type':'null'}]}}),
 'Submit':obj({'version':uuid,'language':ref('Language'),'source':{'type':'string','maxLength':100000},'mode':{'type':'string','enum':['run','submit']},'cases':array(ref('Case'))},['version','language','source','mode']),
 'ProblemDetail':obj({'id':uuid,'version':uuid,'problem':ref('Problem'),'starters':obj({'cpp':string,'python':string})}),
-'ProblemSummary':obj({'id':uuid,'version':uuid,'title':string,'difficulty':string,'tags':array(string)}),
+'ProblemSummary':obj({'id':uuid,'version':uuid,'title':string,'summary':string,'difficulty':string,'difficulty_score':{'type':'integer','minimum':1,'maximum':5},'tags':array(string)}),
 'Error':obj({'error':string})}
 paths={}
 def endpoint(path,method,name,response,body=None,code='200',params=None):
@@ -33,11 +41,14 @@ def endpoint(path,method,name,response,body=None,code='200',params=None):
 endpoint('/session','get','getSession',ref('User'))
 endpoint('/session','post','login',obj({'ok':boolean}),ref('Credentials'))
 endpoint('/session','delete','logout',obj({'ok':boolean}))
-endpoint('/problems','get','listProblems',array(ref('ProblemSummary')),params=[{'name':n,'in':'query','schema':string} for n in ['q','tag','difficulty']])
+endpoint('/problems','get','listProblems',array(ref('ProblemSummary')),params=[{'name':n,'in':'query','schema':string} for n in ['q','tag','difficulty','cursor']]+[{'name':n,'in':'query','schema':{'type':'integer'}} for n in ['min_score','max_score','limit']])
 endpoint('/problems/{id}','get','getProblem',ref('ProblemDetail'))
 endpoint('/admin/users','post','createUser',{},ref('Credentials'),'201')
-endpoint('/admin/problems','get','listDrafts',array(obj({'id':uuid,'draft':ref('Problem'),'version':{'type':['string','null']}})))
+endpoint('/admin/problems','get','listDrafts',array(obj({'id':uuid,'draft':ref('Problem'),'version':{'type':['string','null']},'managed':boolean})))
 endpoint('/admin/problems','post','createDraft',obj({'id':uuid}),ref('Problem'))
+endpoint('/admin/problems/validate','post','validateProblem',obj({'valid':boolean,'content_hash':string}),ref('Problem'))
+endpoint('/admin/catalog','get','getCatalogStatus',{})
+endpoint('/admin/catalog','put','updateCatalogSettings',{},obj({'repository_url':string,'strategy':{'type':'string','enum':['track_branch','pinned_commit']},'revision':string,'poll_interval_seconds':{'type':'integer','minimum':10,'maximum':86400},'enabled':boolean,'generation':{'type':'integer'}}))
 endpoint('/admin/problems/{id}','put','saveDraft',{},ref('Problem'),'204')
 endpoint('/admin/problems/{id}/publish','post','publish',obj({'version':uuid}))
 endpoint('/submissions','post','submit',obj({'id':uuid}),ref('Submit'),'202',[{'name':'Idempotency-Key','in':'header','required':True,'schema':string}])

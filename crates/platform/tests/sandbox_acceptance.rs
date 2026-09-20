@@ -12,20 +12,23 @@ fn job(language: Language) -> Job {
         id: Uuid::new_v4(),
         language,
         version: Uuid::new_v4(),
-        signature: Signature {
+        signature: Some(Signature {
             method: "echo".into(),
             params: vec![Parameter {
                 name: "value".into(),
                 ty: Type::Int,
             }],
             returns: Type::Int,
-        },
+        }),
+        interface: None,
         limits: Limits {
             time_ms: 500,
             memory_mib: 64,
             output_bytes: 4096,
         },
         mode: "submit".into(),
+        type_definitions: vec![],
+        comparison: Comparison::default(),
     }
 }
 #[tokio::test]
@@ -34,14 +37,18 @@ async fn sandbox_verdicts_isolation_and_parallel_languages() -> anyhow::Result<(
     Podman::new().preflight().await?;
     let cases = vec![
         Case {
-            args: json!([42]),
+            args: Some(json!([42])),
             expected: Some(json!(42)),
             hidden: false,
+            constructor_args: None,
+            operations: None,
         },
         Case {
-            args: json!([-2147483648i64]),
+            args: Some(json!([-2147483648i64])),
             expected: Some(json!(-2147483648i64)),
             hidden: true,
+            constructor_args: None,
+            operations: None,
         },
     ];
     let py = job(Language::Python);

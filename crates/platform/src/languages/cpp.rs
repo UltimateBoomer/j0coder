@@ -13,10 +13,15 @@ impl LanguageImplementation for Cpp {
 
     fn type_spelling(&self, ty: &Type) -> String {
         match ty {
+            Type::Void => "void".into(),
             Type::Int => "int32_t".into(),
+            Type::Int64 => "int64_t".into(),
+            Type::Float => "double".into(),
             Type::Bool => "bool".into(),
-            Type::String => "std::string".into(),
-            Type::Array(inner) => format!("std::vector<{}>", self.type_spelling(inner)),
+            Type::String => "string".into(),
+            Type::Array(inner) => format!("vector<{}>", self.type_spelling(inner)),
+            Type::Nullable(inner) => format!("optional<{}>", self.type_spelling(inner)),
+            Type::Named(name) => name.clone(),
         }
     }
 

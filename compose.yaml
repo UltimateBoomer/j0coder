@@ -40,6 +40,29 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
+  catalog-controller:
+    image: ${APP_IMAGE:-localhost/practice-app:1}
+    command: [catalog-controller]
+    environment:
+      DATABASE_URL: postgres://practice:${POSTGRES_PASSWORD}@postgres:5432/practice
+      CATALOG_REPOSITORY_URL: ${CATALOG_REPOSITORY_URL:-}
+      CATALOG_STRATEGY: ${CATALOG_STRATEGY:-track_branch}
+      CATALOG_REVISION: ${CATALOG_REVISION:-main}
+      CATALOG_POLL_INTERVAL_SECONDS: ${CATALOG_POLL_INTERVAL_SECONDS:-300}
+      CATALOG_ENABLED: ${CATALOG_ENABLED:-false}
+      CATALOG_SSH_KEY_PATH: /run/secrets/catalog_ssh_key
+      CATALOG_KNOWN_HOSTS_PATH: /run/secrets/catalog_known_hosts
+    volumes:
+      - "${CATALOG_SSH_KEY_PATH:?Set CATALOG_SSH_KEY_PATH}:/run/secrets/catalog_ssh_key:ro,Z"
+      - "${CATALOG_KNOWN_HOSTS_PATH:?Set CATALOG_KNOWN_HOSTS_PATH}:/run/secrets/catalog_known_hosts:ro,Z"
+    networks: [database, git]
+    depends_on:
+      postgres: {condition: service_healthy}
+    read_only: true
+    tmpfs: [/tmp:size=256m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
   worker:
     image: ${APP_IMAGE:-localhost/practice-app:1}
     command: [worker]
@@ -88,6 +111,7 @@ networks:
   database: {internal: true}
   queue: {internal: true}
   ingress: {}
+  git: {}
 volumes:
   postgres: {}
   valkey: {}

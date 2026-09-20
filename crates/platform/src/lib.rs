@@ -1,4 +1,5 @@
 pub mod api;
+pub mod catalog;
 pub mod contract;
 pub mod editor;
 mod languages;

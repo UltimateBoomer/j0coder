@@ -1,0 +1,13 @@
+{{ source }}
+
+import json as _json
+_trace = _json.loads(input())
+_object = {{ name }}(*_trace["constructor_args"])
+_results = []
+for _index, _operation in enumerate(_trace["operations"]):
+    try:
+        _results.append(getattr(_object, _operation["method"])(*_operation["args"]))
+    except Exception as _error:
+        raise RuntimeError(f'operation {_index} ({_operation["method"]}) failed: {_error}') from _error
+with open('/work/result', 'w') as _f:
+    _json.dump(_results, _f, ensure_ascii=False, allow_nan=False)

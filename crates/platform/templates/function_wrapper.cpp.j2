@@ -1,0 +1,6 @@
+#include <nlohmann/json.hpp>
+#include <fstream>
+#include <iostream>
+using namespace std;
+{{ source }}
+int main() { auto a=nlohmann::json::parse(std::cin); auto r={{ name }}({% for parameter in parameters %}a.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %}); std::ofstream f("/work/result"); f << nlohmann::json(r).dump(); }

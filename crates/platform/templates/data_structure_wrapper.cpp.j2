@@ -1,0 +1,15 @@
+#include <nlohmann/json.hpp>
+#include <fstream>
+#include <iostream>
+using namespace std;
+{{ source }}
+int main() {
+    auto t=nlohmann::json::parse(std::cin); auto c=t.at("constructor_args");
+    {{ name }} object({% for parameter in parameters %}c.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %});
+    nlohmann::json results=nlohmann::json::array(); size_t index=0;
+    try { for (auto const& operation:t.at("operations")) { auto const method=operation.at("method").get<string>(); auto const& a=operation.at("args");
+{% for method in methods %}        if (method=="{{ method.name }}") { {% if method.is_void %}object.{{ method.name }}({% for parameter in method.parameters %}a.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %}); results.push_back(nullptr);{% else %}results.push_back(object.{{ method.name }}({% for parameter in method.parameters %}a.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %}));{% endif %} }
+        else {% endfor %}{ throw runtime_error("undeclared method"); } ++index;
+    }} catch (const exception& e) { cerr << "operation " << index << " failed: " << e.what(); return 1; }
+    ofstream f("/work/result"); f << results.dump();
+}

@@ -2,7 +2,7 @@ mod cpp;
 mod python;
 
 use self::{cpp::Cpp, python::Python};
-use crate::contract::{Language, Signature, Type};
+use crate::contract::{Interface, Language, Signature, Type};
 use anyhow::Result;
 use serde::Serialize;
 
@@ -46,6 +46,22 @@ struct WrapperContext<'a> {
     source: &'a str,
     method: &'a str,
     parameters: Vec<ParameterContext>,
+}
+
+#[derive(Serialize)]
+struct MethodContext {
+    name: String,
+    return_type: String,
+    parameters: Vec<ParameterContext>,
+    is_void: bool,
+}
+#[derive(Serialize)]
+struct InterfaceContext<'a> {
+    source: &'a str,
+    name: String,
+    parameters: Vec<ParameterContext>,
+    return_type: String,
+    methods: Vec<MethodContext>,
 }
 
 fn render_template(name: &str, template: &str, context: impl Serialize) -> Result<String> {
@@ -103,6 +119,156 @@ impl Language {
         render_template("wrapper", implementation.wrapper_template(), context)
     }
 
+    pub fn starter_interface(self, interface: &Interface) -> Result<String> {
+        let i = self.implementation();
+        match interface {
+            Interface::Function {
+                name,
+                params,
+                returns,
+            } => render_template(
+                "function_starter",
+                match self {
+                    Language::Cpp => include_str!("../../templates/function_starter.cpp.j2"),
+                    Language::Python => include_str!("../../templates/function_starter.py.j2"),
+                },
+                InterfaceContext {
+                    source: "",
+                    name: name.clone(),
+                    parameters: params
+                        .iter()
+                        .map(|p| ParameterContext {
+                            name: p.name.clone(),
+                            ty: i.type_spelling(&p.ty),
+                        })
+                        .collect(),
+                    return_type: i.type_spelling(returns),
+                    methods: vec![],
+                },
+            ),
+            Interface::DataStructure {
+                name,
+                constructor,
+                methods,
+            } => render_template(
+                "data_structure_starter",
+                match self {
+                    Language::Cpp => include_str!("../../templates/data_structure_starter.cpp.j2"),
+                    Language::Python => {
+                        include_str!("../../templates/data_structure_starter.py.j2")
+                    }
+                },
+                InterfaceContext {
+                    source: "",
+                    name: name.clone(),
+                    parameters: constructor
+                        .params
+                        .iter()
+                        .map(|p| ParameterContext {
+                            name: p.name.clone(),
+                            ty: i.type_spelling(&p.ty),
+                        })
+                        .collect(),
+                    return_type: String::new(),
+                    methods: methods
+                        .iter()
+                        .map(|m| MethodContext {
+                            name: m.name.clone(),
+                            return_type: i.type_spelling(&m.returns),
+                            parameters: m
+                                .params
+                                .iter()
+                                .map(|p| ParameterContext {
+                                    name: p.name.clone(),
+                                    ty: i.type_spelling(&p.ty),
+                                })
+                                .collect(),
+                            is_void: matches!(m.returns, Type::Void),
+                        })
+                        .collect(),
+                },
+            ),
+        }
+    }
+
+    pub fn wrapper_interface(self, interface: &Interface, source: &str) -> Result<String> {
+        let i = self.implementation();
+        let template = match (self, interface) {
+            (Language::Cpp, Interface::Function { .. }) => {
+                include_str!("../../templates/function_wrapper.cpp.j2")
+            }
+            (Language::Python, Interface::Function { .. }) => {
+                include_str!("../../templates/function_wrapper.py.j2")
+            }
+            (Language::Cpp, Interface::DataStructure { .. }) => {
+                include_str!("../../templates/data_structure_wrapper.cpp.j2")
+            }
+            (Language::Python, Interface::DataStructure { .. }) => {
+                include_str!("../../templates/data_structure_wrapper.py.j2")
+            }
+        };
+        match interface {
+            Interface::Function {
+                name,
+                params,
+                returns,
+            } => render_template(
+                "interface_wrapper",
+                template,
+                InterfaceContext {
+                    source,
+                    name: name.clone(),
+                    parameters: params
+                        .iter()
+                        .map(|p| ParameterContext {
+                            name: p.name.clone(),
+                            ty: i.type_spelling(&p.ty),
+                        })
+                        .collect(),
+                    return_type: i.type_spelling(returns),
+                    methods: vec![],
+                },
+            ),
+            Interface::DataStructure {
+                name,
+                constructor,
+                methods,
+            } => render_template(
+                "interface_wrapper",
+                template,
+                InterfaceContext {
+                    source,
+                    name: name.clone(),
+                    parameters: constructor
+                        .params
+                        .iter()
+                        .map(|p| ParameterContext {
+                            name: p.name.clone(),
+                            ty: i.type_spelling(&p.ty),
+                        })
+                        .collect(),
+                    return_type: String::new(),
+                    methods: methods
+                        .iter()
+                        .map(|m| MethodContext {
+                            name: m.name.clone(),
+                            return_type: i.type_spelling(&m.returns),
+                            parameters: m
+                                .params
+                                .iter()
+                                .map(|p| ParameterContext {
+                                    name: p.name.clone(),
+                                    ty: i.type_spelling(&p.ty),
+                                })
+                                .collect(),
+                            is_void: matches!(m.returns, Type::Void),
+                        })
+                        .collect(),
+                },
+            ),
+        }
+    }
+
     pub fn execution(self) -> Execution {
         self.implementation().execution()
     }
@@ -134,7 +300,7 @@ mod tests {
             Language::Cpp
                 .implementation()
                 .type_spelling(&Type::Array(Box::new(Type::Int))),
-            "std::vector<int32_t>"
+            "vector<int32_t>"
         );
         assert_eq!(
             Language::Python

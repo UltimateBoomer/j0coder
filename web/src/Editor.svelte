@@ -4,7 +4,9 @@
  let host:HTMLDivElement, language:'cpp'|'python'='cpp',editor:any,monaco:any,semantic='Starting editor…',busy=false,history:any[]=[],selected:any=null,alive=true,subscription:any,disconnect:(()=>void)|undefined;
  const key=()=>`practice:${user.id}:${problem.version}:${language}`;
  const statement=DOMPurify.sanitize(marked.parse(problem.problem.statement,{async:false}) as string);
- const visibleTests=()=>problem.problem.tests.filter((test:any)=>!test.hidden);
+ const stateful=()=>problem.problem.interface?.kind==='data_structure';
+ const visibleTests=():any[]=>problem.problem.tests.filter((test:any)=>!test.hidden).map((test:any)=>stateful()?{...test,args:{constructor_args:test.constructor_args,operations:test.operations.map((o:any)=>({method:o.method,args:o.args}))},expected:test.operations.map((o:any)=>o.expected)}:test);
+ const interfaceGuide=()=>problem.problem.signature?'Solution class method':stateful()?`Stateful class ${problem.problem.interface?.name}; each test uses one fresh instance`:`Top-level function ${problem.problem.interface?.name}`;
  function save(){if(editor)localStorage.setItem(key(),editor.getValue())}
  function display(value:unknown,missing='Not provided'){return value===undefined?missing:JSON.stringify(value)}
  function currentOutput(test:any){return test?test.output===null||test.output===undefined?'No output':display(test.output):'Not executed'}

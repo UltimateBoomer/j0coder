@@ -1,0 +1,7 @@
+{{ source }}
+
+import json as _json
+_args = _json.loads(input())
+_result = {{ name }}(*_args)
+with open('/work/result', 'w') as _f:
+    _json.dump(_result, _f, ensure_ascii=False, allow_nan=False)

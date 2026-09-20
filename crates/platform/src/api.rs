@@ -207,6 +207,10 @@ struct Filters {
     q: Option<String>,
     difficulty: Option<String>,
     tag: Option<String>,
+    min_score: Option<i16>,
+    max_score: Option<i16>,
+    cursor: Option<String>,
+    limit: Option<i64>,
 }
 async fn problems(
     State(a): State<App>,
@@ -214,32 +218,39 @@ async fn problems(
     Query(f): Query<Filters>,
 ) -> Result<Json<Value>> {
     user(&a, &h, false).await?;
-    let rows=sqlx::query("SELECT p.id,v.id AS version,v.public FROM problems p JOIN versions v ON v.id=p.current_version WHERE ($1='' OR v.public->>'title' ILIKE '%'||$1||'%') AND ($2='' OR v.public->>'difficulty'=$2) AND ($3='' OR v.public->'tags' ? $3) ORDER BY v.public->>'title' LIMIT 500").bind(f.q.unwrap_or_default()).bind(f.difficulty.unwrap_or_default()).bind(f.tag.unwrap_or_default()).fetch_all(&a.db).await?;
-    Ok(Json(Value::Array(rows.iter().map(|r|{let p:Value=r.get("public");json!({"id":r.get::<Uuid,_>("id"),"version":r.get::<Uuid,_>("version"),"title":p["title"],"difficulty":p["difficulty"],"tags":p["tags"]})}).collect())))
+    let limit = f.limit.unwrap_or(100).clamp(1, 100);
+    let rows=sqlx::query("SELECT p.id,v.id AS version,v.public FROM problems p JOIN versions v ON v.id=p.current_version WHERE ($1='' OR concat_ws(' ',v.public->>'title',v.public->>'summary',v.public->>'tags') ILIKE '%'||$1||'%') AND ($2='' OR v.public->>'difficulty'=$2) AND ($3='' OR v.public->'tags' ? $3) AND coalesce((v.public->>'difficulty_score')::smallint,CASE v.public->>'difficulty' WHEN 'easy' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END) BETWEEN $4 AND $5 AND ($6='' OR (v.public->>'title',p.id::text)>($6,$7)) ORDER BY v.public->>'title',p.id LIMIT $8")
+      .bind(f.q.unwrap_or_default()).bind(f.difficulty.unwrap_or_default()).bind(f.tag.unwrap_or_default()).bind(f.min_score.unwrap_or(1)).bind(f.max_score.unwrap_or(5)).bind(f.cursor.as_deref().and_then(|s|s.split_once('|')).map(|x|x.0).unwrap_or("")).bind(f.cursor.as_deref().and_then(|s|s.split_once('|')).map(|x|x.1).unwrap_or("")).bind(limit).fetch_all(&a.db).await?;
+    Ok(Json(Value::Array(rows.iter().map(|r|{let p:Value=r.get("public");let score=p.get("difficulty_score").and_then(Value::as_u64).unwrap_or(match p["difficulty"].as_str(){Some("easy")=>2,Some("medium")=>3,_=>4});json!({"id":r.get::<Uuid,_>("id"),"version":r.get::<Uuid,_>("version"),"title":p["title"],"summary":p.get("summary").unwrap_or(&Value::Null),"difficulty":Problem::difficulty_band(score as u8),"difficulty_score":score,"tags":p["tags"],"cursor":format!("{}|{}",p["title"].as_str().unwrap_or_default(),r.get::<Uuid,_>("id"))})}).collect())))
 }
 async fn problem(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Result<Json<Value>> {
     user(&a, &h, false).await?;
     let r=sqlx::query("SELECT v.id,v.public FROM problems p JOIN versions v ON v.id=p.current_version WHERE p.id=$1").bind(id).fetch_optional(&a.db).await?.ok_or_else(||Error(StatusCode::NOT_FOUND,"problem not found".into()))?;
     let p: Value = r.get("public");
-    let sig: Signature =
-        serde_json::from_value(p["signature"].clone()).map_err(|e| anyhow::anyhow!(e))?;
+    let definition: Problem = serde_json::from_value(p.clone()).map_err(|e| anyhow::anyhow!(e))?;
+    let starter = |language: Language| -> anyhow::Result<String> {
+        match (&definition.signature, &definition.interface) {
+            (Some(sig), _) => language.starter(sig),
+            (_, Some(interface)) => language.starter_interface(interface),
+            _ => anyhow::bail!("problem has no callable interface"),
+        }
+    };
     Ok(Json(json!({
         "id": id,
         "version": r.get::<Uuid, _>("id"),
         "problem": p,
         "starters": {
-            "cpp": Language::Cpp.starter(&sig)?,
-            "python": Language::Python.starter(&sig)?,
+            "cpp": starter(Language::Cpp)?,
+            "python": starter(Language::Python)?,
         }
     })))
 }
 async fn drafts(State(a): State<App>, h: HeaderMap) -> Result<Json<Value>> {
     admin(&a, &h, false).await?;
-    let rows =
-        sqlx::query("SELECT id,draft,current_version FROM problems ORDER BY draft->>'title'")
+    let rows = sqlx::query("SELECT p.id,p.draft,p.current_version,(i.problem_id IS NOT NULL) AS managed FROM problems p LEFT JOIN problem_imports i ON i.problem_id=p.id ORDER BY p.draft->>'title'")
             .fetch_all(&a.db)
             .await?;
-    Ok(Json(json!(rows.iter().map(|r|json!({"id":r.get::<Uuid,_>("id"),"draft":r.get::<Value,_>("draft"),"version":r.get::<Option<Uuid>,_>("current_version")})).collect::<Vec<_>>())))
+    Ok(Json(json!(rows.iter().map(|r|json!({"id":r.get::<Uuid,_>("id"),"draft":r.get::<Value,_>("draft"),"version":r.get::<Option<Uuid>,_>("current_version"),"managed":r.get::<bool,_>("managed")})).collect::<Vec<_>>())))
 }
 async fn new_draft(
     State(a): State<App>,
@@ -262,6 +273,18 @@ async fn save_draft(
     Json(p): Json<Problem>,
 ) -> Result<StatusCode> {
     admin(&a, &h, true).await?;
+    if sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM problem_imports WHERE problem_id=$1)",
+    )
+    .bind(id)
+    .fetch_one(&a.db)
+    .await?
+    {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Git-managed problems are read-only".into(),
+        ));
+    }
     let r = sqlx::query("UPDATE problems SET draft=$2 WHERE id=$1")
         .bind(id)
         .bind(json!(p))
@@ -272,8 +295,108 @@ async fn save_draft(
     }
     Ok(StatusCode::NO_CONTENT)
 }
+async fn validate_definition(
+    State(a): State<App>,
+    h: HeaderMap,
+    Json(p): Json<Problem>,
+) -> Result<Json<Value>> {
+    admin(&a, &h, false).await?;
+    let bytes = serde_json::to_vec(&p).map_err(anyhow::Error::from)?;
+    let (_, hash) = crate::catalog::validate_problem(&bytes).map_err(|e| bad(&e.to_string()))?;
+    Ok(Json(json!({"valid":true,"content_hash":hash})))
+}
+#[derive(Deserialize)]
+struct CatalogSettingsUpdate {
+    repository_url: String,
+    strategy: String,
+    revision: String,
+    poll_interval_seconds: i32,
+    enabled: bool,
+    generation: i64,
+}
+fn validate_catalog_settings(r: &CatalogSettingsUpdate) -> std::result::Result<(), Error> {
+    crate::catalog::validate_repository_url(&r.repository_url).map_err(|e| bad(&e.to_string()))?;
+    if !matches!(r.strategy.as_str(), "track_branch" | "pinned_commit") {
+        return Err(bad("invalid catalog strategy"));
+    }
+    if !(10..=86400).contains(&r.poll_interval_seconds) {
+        return Err(bad("poll interval must be 10-86400 seconds"));
+    }
+    if r.revision.is_empty()
+        || r.revision.len() > 200
+        || r.revision.starts_with('-')
+        || r.revision.chars().any(char::is_whitespace)
+    {
+        return Err(bad("invalid catalog revision"));
+    }
+    if r.strategy == "pinned_commit"
+        && (r.revision.len() != 40 || !r.revision.bytes().all(|c| c.is_ascii_hexdigit()))
+    {
+        return Err(bad(
+            "pinned revision must be a full 40-character commit hash",
+        ));
+    }
+    Ok(())
+}
+async fn catalog_status(State(a): State<App>, h: HeaderMap) -> Result<Json<Value>> {
+    admin(&a, &h, false).await?;
+    let setting=sqlx::query("SELECT repository_url,strategy::text,revision,poll_interval_seconds,enabled,generation,updated_at FROM catalog_settings WHERE singleton").fetch_optional(&a.db).await?;
+    let runs=sqlx::query("SELECT id,settings_generation,requested_revision,resolved_commit,manifest_checksum,result,created_count,changed_count,unchanged_count,removed_count,diagnostics,started_at,finished_at FROM catalog_runs ORDER BY started_at DESC LIMIT 20").fetch_all(&a.db).await?;
+    let settings=setting.map(|r|json!({"repository_url":r.get::<String,_>("repository_url"),"strategy":r.get::<String,_>("strategy"),"revision":r.get::<String,_>("revision"),"poll_interval_seconds":r.get::<i32,_>("poll_interval_seconds"),"enabled":r.get::<bool,_>("enabled"),"generation":r.get::<i64,_>("generation"),"updated_at":r.get::<chrono::DateTime<chrono::Utc>,_>("updated_at")}));
+    let recent:Vec<Value>=runs.iter().map(|r|json!({"id":r.get::<Uuid,_>("id"),"settings_generation":r.get::<i64,_>("settings_generation"),"requested_revision":r.get::<String,_>("requested_revision"),"resolved_commit":r.get::<Option<String>,_>("resolved_commit"),"manifest_checksum":r.get::<Option<String>,_>("manifest_checksum"),"result":r.get::<String,_>("result"),"counts":{"created":r.get::<i32,_>("created_count"),"changed":r.get::<i32,_>("changed_count"),"unchanged":r.get::<i32,_>("unchanged_count"),"removed":r.get::<i32,_>("removed_count")},"diagnostics":r.get::<Option<String>,_>("diagnostics"),"started_at":r.get::<chrono::DateTime<chrono::Utc>,_>("started_at"),"finished_at":r.get::<Option<chrono::DateTime<chrono::Utc>>,_>("finished_at")})).collect();
+    let discovered = recent.iter().find_map(|r| r["resolved_commit"].as_str());
+    let applied = recent
+        .iter()
+        .find(|r| matches!(r["result"].as_str(), Some("applied" | "unchanged")))
+        .and_then(|r| r["resolved_commit"].as_str());
+    let last_success = recent
+        .iter()
+        .find(|r| matches!(r["result"].as_str(), Some("applied" | "unchanged")))
+        .and_then(|r| r["finished_at"].as_str());
+    let last_error = recent
+        .iter()
+        .find(|r| r["result"] == "failed")
+        .and_then(|r| r["diagnostics"].as_str());
+    Ok(Json(
+        json!({"settings":settings,"state":{"discovered_revision":discovered,"applied_revision":applied,"last_successful_reconciliation":last_success,"last_error":last_error},"runs":recent}),
+    ))
+}
+async fn update_catalog_settings(
+    State(a): State<App>,
+    h: HeaderMap,
+    Json(r): Json<CatalogSettingsUpdate>,
+) -> Result<Json<Value>> {
+    admin(&a, &h, true).await?;
+    validate_catalog_settings(&r)?;
+    let changed=sqlx::query("UPDATE catalog_settings SET repository_url=$1,strategy=$2::catalog_strategy,revision=$3,poll_interval_seconds=$4,enabled=$5,generation=generation+1,updated_at=now() WHERE singleton AND generation=$6 RETURNING generation").bind(&r.repository_url).bind(&r.strategy).bind(&r.revision).bind(r.poll_interval_seconds).bind(r.enabled).bind(r.generation).fetch_optional(&a.db).await?;
+    let generation = changed
+        .ok_or_else(|| {
+            Error(
+                StatusCode::CONFLICT,
+                "catalog settings changed; reload and retry".into(),
+            )
+        })?
+        .get::<i64, _>("generation");
+    sqlx::query("SELECT pg_notify('catalog_settings_changed',$1)")
+        .bind(generation.to_string())
+        .execute(&a.db)
+        .await?;
+    Ok(Json(json!({"generation":generation})))
+}
 async fn publish(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Result<Json<Value>> {
     admin(&a, &h, true).await?;
+    if sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM problem_imports WHERE problem_id=$1)",
+    )
+    .bind(id)
+    .fetch_one(&a.db)
+    .await?
+    {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Git-managed problems are published only by the catalog controller".into(),
+        ));
+    }
     let mut tx = a.db.begin().await?;
     let p: Value = sqlx::query_scalar("SELECT draft FROM problems WHERE id=$1 FOR UPDATE")
         .bind(id)
@@ -285,11 +408,13 @@ async fn publish(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Re
     let version = Uuid::new_v4();
     let tests = json!(p.tests);
     p.tests.retain(|t| !t.hidden);
-    sqlx::query("INSERT INTO versions(id,problem_id,public,tests) VALUES($1,$2,$3,$4)")
+    let provenance:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('catalog_key',catalog_key,'catalog_commit',catalog_commit,'upstream_revision',upstream_revision,'content_hash',content_hash,'adapter_metadata',adapter_metadata,'warnings',warnings) FROM problem_imports WHERE problem_id=$1").bind(id).fetch_optional(&mut *tx).await?;
+    sqlx::query("INSERT INTO versions(id,problem_id,public,tests,catalog_provenance) VALUES($1,$2,$3,$4,$5)")
         .bind(version)
         .bind(id)
         .bind(json!(p))
         .bind(tests)
+        .bind(provenance)
         .execute(&mut *tx)
         .await?;
     sqlx::query("UPDATE problems SET current_version=$2 WHERE id=$1")
@@ -365,17 +490,13 @@ async fn submit(State(a): State<App>, h: HeaderMap, Json(r): Json<Submit>) -> Re
     let p: Problem = serde_json::from_value(row.get("public")).map_err(|e| anyhow::anyhow!(e))?;
     let id = Uuid::new_v4();
     let custom_cases = if r.mode == "run" {
-        let mut cases = r.cases.clone().unwrap_or(p.tests);
+        let mut cases = r.cases.clone().unwrap_or_else(|| p.tests.clone());
         if cases.is_empty() || cases.len() > 20 {
             return Err(bad("run requires 1–20 cases"));
         }
         for c in &mut cases {
             c.hidden = false;
-            if !p.signature.args_valid(&c.args)
-                || c.expected
-                    .as_ref()
-                    .is_some_and(|v| !p.signature.returns.valid(v))
-            {
+            if p.validate_case(c).is_err() {
                 return Err(bad("invalid typed arguments or expected value"));
             }
         }
@@ -389,13 +510,16 @@ async fn submit(State(a): State<App>, h: HeaderMap, Json(r): Json<Submit>) -> Re
     let job = Job {
         attempt_base: 0,
         generation: Uuid::new_v4(),
-        schema: 1,
+        schema: p.schema,
         id,
         language: r.language,
         version: r.version,
         signature: p.signature,
+        interface: p.interface,
         limits: p.limits,
         mode: r.mode,
+        type_definitions: p.type_definitions,
+        comparison: p.comparison,
     };
     sqlx::query("INSERT INTO submissions(id,user_id,version_id,idempotency_key,request_hash,source,custom_cases,job) VALUES($1,$2,$3,$4,$5,$6,$7,$8)").bind(id).bind(u.id).bind(r.version).bind(key).bind(hash).bind(r.source).bind(custom_cases).bind(json!(job)).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO outbox(submission_id) VALUES($1)")
@@ -480,5 +604,5 @@ async fn metrics(State(a): State<App>, h: HeaderMap) -> Result<String> {
     Ok(output)
 }
 pub fn router(a: App) -> Router {
-    Router::new().route("/healthz",get(||async{"ok"})).route("/readyz",get(ready)).route("/api/v1/openapi.json",get(||async{([(header::CONTENT_TYPE,"application/json")],include_str!("../../../openapi.json"))})).route("/metrics",get(metrics)).route("/api/v1/session",get(me).post(login).delete(logout)).route("/api/v1/problems",get(problems)).route("/api/v1/problems/{id}",get(problem)).route("/api/v1/admin/users",post(add_user)).route("/api/v1/admin/problems",get(drafts).post(new_draft)).route("/api/v1/admin/problems/{id}",put(save_draft)).route("/api/v1/admin/problems/{id}/publish",post(publish)).route("/api/v1/submissions",get(history).post(submit)).route("/api/v1/submissions/{id}",get(submission)).route("/api/v1/editor-ticket",post(crate::editor::ticket)).fallback_service(tower_http::services::ServeDir::new(crate::env("WEB_DIR","web/dist")).not_found_service(tower_http::services::ServeFile::new(format!("{}/index.html",crate::env("WEB_DIR","web/dist"))))).layer(DefaultBodyLimit::max(2*1024*1024)).layer(axum::middleware::from_fn(|req:axum::extract::Request,next:axum::middleware::Next|async move {let mut response=next.run(req).await;let h=response.headers_mut();h.insert("x-content-type-options","nosniff".parse().unwrap());h.insert("referrer-policy","same-origin".parse().unwrap());h.insert("content-security-policy","default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'".parse().unwrap());response})).with_state(a)
+    Router::new().route("/healthz",get(||async{"ok"})).route("/readyz",get(ready)).route("/api/v1/openapi.json",get(||async{([(header::CONTENT_TYPE,"application/json")],include_str!("../../../openapi.json"))})).route("/metrics",get(metrics)).route("/api/v1/session",get(me).post(login).delete(logout)).route("/api/v1/problems",get(problems)).route("/api/v1/problems/{id}",get(problem)).route("/api/v1/admin/users",post(add_user)).route("/api/v1/admin/problems",get(drafts).post(new_draft)).route("/api/v1/admin/problems/validate",post(validate_definition)).route("/api/v1/admin/catalog",get(catalog_status).put(update_catalog_settings)).route("/api/v1/admin/problems/{id}",put(save_draft)).route("/api/v1/admin/problems/{id}/publish",post(publish)).route("/api/v1/submissions",get(history).post(submit)).route("/api/v1/submissions/{id}",get(submission)).route("/api/v1/editor-ticket",post(crate::editor::ticket)).fallback_service(tower_http::services::ServeDir::new(crate::env("WEB_DIR","web/dist")).not_found_service(tower_http::services::ServeFile::new(format!("{}/index.html",crate::env("WEB_DIR","web/dist"))))).layer(DefaultBodyLimit::max(2*1024*1024)).layer(axum::middleware::from_fn(|req:axum::extract::Request,next:axum::middleware::Next|async move {let mut response=next.run(req).await;let h=response.headers_mut();h.insert("x-content-type-options","nosniff".parse().unwrap());h.insert("referrer-policy","same-origin".parse().unwrap());h.insert("content-security-policy","default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'".parse().unwrap());response})).with_state(a)
 }
