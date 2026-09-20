@@ -14,6 +14,8 @@ make dev-up
 
 `dev-up` builds and pins the application images before starting the stack, so source changes cannot accidentally run against stale images. The first run needs network access and takes time because it also clones gVisor and builds it in gVisor's digest-pinned canonical build image; later builds use the local cache. No global compiler, Bazel, or mise installation is required. Source, build cache, `runsc`, and its sidecars remain under the ignored `.dev/` directory; only the builder image and ordinary application images use the current user's Podman storage. Podman, podman-compose, Git, curl, and the host user-namespace helpers must already be installed.
 
+The prerequisites are explicit Make dependencies: `dev-up` depends on `images` and `dev-gvisor`; `images` depends on configuration plus both image targets. Run `make help` for the available setup, quality, image, and runtime targets.
+
 The controller is an ordinary background process listening on `$XDG_RUNTIME_DIR/practice-podman.sock`; it needs neither administrator access nor a project systemd unit. Patched runsc asks the current user's existing systemd manager to create delegated cgroup scopes. Stop both the stack and controller with:
 
 ```sh
@@ -91,6 +93,29 @@ make dev-up
 Backups stop the project and export the PostgreSQL and Redis volumes together with credentials and configuration, then restart it. Protect backups as secrets. Restore refuses to overwrite existing volumes. Verify login, a known solve, and queued submission reconciliation after restoring. Container images should be archived alongside a production backup (`podman save`); locally built images have no registry digest until pushed. Base images and application dependency lockfiles are pinned; `pin-images.py` records immutable app/toolchain image IDs in `.env` for the selected Podman engine. Re-run it after an intentional rebuild; OS package repositories should be mirrored or the built images archived for byte-for-byte reproduction.
 
 ## Development and verification
+
+### Cached container builds
+
+Podman builds retain Cargo and npm downloads locally and arrange independent application stages so Podman can build them concurrently. Ordinary local builds need no cache configuration:
+
+```sh
+make images BUILD_JOBS=2
+```
+
+`make app-image` and `make toolchain-image` build the images separately. `make images` remains the compatibility target: it builds both images and records their immutable local IDs in `.env`. Override `PODMAN`, `APP_IMAGE`, or `TOOLCHAIN_IMAGE` when using a different engine command or image tags.
+
+CI can also import and export intermediate layers through an OCI registry. Authenticate Podman to the registry first, then pass a repository prefix:
+
+```sh
+podman login registry.example.com
+make images \
+  CACHE_FROM_REPO=registry.example.com/team/practice-cache \
+  CACHE_TO_REPO=registry.example.com/team/practice-cache
+```
+
+This uses the `app` and `toolchain` repositories below that prefix. Only trusted branches should set `CACHE_TO_REPO`; untrusted jobs should set `CACHE_FROM_REPO` alone. Leave both variables unset for normal local builds. Cache repositories must be private because intermediate layers can contain source files, and their registry retention policy should remove accumulated cache tags. These flags target the installed Podman 5.8 feature set; CI credentials and provider-specific workflow configuration remain external to this repository.
+
+Run `make check` as a separate static-analysis gate before building images; image construction does not repeat that work.
 
 ```sh
 cargo build --locked

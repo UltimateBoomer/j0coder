@@ -6,9 +6,8 @@ cd "$root"
 [[ $(id -u) != 0 ]] || { echo 'Run development as your normal user' >&2; exit 1; }
 podman compose version >/dev/null
 command -v curl >/dev/null || { echo 'Missing required command: curl' >&2; exit 1; }
-[[ -f .env ]] || python3 scripts/configure.py
-make images
-scripts/install-gvisor-dev.sh
+[[ -f .env ]] || { echo 'Run make configure first' >&2; exit 1; }
+[[ -x .dev/gvisor/current/runsc ]] || { echo 'Run make dev-gvisor first' >&2; exit 1; }
 scripts/gvisor-controller.sh start
 cleanup_on_error() {
  trap - ERR INT TERM
@@ -37,4 +36,4 @@ if [[ "$ready" != true ]]; then
  false
 fi
 trap - ERR INT TERM
-printf 'Development stack started. Stop it with scripts/dev-down.sh\n'
+printf 'Development stack started. Stop it with make dev-down\n'
