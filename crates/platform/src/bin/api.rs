@@ -22,13 +22,18 @@ async fn main() -> anyhow::Result<()> {
         origin: practice::env("PUBLIC_ORIGIN", "http://localhost:8080"),
         secure: practice::env("COOKIE_SECURE", "true") == "true",
     };
-    tokio::spawn(practice::queue::dispatch_forever(db.clone()));
-    tokio::spawn(practice::queue::events_forever(db));
+    let shutdown = practice::shutdown::signal();
+    let dispatcher = tokio::spawn(practice::queue::dispatch_forever(
+        db.clone(),
+        shutdown.clone(),
+    ));
+    let events = tokio::spawn(practice::queue::events_forever(db, shutdown.clone()));
     let listener = tokio::net::TcpListener::bind(practice::env("API_BIND", "0.0.0.0:8080")).await?;
+    let server_shutdown = shutdown.clone();
     axum::serve(listener, api::router(app))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
+        .with_graceful_shutdown(async move { server_shutdown.cancelled().await })
         .await?;
+    dispatcher.await?;
+    events.await?;
     Ok(())
 }

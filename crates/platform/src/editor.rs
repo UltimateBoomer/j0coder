@@ -1,7 +1,7 @@
 use crate::{
     api::{App, Error},
     contract::Language,
-    sandbox::Podman,
+    sandbox::{Podman, SandboxBackend},
 };
 use axum::{
     Json,
@@ -17,6 +17,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{process::Stdio, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+#[derive(Clone)]
+pub struct EditorState {
+    shutdown: crate::shutdown::Shutdown,
+}
+
+impl EditorState {
+    pub fn new(shutdown: crate::shutdown::Shutdown) -> Self {
+        Self { shutdown }
+    }
+}
 #[derive(Serialize, Deserialize)]
 struct Ticket {
     user: uuid::Uuid,
@@ -57,6 +68,7 @@ pub struct Connect {
     ticket: String,
 }
 pub async fn upgrade(
+    State(state): State<EditorState>,
     Query(q): Query<Connect>,
     h: HeaderMap,
     ws: WebSocketUpgrade,
@@ -99,7 +111,7 @@ pub async fn upgrade(
         .max_message_size(1024 * 1024)
         .on_upgrade(move |socket| async move {
             let user = t.user;
-            let result = bridge(socket, t, &id).await;
+            let result = bridge(socket, t, &id, &state.shutdown).await;
             if let Err(e) = result {
                 tracing::warn!(error=%e,"editor session closed")
             }
@@ -150,7 +162,12 @@ fn safe_message(v: &Value, language: Language) -> bool {
     }
     paths(v, uri)
 }
-async fn bridge(mut socket: WebSocket, t: Ticket, session: &str) -> anyhow::Result<()> {
+async fn bridge(
+    mut socket: WebSocket,
+    t: Ticket,
+    session: &str,
+    shutdown: &crate::shutdown::Shutdown,
+) -> anyhow::Result<()> {
     let b = Podman::new();
     let name = format!("practice-editor-{session}");
     let cmd = t.language.lsp_command();
@@ -184,9 +201,20 @@ async fn bridge(mut socket: WebSocket, t: Ticket, session: &str) -> anyhow::Resu
         &b.image,
     ];
     args.extend(cmd.iter().copied());
-    let id = String::from_utf8(b.checked(&args).await?)?
-        .trim()
-        .to_string();
+    let create = b.checked(&args);
+    let id = tokio::select! {
+        result = create => String::from_utf8(result?)?.trim().to_string(),
+        _ = shutdown.cancelled() => {
+            let _ = b.checked(&["rm", "-f", &name]).await;
+            let _ = socket.send(Message::Close(None)).await;
+            return Ok(());
+        }
+    };
+    if shutdown.is_cancelled() {
+        let _ = socket.send(Message::Close(None)).await;
+        b.cleanup(&id).await;
+        return Ok(());
+    }
     let result = async {
         let mut process = b.command().args(["start", "-a", "-i", &id])
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
@@ -238,6 +266,12 @@ async fn bridge(mut socket: WebSocket, t: Ticket, session: &str) -> anyhow::Resu
                         let renewed:i32=redis::Script::new("if not redis.call('ZSCORE',KEYS[1],ARGV[1]) or not redis.call('ZSCORE',KEYS[2],ARGV[1]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[1]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[1]);return 1")
                             .key("editor:active").key(format!("editor:user:{}",t.user)).arg(session).arg(expiry).invoke_async(&mut c).await?;
                         if renewed==0 { break; }
+                    }
+                    _ = shutdown.cancelled() => {
+                        let _ = send_frame(&mut stdin, &json!({"jsonrpc":"2.0","id":"service-shutdown","method":"shutdown"})).await;
+                        let _ = send_frame(&mut stdin, &json!({"jsonrpc":"2.0","method":"exit"})).await;
+                        let _ = socket.send(Message::Close(None)).await;
+                        break;
                     }
                 }
             }

@@ -30,12 +30,15 @@ pub async fn group(c: &mut redis::aio::ConnectionManager, stream: &str, g: &str)
         Err(e) => Err(e.into()),
     }
 }
-pub async fn dispatch_forever(db: PgPool) {
-    loop {
+pub async fn dispatch_forever(db: PgPool, shutdown: crate::shutdown::Shutdown) {
+    while !shutdown.is_cancelled() {
         if let Err(e) = dispatch(&db).await {
             tracing::error!(error=%e,"dispatcher unavailable")
         }
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        tokio::select! {
+            _ = shutdown.cancelled() => break,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
+        }
     }
 }
 async fn dispatch(db: &PgPool) -> Result<()> {
@@ -63,19 +66,25 @@ async fn dispatch(db: &PgPool) -> Result<()> {
     tx.commit().await?;
     Ok(())
 }
-pub async fn events_forever(db: PgPool) {
+pub async fn events_forever(db: PgPool, shutdown: crate::shutdown::Shutdown) {
     let consumer = Uuid::new_v4().to_string();
-    loop {
-        if let Err(e) = events(&db, &consumer).await {
+    while !shutdown.is_cancelled() {
+        if let Err(e) = events(&db, &consumer, &shutdown).await {
             tracing::error!(error=%e,"event consumer unavailable");
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
+            }
         }
     }
 }
-async fn events(db: &PgPool, consumer: &str) -> Result<()> {
+async fn events(db: &PgPool, consumer: &str, shutdown: &crate::shutdown::Shutdown) -> Result<()> {
     let mut c = connection().await?;
     group(&mut c, EVENTS, "api").await?;
     loop {
+        if shutdown.is_cancelled() {
+            return Ok(());
+        }
         let claim: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
             .arg(EVENTS)
             .arg("api")
@@ -141,7 +150,7 @@ redis.call('XADD',KEYS[3],'*','payload',ARGV[2]);redis.call('SET',KEYS[2],'1','E
 redis.call('XACK',KEYS[4],'workers',ARGV[3]);redis.call('XDEL',KEYS[4],ARGV[3]);redis.call('DEL',KEYS[1]);return 1
 "#;
 const RELEASE: &str = r#"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end"#;
-pub async fn worker() -> Result<()> {
+pub async fn worker(shutdown: crate::shutdown::Shutdown) -> Result<()> {
     crate::sandbox::Podman::new().preflight().await?;
     let n: usize = crate::env("WORKER_CONCURRENCY", "1").parse()?;
     anyhow::ensure!((1..=32).contains(&n), "invalid concurrency");
@@ -152,12 +161,16 @@ pub async fn worker() -> Result<()> {
     let mut tasks = tokio::task::JoinSet::new();
     for _ in 0..n {
         let db = db.clone();
+        let shutdown = shutdown.clone();
         tasks.spawn(async move {
             let name = Uuid::new_v4().to_string();
-            loop {
-                if let Err(e) = work_loop(&name, &db).await {
+            while !shutdown.is_cancelled() {
+                if let Err(e) = work_loop(&name, &db, &shutdown).await {
                     tracing::error!(error=%e,"worker infrastructure failure");
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    tokio::select! {
+                        _ = shutdown.cancelled() => break,
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
+                    }
                 }
             }
         });
@@ -165,10 +178,13 @@ pub async fn worker() -> Result<()> {
     while tasks.join_next().await.is_some() {}
     Ok(())
 }
-async fn work_loop(name: &str, db: &PgPool) -> Result<()> {
+async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown) -> Result<()> {
     let mut c = connection().await?;
     group(&mut c, JOBS, "workers").await?;
     loop {
+        if shutdown.is_cancelled() {
+            return Ok(());
+        }
         let claim: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
             .arg(JOBS)
             .arg("workers")
@@ -254,11 +270,22 @@ async fn work_loop(name: &str, db: &PgPool) -> Result<()> {
             let execution = async {
                 anyhow::ensure!(attempt <= 3, "retry budget exhausted");
                 let (source, tests) = load_payload(db, &job).await?;
-                crate::sandbox::judge(&job, &source, &tests).await
+                crate::sandbox::judge_with_shutdown(&job, &source, &tests, shutdown).await
             };
-            let result =
-                tokio::select! {r=execution=>r,_=&mut lost_rx=>Err(anyhow::anyhow!("lease lost"))};
+            let result = tokio::select! {
+                r=execution => r,
+                _=&mut lost_rx => Err(anyhow::anyhow!("lease lost")),
+            };
             renew.abort();
+            let _ = renew.await;
+            if shutdown.is_cancelled() {
+                let _: i32 = redis::Script::new(RELEASE)
+                    .key(&lease)
+                    .arg(&token)
+                    .invoke_async(&mut c)
+                    .await?;
+                return Ok(());
+            }
             let mut outcome = match result {
                 Ok(o) => o,
                 Err(e) => {
@@ -318,6 +345,13 @@ mod tests {
     fn completion_is_fenced() {
         assert!(COMPLETE.find("~=ARGV[1]").unwrap() < COMPLETE.find("XADD").unwrap());
         assert!(COMPLETE.contains("XACK"));
+    }
+
+    #[test]
+    fn shutdown_release_keeps_job_recoverable() {
+        assert!(RELEASE.contains("DEL"));
+        assert!(!RELEASE.contains("XACK"));
+        assert!(!RELEASE.contains("XDEL"));
     }
 }
 
@@ -501,7 +535,8 @@ mod integration {
             .xadd(EVENTS, "*", &[("payload", serde_json::to_string(&event)?)])
             .await?;
         let db2 = db.clone();
-        let consumer = tokio::spawn(async move { events(&db2, "integration").await });
+        let (_trigger, shutdown) = crate::shutdown::channel();
+        let consumer = tokio::spawn(async move { events(&db2, "integration", &shutdown).await });
         let mut accepted = false;
         for _ in 0..50 {
             let status: String = sqlx::query_scalar("SELECT status FROM submissions WHERE id=$1")

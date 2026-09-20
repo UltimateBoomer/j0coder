@@ -22,7 +22,12 @@ pub struct Collected {
 }
 #[allow(async_fn_in_trait)]
 pub trait SandboxBackend {
-    async fn create(&self, limits: &Limits, compile: bool) -> Result<String>;
+    async fn create(
+        &self,
+        limits: &Limits,
+        compile: bool,
+        shutdown: &crate::shutdown::Shutdown,
+    ) -> Result<String>;
     async fn start(
         &self,
         id: &str,
@@ -149,37 +154,48 @@ impl Podman {
         args: &str,
         limits: &Limits,
         compile: bool,
+        shutdown: &crate::shutdown::Shutdown,
     ) -> Result<std::result::Result<Collected, Verdict>> {
-        let id = self.create(limits, compile).await?;
+        let id = self.create(limits, compile, shutdown).await?;
         let guard = Cleanup(self.clone(), id.clone());
-        self.copy_bytes(&id, name, source).await?;
-        let result = self
-            .start(
-                &id,
-                args,
-                Duration::from_millis(if compile { 30000 } else { limits.time_ms }),
-                if compile {
-                    64 * 1024 * 1024
-                } else {
-                    limits.output_bytes as usize * 6 + 65536
-                },
-            )
-            .await;
-        let oom = self.collect(&id).await.unwrap_or(false);
-        let (bytes, timeout) = result?;
-        let outcome = if oom {
-            Err(Verdict::MemoryLimit)
-        } else if timeout {
-            Err(Verdict::TimeLimit)
-        } else {
-            match serde_json::from_slice::<Collected>(&bytes) {
-                Ok(c) if c.overflow => Err(Verdict::OutputLimit),
-                Ok(c) => Ok(c),
-                Err(_) => Err(if compile {
-                    Verdict::CompilationError
-                } else {
-                    Verdict::RuntimeError
-                }),
+        let operation = async {
+            self.copy_bytes(&id, name, source).await?;
+            let result = self
+                .start(
+                    &id,
+                    args,
+                    Duration::from_millis(if compile { 30000 } else { limits.time_ms }),
+                    if compile {
+                        64 * 1024 * 1024
+                    } else {
+                        limits.output_bytes as usize * 6 + 65536
+                    },
+                )
+                .await;
+            let oom = self.collect(&id).await.unwrap_or(false);
+            let (bytes, timeout) = result?;
+            Ok::<_, anyhow::Error>(if oom {
+                Err(Verdict::MemoryLimit)
+            } else if timeout {
+                Err(Verdict::TimeLimit)
+            } else {
+                match serde_json::from_slice::<Collected>(&bytes) {
+                    Ok(c) if c.overflow => Err(Verdict::OutputLimit),
+                    Ok(c) => Ok(c),
+                    Err(_) => Err(if compile {
+                        Verdict::CompilationError
+                    } else {
+                        Verdict::RuntimeError
+                    }),
+                }
+            })
+        };
+        let outcome = tokio::select! {
+            result = operation => result?,
+            _ = shutdown.cancelled() => {
+                self.cleanup(&id).await;
+                std::mem::forget(guard);
+                anyhow::bail!("execution cancelled during shutdown")
             }
         };
         self.cleanup(&id).await;
@@ -198,56 +214,72 @@ impl Drop for Cleanup {
     }
 }
 impl SandboxBackend for Podman {
-    async fn create(&self, l: &Limits, compile: bool) -> Result<String> {
+    async fn create(
+        &self,
+        l: &Limits,
+        compile: bool,
+        shutdown: &crate::shutdown::Shutdown,
+    ) -> Result<String> {
         let name = format!("practice-{}", uuid::Uuid::new_v4());
         let memory = if compile { 1024 } else { l.memory_mib };
-        let out = self
-            .checked(&[
-                "create",
-                "--timeout",
-                &if compile {
-                    35
-                } else {
-                    l.time_ms.div_ceil(1000) + 3
-                }
-                .to_string(),
-                "--name",
-                &name,
-                "--label=practice.sandbox=true",
-                "--runtime",
-                &self.runtime,
-                "--network=none",
-                "--http-proxy=false",
-                "--user=65534:65534",
-                "--read-only",
-                "--read-only-tmpfs=false",
-                "--cap-drop=ALL",
-                "--security-opt=no-new-privileges",
-                "--security-opt=label=disable",
-                "--pids-limit=64",
-                "--cpus=1",
-                "--memory",
-                &format!("{memory}m"),
-                "--memory-swap",
-                &format!("{memory}m"),
-                "--tmpfs",
-                "/work:rw,exec,nosuid,nodev,size=128m,mode=1777",
-                "--tmpfs",
-                "/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777",
-                "--shm-size=8m",
-                "--ulimit",
-                "nofile=64:64",
-                "--ulimit",
-                "fsize=67108864:67108864",
-                "--log-driver=none",
-                "-i",
-                &self.image,
-                "python3",
-                "/opt/harness.py",
-                if compile { "compile" } else { "run" },
-                &l.output_bytes.to_string(),
-            ])
-            .await?;
+        let timeout = if compile {
+            35
+        } else {
+            l.time_ms.div_ceil(1000) + 3
+        }
+        .to_string();
+        let memory = format!("{memory}m");
+        let output_bytes = l.output_bytes.to_string();
+        let args = [
+            "create",
+            "--timeout",
+            &timeout,
+            "--name",
+            &name,
+            "--label=practice.sandbox=true",
+            "--runtime",
+            &self.runtime,
+            "--network=none",
+            "--http-proxy=false",
+            "--user=65534:65534",
+            "--read-only",
+            "--read-only-tmpfs=false",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--security-opt=label=disable",
+            "--pids-limit=64",
+            "--cpus=1",
+            "--memory",
+            &memory,
+            "--memory-swap",
+            &memory,
+            "--tmpfs",
+            "/work:rw,exec,nosuid,nodev,size=128m,mode=1777",
+            "--tmpfs",
+            "/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777",
+            "--shm-size=8m",
+            "--ulimit",
+            "nofile=64:64",
+            "--ulimit",
+            "fsize=67108864:67108864",
+            "--log-driver=none",
+            "-i",
+            &self.image,
+            "python3",
+            "/opt/harness.py",
+            if compile { "compile" } else { "run" },
+            &output_bytes,
+        ];
+        let create = self.checked(&args);
+        let out = tokio::select! {
+            result = create => result?,
+            _ = shutdown.cancelled() => {
+                // Removing by the unique requested name also covers a create that
+                // reached the Podman service just before its CLI was cancelled.
+                self.cleanup(&name).await;
+                anyhow::bail!("sandbox creation cancelled during shutdown")
+            }
+        };
         Ok(String::from_utf8(out)?.trim().into())
     }
     async fn start(
@@ -328,6 +360,16 @@ impl SandboxBackend for Podman {
     }
 }
 pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
+    let (_trigger, shutdown) = crate::shutdown::channel();
+    judge_with_shutdown(job, source, tests, &shutdown).await
+}
+
+pub async fn judge_with_shutdown(
+    job: &Job,
+    source: &str,
+    tests: &[Case],
+    shutdown: &crate::shutdown::Shutdown,
+) -> Result<Outcome> {
     let b = Podman::new();
     let wrapped = job.language.wrapper(&job.signature, source)?;
     let execution = job.language.execution();
@@ -348,6 +390,7 @@ pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
                 "",
                 &job.limits,
                 true,
+                shutdown,
             )
             .await?
         {
@@ -387,6 +430,7 @@ pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
                 &serde_json::to_string(&case.args)?,
                 &job.limits,
                 false,
+                shutdown,
             )
             .await?;
         let (verdict, output, log) = match r {
