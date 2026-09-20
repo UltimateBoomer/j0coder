@@ -1,8 +1,8 @@
 # Practice
 
-Private coding practice with a Svelte/Monaco browser interface, Rust/Axum API, PostgreSQL, Redis Streams, and **Podman + gVisor** execution. C++20 and Python implement one typed method on `Solution`. There is no frontend Node server.
+Private coding practice with a Svelte/Monaco browser interface, Rust/Axum API, PostgreSQL, Valkey Streams, and **Podman + gVisor** execution. C++20 and Python implement one typed method on `Solution`. There is no frontend Node server.
 
-**Release status:** application and container builds, API/browser checks, real Redis recovery checks, both language wrapper fixtures, and rootless gVisor judging have been verified. Isolated semantic completion and production deployment are implemented but **not deployment-certified**. See [verification](docs/verification.md) for exact evidence and remaining acceptance gates. Do not substitute crun/runc for runsc.
+**Release status:** application and container builds, API/browser checks, real Valkey recovery checks, both language wrapper fixtures, and rootless gVisor judging have been verified. Isolated semantic completion and production deployment are implemented but **not deployment-certified**. See [verification](docs/verification.md) for exact evidence and remaining acceptance gates. Do not substitute crun/runc for runsc.
 
 ## Rootless Linux development
 
@@ -28,7 +28,7 @@ Do not replace the patched runtime with `--ignore-cgroups`. That workaround star
 
 Rootless Podman is the only supported deployment model. Ordinary Compose services use the current user's normal runtime, while API-created sandboxes go through the separate runsc-default socket managed by [gvisor-controller.sh](scripts/gvisor-controller.sh). Podman remote does not support selecting `--runtime`; controllers inspect every created container and refuse to start it unless its recorded OCI runtime is runsc.
 
-`configure.py` generates random PostgreSQL and Redis credentials and rootless socket/runtime paths; it refuses to overwrite `.env`. It defaults to loopback-only HTTP at `http://localhost:8080` with `COOKIE_SECURE=false`. For access from other machines, put an HTTPS reverse proxy in front of the loopback listener, set the exact `PUBLIC_ORIGIN`, and set `COOKIE_SECURE=true`. The proxy must support WebSockets. Do not expose database, Redis, or the Podman socket. `PORT` changes the loopback listener; `PUBLIC_ORIGIN` must match it.
+`configure.py` generates random PostgreSQL and Valkey credentials and rootless socket/runtime paths; it refuses to overwrite `.env`. It defaults to loopback-only HTTP at `http://localhost:8080` with `COOKIE_SECURE=false`. For access from other machines, put an HTTPS reverse proxy in front of the loopback listener, set the exact `PUBLIC_ORIGIN`, and set `COOKIE_SECURE=true`. The proxy must support WebSockets. Do not expose the database, Valkey, or the Podman socket. `PORT` changes the loopback listener; `PUBLIC_ORIGIN` must match it.
 
 With SSH forwarding, use the same loopback hostname in the browser and `PUBLIC_ORIGIN`: `http://localhost:8080` and `http://127.0.0.1:8080` are different origins. For the latter, set `PUBLIC_ORIGIN=http://127.0.0.1:8080` in `.env` and recreate `api` and `editor` before signing in.
 
@@ -63,9 +63,9 @@ The browser supports search, difficulty/tag filters, resizable statement/editor 
 ## Services and security boundaries
 
 - `api`: Argon2id login, HttpOnly/SameSite cookies, origin + CSRF checks, role/ownership enforcement, immutable publishing, transactional submission creation and outbox dispatch, and result persistence. It has **no Podman socket**.
-- `worker`: consumes a versioned Redis job, reads its source and tests from PostgreSQL, and controls fresh runsc sandboxes. One submission per worker by default; set `WORKER_CONCURRENCY` or scale with `podman compose up -d --scale worker=2`.
-- `editor`: Redis-ticket authentication and isolated LSP containers; no PostgreSQL credentials.
-- PostgreSQL and Redis AOF persist in named volumes. Internal networks separate database and queue traffic. Nginx routes same-origin traffic and rate-limits login requests.
+- `worker`: consumes a versioned Valkey job, reads its source and tests from PostgreSQL, and controls fresh runsc sandboxes. One submission per worker by default; set `WORKER_CONCURRENCY` or scale with `podman compose up -d --scale worker=2`.
+- `editor`: Valkey-ticket authentication and isolated LSP containers; no PostgreSQL credentials.
+- PostgreSQL and Valkey AOF persist in named volumes. Internal networks separate database and queue traffic. Nginx routes same-origin traffic and rate-limits login requests.
 
 **Podman controller access is user-engine authority.** The worker/editor containers can control the dedicated rootless engine. Use a dedicated production user and trust the controller code. Submitted programs never receive the socket, credentials, expected answers, or other cases. Sandboxes have no networking, UID 65534, read-only roots, dropped capabilities, no-new-privileges, bounded tmpfs, CPU/memory/PID/file/output limits, and controller wall deadlines. Podman's container timeout also bounds an orphan after a worker crash.
 
@@ -73,13 +73,13 @@ Defaults: 2 seconds/256 MiB/output 1 MiB per case; C++ compilation 30 seconds/1 
 
 ## Durability and operations
 
-Submission source, custom cases, metadata, and the outbox record commit in one PostgreSQL transaction. `Idempotency-Key` is required and bound to user plus request hash; conflicting reuse returns 409. Published versions retain their complete immutable test set in PostgreSQL, while their public JSON contains visible tests only. The dispatcher delivers Redis Stream jobs at least once. Workers use renewable 30-second leases, attempt tokens, pending-message reclaim, and an atomic Lua completion/event-publication/job-ack operation. Stale tokens cannot publish results. The API acknowledges result events only after committing and tolerates completion-before-start delivery. Accepted final results are immutable at the consumer boundary.
+Submission source, custom cases, metadata, and the outbox record commit in one PostgreSQL transaction. `Idempotency-Key` is required and bound to user plus request hash; conflicting reuse returns 409. Published versions retain their complete immutable test set in PostgreSQL, while their public JSON contains visible tests only. The dispatcher delivers Valkey Stream jobs at least once. Workers use renewable 30-second leases, attempt tokens, pending-message reclaim, and an atomic Lua completion/event-publication/job-ack operation. Stale tokens cannot publish results. The API acknowledges result events only after committing and tolerates completion-before-start delivery. Accepted final results are immutable at the consumer boundary.
 
-A database reconciliation pass republishes still-incomplete submissions after **one hour**, with a new durable generation token. Old-generation events cannot overwrite them. This recovers Redis loss even when all stream state disappears. Recorded attempt counts carry into the new generation; infrastructure errors get up to three execution attempts. If Redis loses an unpersisted started event, that attempt cannot be counted durably. The one-hour window exceeds the maximum supported 200-case workload. Pending recovery after an ordinary worker crash starts after 35 seconds.
+A database reconciliation pass republishes still-incomplete submissions after **one hour**, with a new durable generation token. Old-generation events cannot overwrite them. This recovers Valkey loss even when all stream state disappears. Recorded attempt counts carry into the new generation; infrastructure errors get up to three execution attempts. If Valkey loses an unpersisted started event, that attempt cannot be counted durably. The one-hour window exceeds the maximum supported 200-case workload. Pending recovery after an ordinary worker crash starts after 35 seconds.
 
-Only acknowledged messages are removed from streams. Terminal submission, source, and outbox records are retained; plan a database retention policy before indefinite use. Do not trim pending streams or enable Redis eviction. Redis AOF `everysec` can lose a second of queue state; PostgreSQL is the durable authority.
+Only acknowledged messages are removed from streams. Terminal submission, source, and outbox records are retained; plan a database retention policy before indefinite use. Do not trim pending streams or enable Valkey eviction. Valkey AOF `everysec` can lose a second of queue state; PostgreSQL is the durable authority.
 
-The API exposes `/healthz`, `/readyz` (database/Redis), and authenticated administrator `/metrics` (queue/status counts, verdict counts, execution duration totals, active editors). Worker/editor processes refuse startup when preflight fails. JSON service logs omit source, test content, and runtime logs. The ingress access log is disabled to avoid logging WebSocket tickets.
+The API exposes `/healthz`, `/readyz` (database/Valkey), and authenticated administrator `/metrics` (queue/status counts, verdict counts, execution duration totals, active editors). Worker/editor processes refuse startup when preflight fails. JSON service logs omit source, test content, and runtime logs. The ingress access log is disabled to avoid logging WebSocket tickets.
 
 For consistent backups and restores, use the same rootless user and project:
 
@@ -90,7 +90,7 @@ scripts/restore.sh "$HOME/backups/practice-2026-09-18"
 make dev-up
 ```
 
-Backups stop the project and export the PostgreSQL and Redis volumes together with credentials and configuration, then restart it. Protect backups as secrets. Restore refuses to overwrite existing volumes. Verify login, a known solve, and queued submission reconciliation after restoring. Container images should be archived alongside a production backup (`podman save`); locally built images have no registry digest until pushed. Base images and application dependency lockfiles are pinned; `pin-images.py` records immutable app/toolchain image IDs in `.env` for the selected Podman engine. Re-run it after an intentional rebuild; OS package repositories should be mirrored or the built images archived for byte-for-byte reproduction.
+Backups stop the project and export the PostgreSQL and Valkey volumes together with credentials and configuration, then restart it. Protect backups as secrets. Restore refuses to overwrite existing volumes. Verify login, a known solve, and queued submission reconciliation after restoring. Container images should be archived alongside a production backup (`podman save`); locally built images have no registry digest until pushed. Base images and application dependency lockfiles are pinned; `pin-images.py` records immutable app/toolchain image IDs in `.env` for the selected Podman engine. Re-run it after an intentional rebuild; OS package repositories should be mirrored or the built images archived for byte-for-byte reproduction.
 
 ## Development and verification
 
@@ -130,6 +130,6 @@ npm run generate:api --prefix web
 
 Versioned REST documentation is [openapi.json](openapi.json), also served at `/api/v1/openapi.json`; generated frontend types are checked in. [tests/api_acceptance.py](tests/api_acceptance.py) and [browser tests](tests/browser) use a disposable administrator `admin` / `Integration-password-123`; never seed these credentials in production.
 
-Set `DATABASE_URL` and `REDIS_URL` to isolated services for opt-in integration tests. Run `cargo test --lib -- --ignored --test-threads=1` for Redis/database recovery. `python3 tests/api_acceptance.py` and `npm test --prefix web` default to `http://127.0.0.1:18080` (`TEST_ORIGIN` overrides it).
+Set `DATABASE_URL` and `VALKEY_URL` to isolated services for opt-in integration tests. Run `cargo test --lib -- --ignored --test-threads=1` for Valkey/database recovery. `python3 tests/api_acceptance.py` and `npm test --prefix web` default to `http://127.0.0.1:18080` (`TEST_ORIGIN` overrides it).
 
 On a working gVisor host, run `cargo test --test sandbox_acceptance -- --ignored` with `SANDBOX_RUNTIME`/`TOOLCHAIN_IMAGE` set and controller access to Podman, then `TEST_RUNNER=1 npm test --prefix web` against the full deployment. These checks are deliberately gated rather than using a weaker runtime.

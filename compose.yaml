@@ -13,19 +13,20 @@ services:
       test: [CMD-SHELL, pg_isready -U practice -d practice]
       interval: 5s
       retries: 20
-  redis:
-    image: docker.io/library/redis@sha256:0302cccee2b2043e61b497c8f4075467c5f7ba27a9f38be7e092634f2734baed
-    command: [redis-server, /usr/local/etc/redis/redis.conf]
+  valkey:
+    # Valkey 9.1.2; pin the multi-architecture manifest for reproducible deploys.
+    image: docker.io/valkey/valkey@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    command: [valkey-server, /usr/local/etc/valkey/valkey.conf]
     volumes:
-      - redis:/data
-      - ./data/config/redis.conf:/usr/local/etc/redis/redis.conf:ro,Z
+      - valkey:/data
+      - ./data/config/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro,Z
     networks: [queue]
     restart: unless-stopped
   api:
     image: ${APP_IMAGE:-localhost/practice-app:1}
     environment:
       DATABASE_URL: postgres://practice:${POSTGRES_PASSWORD}@postgres:5432/practice
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      VALKEY_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       MAX_TIME_MS: ${MAX_TIME_MS:-10000}
@@ -33,7 +34,7 @@ services:
     networks: [database, queue, ingress]
     depends_on:
       postgres: {condition: service_healthy}
-      redis: {condition: service_started}
+      valkey: {condition: service_started}
     read_only: true
     tmpfs: [/tmp:size=32m]
     cap_drop: [ALL]
@@ -45,7 +46,7 @@ services:
     user: '0:0'
     environment:
       DATABASE_URL: postgres://practice:${POSTGRES_PASSWORD}@postgres:5432/practice
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      VALKEY_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
       CONTAINER_HOST: unix:///run/podman/podman.sock
       TOOLCHAIN_IMAGE: ${TOOLCHAIN_IMAGE:-localhost/practice-toolchain:1}
       SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:?Set SANDBOX_RUNTIME}
@@ -57,13 +58,13 @@ services:
     restart: unless-stopped
     depends_on:
       postgres: {condition: service_healthy}
-      redis: {condition: service_started}
+      valkey: {condition: service_started}
   editor:
     image: ${APP_IMAGE:-localhost/practice-app:1}
     command: [editor]
     user: '0:0'
     environment:
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      VALKEY_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
       CONTAINER_HOST: unix:///run/podman/podman.sock
       TOOLCHAIN_IMAGE: ${TOOLCHAIN_IMAGE:-localhost/practice-toolchain:1}
       SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:?Set SANDBOX_RUNTIME}
@@ -74,7 +75,7 @@ services:
     networks: [queue, ingress]
     security_opt: [label=disable]
     restart: unless-stopped
-    depends_on: [redis]
+    depends_on: [valkey]
   proxy:
     image: docker.io/library/nginx@sha256:09ab424a8c788f8d0fe3a64429f6d19dfa526885c8609b748d0943a75dcb9f8c
     ports: ['127.0.0.1:${PORT:-8080}:8080']
@@ -89,4 +90,4 @@ networks:
   ingress: {}
 volumes:
   postgres: {}
-  redis: {}
+  valkey: {}

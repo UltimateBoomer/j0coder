@@ -7,7 +7,7 @@ For a complete rootless development deployment, including live gVisor runners, u
 ```sh
 scripts/test-services.sh
 export DATABASE_URL=postgres://postgres:integration-only@127.0.0.1:15432/practice
-export REDIS_URL=redis://127.0.0.1:16379
+export VALKEY_URL=redis://127.0.0.1:16379
 export PUBLIC_ORIGIN=http://127.0.0.1:18080
 export API_BIND=127.0.0.1:18080
 export COOKIE_SECURE=false
@@ -28,12 +28,12 @@ npm run build --prefix web
 npm test --prefix web
 ```
 
-The API test creates a regular user and a problem each run. The browser test creates another problem. The queue recovery test creates isolated database records and random Redis test keys. Use disposable data.
+The API test creates a regular user and a problem each run. The browser test creates another problem. The queue recovery test creates isolated database records and random Valkey test keys. Use disposable data.
 
 For the full runner/browser test, deploy the same test accounts with the rootless gVisor configuration in the README and set `TEST_RUNNER=1`. The fixture wrapper and direct LSP checks deliberately exercise **repository-owned code only** under a conventional container; they must never become a path for running submissions.
 
 When finished, stop the test API process, then remove only the test dependencies:
 
 ```sh
-podman rm -f practice-test-pg practice-test-redis
+podman rm -f practice-test-pg practice-test-valkey
 ```

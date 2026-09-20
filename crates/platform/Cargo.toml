@@ -10,7 +10,7 @@ chrono = { version = "0.4", features = ["serde"] }
 futures-util = "0.3"
 hex = "0.4"
 minijinja = "2.11"
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+valkey = { package = "redis", version = "1.0", features = ["tokio-comp", "connection-manager"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

@@ -1,22 +1,22 @@
 use crate::contract::*;
 use anyhow::Result;
-use redis::{
+use sqlx::{PgPool, Row};
+use uuid::Uuid;
+use valkey::{
     AsyncCommands,
     streams::{StreamAutoClaimReply, StreamReadReply},
 };
-use sqlx::{PgPool, Row};
-use uuid::Uuid;
 pub const JOBS: &str = "practice:jobs:v1";
 pub const EVENTS: &str = "practice:events:v1";
-pub async fn connection() -> Result<redis::aio::ConnectionManager> {
+pub async fn connection() -> Result<valkey::aio::ConnectionManager> {
     Ok(
-        redis::Client::open(crate::env("REDIS_URL", "redis://redis:6379"))?
+        valkey::Client::open(crate::env("VALKEY_URL", "redis://valkey:6379"))?
             .get_connection_manager()
             .await?,
     )
 }
-pub async fn group(c: &mut redis::aio::ConnectionManager, stream: &str, g: &str) -> Result<()> {
-    let r: redis::RedisResult<String> = redis::cmd("XGROUP")
+pub async fn group(c: &mut valkey::aio::ConnectionManager, stream: &str, g: &str) -> Result<()> {
+    let r: valkey::RedisResult<String> = valkey::cmd("XGROUP")
         .arg("CREATE")
         .arg(stream)
         .arg(g)
@@ -85,7 +85,7 @@ async fn events(db: &PgPool, consumer: &str, shutdown: &crate::shutdown::Shutdow
         if shutdown.is_cancelled() {
             return Ok(());
         }
-        let claim: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
+        let claim: StreamAutoClaimReply = valkey::cmd("XAUTOCLAIM")
             .arg(EVENTS)
             .arg("api")
             .arg(consumer)
@@ -101,7 +101,7 @@ async fn events(db: &PgPool, consumer: &str, shutdown: &crate::shutdown::Shutdow
                 .xread_options(
                     &[EVENTS],
                     &[">"],
-                    &redis::streams::StreamReadOptions::default()
+                    &valkey::streams::StreamReadOptions::default()
                         .group("api", consumer)
                         .count(20)
                         .block(1000),
@@ -122,7 +122,7 @@ async fn events(db: &PgPool, consumer: &str, shutdown: &crate::shutdown::Shutdow
                 sqlx::query("UPDATE submissions SET status='running',token=$2,attempt=$3,updated_at=now() WHERE id=$1 AND status!='completed' AND attempt<$3 AND job->>'generation'=$4").bind(e.id).bind(&e.token).bind(e.attempt as i32).bind(e.generation.to_string()).execute(&mut *tx).await?;
             }
             tx.commit().await?;
-            let _: () = redis::pipe()
+            let _: () = valkey::pipe()
                 .atomic()
                 .cmd("XACK")
                 .arg(EVENTS)
@@ -185,7 +185,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
         if shutdown.is_cancelled() {
             return Ok(());
         }
-        let claim: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
+        let claim: StreamAutoClaimReply = valkey::cmd("XAUTOCLAIM")
             .arg(JOBS)
             .arg("workers")
             .arg(name)
@@ -201,7 +201,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
                 .xread_options(
                     &[JOBS],
                     &[">"],
-                    &redis::streams::StreamReadOptions::default()
+                    &valkey::streams::StreamReadOptions::default()
                         .group("workers", name)
                         .count(1)
                         .block(1000),
@@ -220,7 +220,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
             let done = format!("{prefix}:done");
             let attempts = format!("{prefix}:attempts");
             let token = Uuid::new_v4().to_string();
-            let attempt: u32 = redis::Script::new(ACQUIRE)
+            let attempt: u32 = valkey::Script::new(ACQUIRE)
                 .key(&lease)
                 .key(&done)
                 .key(&attempts)
@@ -256,7 +256,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
             let renew = tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-                    let r: redis::RedisResult<i32> = redis::Script::new(RENEW)
+                    let r: valkey::RedisResult<i32> = valkey::Script::new(RENEW)
                         .key(&renew_key)
                         .arg(&renew_token)
                         .invoke_async(&mut renew_c)
@@ -279,7 +279,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
             renew.abort();
             let _ = renew.await;
             if shutdown.is_cancelled() {
-                let _: i32 = redis::Script::new(RELEASE)
+                let _: i32 = valkey::Script::new(RELEASE)
                     .key(&lease)
                     .arg(&token)
                     .invoke_async(&mut c)
@@ -291,7 +291,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
                 Err(e) => {
                     tracing::warn!(submission=%job.id,attempt,error=%e,"execution infrastructure failure");
                     if attempt < 3 {
-                        let _: i32 = redis::Script::new(RELEASE)
+                        let _: i32 = valkey::Script::new(RELEASE)
                             .key(&lease)
                             .arg(&token)
                             .invoke_async(&mut c)
@@ -317,7 +317,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
                 outcome: Some(outcome),
                 ..started
             };
-            let _: i32 = redis::Script::new(COMPLETE)
+            let _: i32 = valkey::Script::new(COMPLETE)
                 .key(&lease)
                 .key(&done)
                 .key(EVENTS)
@@ -360,8 +360,8 @@ mod integration {
     use super::*;
     use serde_json::json;
     #[tokio::test]
-    #[ignore = "requires isolated Redis"]
-    async fn redis_fencing_and_atomic_ack() -> Result<()> {
+    #[ignore = "requires isolated Valkey"]
+    async fn valkey_fencing_and_atomic_ack() -> Result<()> {
         let mut c = connection().await?;
         let p = format!("test:{}", Uuid::new_v4());
         let jobs = format!("{p}:jobs");
@@ -375,10 +375,10 @@ mod integration {
             .xread_options(
                 &[&jobs],
                 &[">"],
-                &redis::streams::StreamReadOptions::default().group("workers", "one"),
+                &valkey::streams::StreamReadOptions::default().group("workers", "one"),
             )
             .await?;
-        let first: u32 = redis::Script::new(ACQUIRE)
+        let first: u32 = valkey::Script::new(ACQUIRE)
             .key(&lease)
             .key(&done)
             .key(&attempts)
@@ -388,7 +388,7 @@ mod integration {
             .invoke_async(&mut c)
             .await?;
         assert_eq!(first, 1);
-        let duplicate: u32 = redis::Script::new(ACQUIRE)
+        let duplicate: u32 = valkey::Script::new(ACQUIRE)
             .key(&lease)
             .key(&done)
             .key(&attempts)
@@ -399,7 +399,7 @@ mod integration {
             .await?;
         assert_eq!(duplicate, 0);
         let _: usize = c.del(&lease).await?;
-        let next: u32 = redis::Script::new(ACQUIRE)
+        let next: u32 = valkey::Script::new(ACQUIRE)
             .key(&lease)
             .key(&done)
             .key(&attempts)
@@ -409,7 +409,7 @@ mod integration {
             .invoke_async(&mut c)
             .await?;
         assert_eq!(next, 2);
-        let stale: i32 = redis::Script::new(COMPLETE)
+        let stale: i32 = valkey::Script::new(COMPLETE)
             .key(&lease)
             .key(&done)
             .key(&events)
@@ -420,7 +420,7 @@ mod integration {
             .invoke_async(&mut c)
             .await?;
         assert_eq!(stale, 0);
-        let accepted: i32 = redis::Script::new(COMPLETE)
+        let accepted: i32 = valkey::Script::new(COMPLETE)
             .key(&lease)
             .key(&done)
             .key(&events)
@@ -433,7 +433,7 @@ mod integration {
         assert_eq!(accepted, 1);
         let length: usize = c.xlen(&events).await?;
         assert_eq!(length, 1);
-        let duplicate: u32 = redis::Script::new(ACQUIRE)
+        let duplicate: u32 = valkey::Script::new(ACQUIRE)
             .key(&lease)
             .key(&done)
             .key(&attempts)
@@ -447,7 +447,7 @@ mod integration {
         Ok(())
     }
     #[tokio::test]
-    #[ignore = "requires isolated PostgreSQL and Redis"]
+    #[ignore = "requires isolated PostgreSQL and Valkey"]
     async fn database_event_reordering_and_reconciliation() -> Result<()> {
         let db = PgPool::connect(&std::env::var("DATABASE_URL")?).await?;
         let u = Uuid::new_v4();

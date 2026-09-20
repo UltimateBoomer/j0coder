@@ -12,7 +12,7 @@ Development host: Linux x86-64, Podman 5.8.4, podman-compose 1.6.0, cgroup v2, r
 - Compose configuration validates with podman-compose.
 - Typed contract tests cover nested/empty arrays, Unicode strings, int32 boundaries, booleans versus integers, invalid arguments and identifiers, original sample validity, and wrapper absence of test data.
 - Repository-owned fixtures pass all 11 sample cases in each language (22 case executions). These ran in a bounded crun container and establish wrapper correctness only, **not** gVisor security.
-- Real PostgreSQL/Redis tests cover duplicate acquisition, expired lease takeover, stale completion rejection, atomic result publication/acknowledgment, database generation reconciliation, and completion-before-start event ordering.
+- Real PostgreSQL/Valkey tests cover duplicate acquisition, expired lease takeover, stale completion rejection, atomic result publication/acknowledgment, database generation reconciliation, and completion-before-start event ordering.
 - Problem versions, complete test bundles, user source, and custom cases commit atomically in PostgreSQL. Fresh-database API acceptance and worker payload-selection integration checks pass.
 - The actual worker rejects a crun-backed remote Podman socket before container start. A dedicated runsc-default Podman service is supplied because the remote CLI cannot accept `--runtime`.
 - The project-local gVisor `release-20260914.0` build runs through a user-owned Podman API with no installed systemd unit. Preflight inspection confirms its 256 MiB memory, one-CPU, and 64-PID cgroup limits. The live acceptance suite passes parallel C++/Python judging, accepted/wrong-answer/compilation/time/output/runtime/memory verdicts, hidden-case redaction, socket/credential isolation, and blocked networking.
@@ -30,17 +30,17 @@ Consequently, **the following are not claimed as verified**:
 - Two live runner processes concurrently judging submissions and mixed-language dispatch.
 - clangd/Pyright semantic completion and diagnostics through the complete isolated WebSocket path, reconnection, language changes, and five-minute idle cleanup.
 - Full browser solve acceptance with real runners (`TEST_RUNNER=1`).
-- End-to-end failure injection involving abrupt worker termination and actual Redis or PostgreSQL restart. Protocol-level fencing/reconciliation tests do pass.
+- End-to-end failure injection involving abrupt worker termination and actual Valkey or PostgreSQL restart. Protocol-level fencing/reconciliation tests do pass.
 - A cold backup/restore drill on the deployed project, or a clean rootless production installation following the setup guide.
 
 ## Resource observations
 
-Before database-backed payloads were introduced, an idle disposable PostgreSQL container measured **30.34 MB** and Redis measured **9.74 MB** (decimal units from `podman stats`). These are development observations, not production capacity guarantees. The packaged API measured **65.15 MB** after integration traffic. Active runner and active editor memory totals require measurement on the final gVisor host. Per-container configured ceilings are 256 MiB per default test, 1 GiB compilation, and 512 MiB per editor; these are limits, **not measured usage**.
+Before database-backed payloads were introduced, an idle disposable PostgreSQL container measured **30.34 MB** and the former Redis service measured **9.74 MB** (decimal units from `podman stats`). This predates the Valkey migration and is not a Valkey measurement or production capacity guarantee. The packaged API measured **65.15 MB** after integration traffic. Active runner and active editor memory totals require measurement on the final gVisor host. Per-container configured ceilings are 256 MiB per default test, 1 GiB compilation, and 512 MiB per editor; these are limits, **not measured usage**.
 
 ## Remaining product limits
 
 - Problem authoring uses a structured JSON editor with Markdown preview, not separate form controls for every signature/test field.
-- Reconciliation after total Redis loss has a one-hour maximum scheduling delay.
+- Reconciliation after total Valkey loss has a one-hour maximum scheduling delay.
 - Source and submission retention is manual; define a database retention policy before indefinite use.
 - Local toolchain/app builds need image archival or registry digest publication for reproducible deployment; apt repository contents are not snapshot-pinned.
 - Syntax/basic completion is available without LSP. Semantic service availability is explicitly displayed.

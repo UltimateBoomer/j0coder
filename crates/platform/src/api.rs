@@ -439,7 +439,7 @@ async fn history(
 async fn ready(State(a): State<App>) -> Result<Json<Value>> {
     sqlx::query("SELECT 1").execute(&a.db).await?;
     let mut c = crate::queue::connection().await?;
-    let _: String = redis::cmd("PING")
+    let _: String = valkey::cmd("PING")
         .query_async(&mut c)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
@@ -464,14 +464,14 @@ async fn metrics(State(a): State<App>, h: HeaderMap) -> Result<String> {
         output.push_str(&format!("practice_executions_total{{verdict=\"{verdict}\"}} {}\npractice_execution_seconds_total{{verdict=\"{verdict}\"}} {}\n",r.get::<i64,_>("n"),r.get::<i64,_>("elapsed") as f64/1000.0));
     }
     let mut c = crate::queue::connection().await?;
-    let _: usize = redis::cmd("ZREMRANGEBYSCORE")
+    let _: usize = valkey::cmd("ZREMRANGEBYSCORE")
         .arg("editor:active")
         .arg("-inf")
         .arg(chrono::Utc::now().timestamp())
         .query_async(&mut c)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
-    let active: usize = redis::cmd("ZCARD")
+    let active: usize = valkey::cmd("ZCARD")
         .arg("editor:active")
         .query_async(&mut c)
         .await

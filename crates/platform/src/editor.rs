@@ -12,11 +12,11 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{process::Stdio, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use valkey::AsyncCommands;
 
 #[derive(Clone)]
 pub struct EditorState {
@@ -79,7 +79,7 @@ pub async fn upgrade(
         return Err(Error(StatusCode::FORBIDDEN, "origin rejected".into()));
     }
     let mut c = crate::queue::connection().await?;
-    let raw: Option<String> = redis::cmd("GETDEL")
+    let raw: Option<String> = valkey::cmd("GETDEL")
         .arg(format!("editor:ticket:{}", q.ticket))
         .query_async(&mut c)
         .await
@@ -91,7 +91,7 @@ pub async fn upgrade(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().timestamp();
     let script = r#"redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1]);redis.call('ZREMRANGEBYSCORE',KEYS[2],'-inf',ARGV[1]);if redis.call('ZCARD',KEYS[1])>=tonumber(ARGV[4]) or redis.call('ZCARD',KEYS[2])>=2 then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[3]);return 1"#;
-    let capacity: i32 = redis::Script::new(script)
+    let capacity: i32 = valkey::Script::new(script)
         .key("editor:active")
         .key(format!("editor:user:{}", t.user))
         .arg(now)
@@ -115,8 +115,8 @@ pub async fn upgrade(
             if let Err(e) = result {
                 tracing::warn!(error=%e,"editor session closed")
             }
-            let _: redis::RedisResult<usize> = c.zrem("editor:active", &id).await;
-            let _: redis::RedisResult<usize> = c.zrem(format!("editor:user:{user}"), &id).await;
+            let _: valkey::RedisResult<usize> = c.zrem("editor:active", &id).await;
+            let _: valkey::RedisResult<usize> = c.zrem(format!("editor:user:{user}"), &id).await;
         }))
 }
 // Only text-document operations are admitted. Workspace commands, configuration changes,
@@ -263,7 +263,7 @@ async fn bridge(
                     _ = tick.tick() => {
                         if activity.elapsed()>Duration::from_secs(300) { break; }
                         let expiry=chrono::Utc::now().timestamp()+360;
-                        let renewed:i32=redis::Script::new("if not redis.call('ZSCORE',KEYS[1],ARGV[1]) or not redis.call('ZSCORE',KEYS[2],ARGV[1]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[1]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[1]);return 1")
+                        let renewed:i32=valkey::Script::new("if not redis.call('ZSCORE',KEYS[1],ARGV[1]) or not redis.call('ZSCORE',KEYS[2],ARGV[1]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[1]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[1]);return 1")
                             .key("editor:active").key(format!("editor:user:{}",t.user)).arg(session).arg(expiry).invoke_async(&mut c).await?;
                         if renewed==0 { break; }
                     }

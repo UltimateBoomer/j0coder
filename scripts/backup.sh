@@ -7,7 +7,7 @@ backup_dir=${1:?Usage: scripts/backup.sh ABSOLUTE_BACKUP_DIRECTORY}
 mkdir -m 700 -p "$backup_dir"
 trap 'podman compose start' EXIT
 podman compose stop
-for volume in postgres redis; do
+for volume in postgres valkey; do
  podman volume export "practice_${volume}" --output "$backup_dir/${volume}.tar"
 done
 cp .env "$backup_dir/env"
