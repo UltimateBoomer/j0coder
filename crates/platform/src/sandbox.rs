@@ -329,7 +329,7 @@ impl SandboxBackend for Podman {
 }
 pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
     let b = Podman::new();
-    let wrapped = job.language.wrapper(&job.signature, source);
+    let wrapped = job.language.wrapper(&job.signature, source)?;
     let execution = job.language.execution();
     let mut artifact = None;
     let mut result = Outcome {

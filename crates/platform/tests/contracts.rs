@@ -77,6 +77,46 @@ fn starters_render_exactly_for_empty_and_typed_signatures() {
 }
 
 #[test]
+fn wrappers_render_exactly_and_insert_source_literally() {
+    let empty = Signature {
+        method: "empty".into(),
+        params: vec![],
+        returns: Type::Int,
+    };
+    let empty_source = "class Solution { public: int empty(){ return 0; } };";
+    assert_eq!(
+        Language::Cpp.wrapper(&empty, empty_source).unwrap(),
+        "#include <nlohmann/json.hpp>\n#include <fstream>\n#include <iostream>\nclass Solution { public: int empty(){ return 0; } };\nint main() { auto a=nlohmann::json::parse(std::cin); auto r=Solution().empty(); std::ofstream f(\"/work/result\"); f << nlohmann::json(r).dump(); }\n"
+    );
+
+    let typed = Signature {
+        method: "combineValues".into(),
+        params: vec![
+            Parameter {
+                name: "count".into(),
+                ty: Type::Int,
+            },
+            Parameter {
+                name: "matrix".into(),
+                ty: Type::Array(Box::new(Type::Array(Box::new(Type::Int)))),
+            },
+        ],
+        returns: Type::Bool,
+    };
+    let cpp_source = "// {{ source }} {}\nclass Solution {};";
+    assert_eq!(
+        Language::Cpp.wrapper(&typed, cpp_source).unwrap(),
+        "#include <nlohmann/json.hpp>\n#include <fstream>\n#include <iostream>\n// {{ source }} {}\nclass Solution {};\nint main() { auto a=nlohmann::json::parse(std::cin); auto r=Solution().combineValues(a.at(0).get<int32_t>(),a.at(1).get<std::vector<std::vector<int32_t>>>()); std::ofstream f(\"/work/result\"); f << nlohmann::json(r).dump(); }\n"
+    );
+
+    let python_source = "# {{ source }} {}\nclass Solution: pass";
+    assert_eq!(
+        Language::Python.wrapper(&typed, python_source).unwrap(),
+        "# {{ source }} {}\nclass Solution: pass\n\nimport json as _json\nimport os as _os\n_args = _json.loads(input())\n_result = Solution().combineValues(*_args)\nwith open('/work/result', 'w') as _f:\n    _json.dump(_result, _f, ensure_ascii=False, allow_nan=False)\n"
+    );
+}
+
+#[test]
 fn generated_starters_parse_and_compile() {
     let signature = Signature {
         method: "combineValues".into(),
@@ -136,7 +176,9 @@ fn generated_starters_parse_and_compile() {
 fn generated_wrappers_never_embed_tests() {
     let p: Problem = serde_json::from_str(include_str!("../../../samples/1.json")).unwrap();
     for lang in [Language::Cpp, Language::Python] {
-        let wrapped = lang.wrapper(&p.signature, &lang.starter(&p.signature).unwrap());
+        let wrapped = lang
+            .wrapper(&p.signature, &lang.starter(&p.signature).unwrap())
+            .unwrap();
         assert!(!wrapped.contains("2147483648"));
         assert!(wrapped.contains("/work/result"));
         assert!(wrapped.contains("between"));
@@ -182,15 +224,19 @@ fn write_trusted_wrapper_fixtures() {
         let p: Problem = serde_json::from_str(text).unwrap();
         std::fs::write(
             root.join(format!("{i}.cpp")),
-            Language::Cpp.wrapper(
-                &p.signature,
-                &format!("#include <bits/stdc++.h>\n{}", sources[i].0),
-            ),
+            Language::Cpp
+                .wrapper(
+                    &p.signature,
+                    &format!("#include <bits/stdc++.h>\n{}", sources[i].0),
+                )
+                .unwrap(),
         )
         .unwrap();
         std::fs::write(
             root.join(format!("{i}.py")),
-            Language::Python.wrapper(&p.signature, sources[i].1),
+            Language::Python
+                .wrapper(&p.signature, sources[i].1)
+                .unwrap(),
         )
         .unwrap();
         std::fs::write(

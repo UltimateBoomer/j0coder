@@ -1,7 +1,8 @@
 use super::{Execution, LanguageImplementation};
-use crate::contract::{Signature, Type};
+use crate::contract::Type;
 
 const STARTER_TEMPLATE: &str = include_str!("../../templates/starter.py.j2");
+const WRAPPER_TEMPLATE: &str = include_str!("../../templates/wrapper.py.j2");
 
 pub(super) struct Python;
 
@@ -23,11 +24,8 @@ impl LanguageImplementation for Python {
         STARTER_TEMPLATE
     }
 
-    fn wrapper(&self, signature: &Signature, source: &str) -> String {
-        format!(
-            "{}\n\nimport json as _json\nimport os as _os\n_args = _json.loads(input())\n_result = Solution().{}(*_args)\nwith open('/work/result', 'w') as _f:\n    _json.dump(_result, _f, ensure_ascii=False, allow_nan=False)\n",
-            source, signature.method
-        )
+    fn wrapper_template(&self) -> &'static str {
+        WRAPPER_TEMPLATE
     }
 
     fn execution(&self) -> Execution {

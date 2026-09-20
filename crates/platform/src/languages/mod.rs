@@ -17,7 +17,7 @@ trait LanguageImplementation {
     fn identifier(&self) -> &'static str;
     fn type_spelling(&self, ty: &Type) -> String;
     fn starter_template(&self) -> &'static str;
-    fn wrapper(&self, signature: &Signature, source: &str) -> String;
+    fn wrapper_template(&self) -> &'static str;
     fn execution(&self) -> Execution;
     fn editor_uri(&self) -> &'static str;
     fn lsp_command(&self) -> &'static [&'static str];
@@ -39,6 +39,22 @@ struct StarterContext {
     method: String,
     return_type: String,
     parameters: Vec<ParameterContext>,
+}
+
+#[derive(Serialize)]
+struct WrapperContext<'a> {
+    source: &'a str,
+    method: &'a str,
+    parameters: Vec<ParameterContext>,
+}
+
+fn render_template(name: &str, template: &str, context: impl Serialize) -> Result<String> {
+    let mut environment = minijinja::Environment::new();
+    environment.set_keep_trailing_newline(true);
+    environment.add_template(name, template)?;
+    Ok(environment
+        .get_template(name)?
+        .render(serde_json::to_value(context)?)?)
 }
 
 impl Language {
@@ -67,16 +83,24 @@ impl Language {
                 })
                 .collect(),
         };
-        let mut environment = minijinja::Environment::new();
-        environment.set_keep_trailing_newline(true);
-        environment.add_template("starter", implementation.starter_template())?;
-        Ok(environment
-            .get_template("starter")?
-            .render(serde_json::to_value(context)?)?)
+        render_template("starter", implementation.starter_template(), context)
     }
 
-    pub fn wrapper(self, signature: &Signature, source: &str) -> String {
-        self.implementation().wrapper(signature, source)
+    pub fn wrapper(self, signature: &Signature, source: &str) -> Result<String> {
+        let implementation = self.implementation();
+        let context = WrapperContext {
+            source,
+            method: &signature.method,
+            parameters: signature
+                .params
+                .iter()
+                .map(|parameter| ParameterContext {
+                    name: parameter.name.clone(),
+                    ty: implementation.type_spelling(&parameter.ty),
+                })
+                .collect(),
+        };
+        render_template("wrapper", implementation.wrapper_template(), context)
     }
 
     pub fn execution(self) -> Execution {
@@ -123,6 +147,12 @@ mod tests {
                 .implementation()
                 .starter_template()
                 .contains("class Solution")
+        );
+        assert!(
+            Language::Cpp
+                .implementation()
+                .wrapper_template()
+                .contains("/work/result")
         );
         assert!(
             Language::Python

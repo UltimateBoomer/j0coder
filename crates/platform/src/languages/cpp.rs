@@ -1,7 +1,8 @@
 use super::{Execution, LanguageImplementation};
-use crate::contract::{Signature, Type};
+use crate::contract::Type;
 
 const STARTER_TEMPLATE: &str = include_str!("../../templates/starter.cpp.j2");
+const WRAPPER_TEMPLATE: &str = include_str!("../../templates/wrapper.cpp.j2");
 
 pub(super) struct Cpp;
 
@@ -23,18 +24,8 @@ impl LanguageImplementation for Cpp {
         STARTER_TEMPLATE
     }
 
-    fn wrapper(&self, signature: &Signature, source: &str) -> String {
-        let args = signature
-            .params
-            .iter()
-            .enumerate()
-            .map(|(i, parameter)| format!("a.at({i}).get<{}>()", self.type_spelling(&parameter.ty)))
-            .collect::<Vec<_>>()
-            .join(",");
-        format!(
-            "#include <nlohmann/json.hpp>\n#include <fstream>\n#include <iostream>\n{}\nint main() {{ auto a=nlohmann::json::parse(std::cin); auto r=Solution().{}({}); std::ofstream f(\"/work/result\"); f << nlohmann::json(r).dump(); }}\n",
-            source, signature.method, args
-        )
+    fn wrapper_template(&self) -> &'static str {
+        WRAPPER_TEMPLATE
     }
 
     fn execution(&self) -> Execution {
@@ -62,7 +53,7 @@ impl LanguageImplementation for Cpp {
     fn reserved_identifiers(&self) -> &'static [&'static str] {
         &[
             "class",
-            "return"c++,
+            "return",
             "int",
             "bool",
             "auto",
