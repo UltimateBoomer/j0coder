@@ -577,7 +577,7 @@ async fn metrics(State(a): State<App>, h: HeaderMap) -> Result<String> {
     let mut output = String::new();
     for r in rows {
         output.push_str(&format!(
-            "practice_submissions{{status=\"{}\"}} {}\n",
+            "locoder_submissions{{status=\"{}\"}} {}\n",
             r.get::<String, _>("status"),
             r.get::<i64, _>("n")
         ));
@@ -585,7 +585,7 @@ async fn metrics(State(a): State<App>, h: HeaderMap) -> Result<String> {
     let rows=sqlx::query("SELECT result->>'verdict' AS verdict,count(*) AS n,coalesce(sum((result->>'elapsed_ms')::bigint),0)::bigint AS elapsed FROM submissions WHERE status='completed' GROUP BY result->>'verdict'").fetch_all(&a.db).await?;
     for r in rows {
         let verdict: String = r.get("verdict");
-        output.push_str(&format!("practice_executions_total{{verdict=\"{verdict}\"}} {}\npractice_execution_seconds_total{{verdict=\"{verdict}\"}} {}\n",r.get::<i64,_>("n"),r.get::<i64,_>("elapsed") as f64/1000.0));
+        output.push_str(&format!("locoder_executions_total{{verdict=\"{verdict}\"}} {}\nlocoder_execution_seconds_total{{verdict=\"{verdict}\"}} {}\n",r.get::<i64,_>("n"),r.get::<i64,_>("elapsed") as f64/1000.0));
     }
     let mut c = crate::queue::connection().await?;
     let _: usize = valkey::cmd("ZREMRANGEBYSCORE")
@@ -600,7 +600,7 @@ async fn metrics(State(a): State<App>, h: HeaderMap) -> Result<String> {
         .query_async(&mut c)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
-    output.push_str(&format!("practice_editor_sessions {active}\n"));
+    output.push_str(&format!("locoder_editor_sessions {active}\n"));
     Ok(output)
 }
 pub fn router(a: App) -> Router {

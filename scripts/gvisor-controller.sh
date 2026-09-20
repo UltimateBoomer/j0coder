@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 runtime="$root/.dev/gvisor/current/runsc"
 runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
-socket="$runtime_dir/practice-podman.sock"
+socket="$runtime_dir/locoder-podman.sock"
 run_dir="$root/.dev/run"
 pid_file="$run_dir/gvisor-controller.pid"
 log_file="$run_dir/gvisor-controller.log"

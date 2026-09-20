@@ -169,14 +169,14 @@ async fn bridge(
     shutdown: &crate::shutdown::Shutdown,
 ) -> anyhow::Result<()> {
     let b = Podman::new();
-    let name = format!("practice-editor-{session}");
+    let name = format!("locoder-editor-{session}");
     let cmd = t.language.lsp_command();
     let mut args = vec![
         "create",
         "--timeout=3600",
         "--name",
         &name,
-        "--label=practice.editor=true",
+        "--label=locoder.editor=true",
         "--runtime",
         &b.runtime,
         "--network=none",

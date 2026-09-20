@@ -10,7 +10,7 @@
  let catalog:any=null,catalogText='';
  const template={schema:3,title:'New problem',statement:'# New problem\n\nDescribe the task.',difficulty:'easy',tags:['arrays'],interface:{kind:'function',name:'solve',params:[{name:'values',ty:{array:'int'}}],returns:'int'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:[[1,2]],expected:3,hidden:false},{args:[[]],expected:0,hidden:true}]};
  const markdown=(s:string)=>DOMPurify.sanitize(marked.parse(s,{async:false}) as string);
- const routeTitle=()=>route.kind==='problem'&&active?`${active.problem.title} · Practice`:route.kind.startsWith('admin')?'Authoring · Practice':route.kind==='access-denied'?'Access denied · Practice':route.kind==='not-found'?'Not found · Practice':'Problems · Practice';
+ const routeTitle=()=>route.kind==='problem'&&active?`${active.problem.title} · Locoder`:route.kind.startsWith('admin')?'Authoring · Locoder':route.kind==='access-denied'?'Access denied · Locoder':route.kind==='not-found'?'Not found · Locoder':'Problems · Locoder';
  async function fetchList():Promise<ProblemSummary[]>{const filters={q:'',difficulty:'',tag:''};return api(`/problems?${new URLSearchParams(filters)}`) as Promise<ProblemSummary[]>}
  function filterProblems(items:ProblemSummary[],q:string,difficultyFilter:string,tagFilter:string){
   const normalizedTag=tagFilter.trim().toLocaleLowerCase();
@@ -50,7 +50,7 @@
  async function saveCatalog(){try{const data=JSON.parse(catalogText);await api('/admin/catalog','PUT',data);catalog=await api('/admin/catalog');catalogText=JSON.stringify(catalog.settings,null,2);notice='Catalog settings saved; reconciliation requested'}catch(e){error=String(e)}}
 </script>
 <svelte:head><title>{routeTitle()}</title></svelte:head>
-<header><button class="brand" onclick={()=>go('/')}>◈ <span>practice</span></button><nav>{#if user}<button onclick={()=>go('/')}>Problems</button>{#if user.admin}<button onclick={()=>go('/admin/problems')}>Authoring</button>{/if}<span>{user.username}</span><button onclick={logout}>Sign out</button>{/if}</nav></header>
+<header><button class="brand" onclick={()=>go('/')}>◈ <span>locoder</span></button><nav>{#if user}<button onclick={()=>go('/')}>Problems</button>{#if user.admin}<button onclick={()=>go('/admin/problems')}>Authoring</button>{/if}<span>{user.username}</span><button onclick={logout}>Sign out</button>{/if}</nav></header>
 {#if error}<div class="alert" role="alert">{error}<button onclick={()=>error=''} aria-label="Dismiss error">×</button></div>{/if}
 {#if loading}<main><p>Loading workspace…</p></main>
 {:else if !user}<main class="login"><form onsubmit={(e)=>{e.preventDefault();login()}}><label>Username<input autocomplete="username" bind:value={username} required/></label><label>Password<input type="password" autocomplete="current-password" bind:value={password} required/></label><button class="primary">Sign in →</button></form><p class="muted small">Accounts are provided by your administrator.</p></main>

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, ensure};
-use practice::catalog::{self, ValidatedRelease};
+use locoder::catalog::{self, ValidatedRelease};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
@@ -56,10 +56,10 @@ async fn seed(db: &PgPool) -> Result<()> {
     };
     let s = Settings {
         repository_url: url,
-        strategy: practice::env("CATALOG_STRATEGY", "track_branch"),
-        revision: practice::env("CATALOG_REVISION", "main"),
-        poll_interval_seconds: practice::env("CATALOG_POLL_INTERVAL_SECONDS", "300").parse()?,
-        enabled: practice::env("CATALOG_ENABLED", "true") == "true",
+        strategy: locoder::env("CATALOG_STRATEGY", "track_branch"),
+        revision: locoder::env("CATALOG_REVISION", "main"),
+        poll_interval_seconds: locoder::env("CATALOG_POLL_INTERVAL_SECONDS", "300").parse()?,
+        enabled: locoder::env("CATALOG_ENABLED", "true") == "true",
         generation: 1,
     };
     validate_settings(&s)?;
@@ -264,7 +264,7 @@ async fn reconcile(db: &PgPool, s: &Settings, key: &Path, hosts: &Path) -> Resul
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    practice::logging();
+    locoder::logging();
     let database_url = std::env::var("DATABASE_URL")?;
     let db = PgPool::connect(&database_url).await?;
     sqlx::migrate!("../../migrations").run(&db).await?;

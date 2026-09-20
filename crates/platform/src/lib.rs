@@ -12,6 +12,6 @@ pub fn env(key: &str, default: &str) -> String {
 pub fn logging() {
     tracing_subscriber::fmt()
         .json()
-        .with_env_filter(env("RUST_LOG", "practice=info"))
+        .with_env_filter(env("RUST_LOG", "locoder=info"))
         .init();
 }

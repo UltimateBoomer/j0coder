@@ -1,7 +1,7 @@
-use practice::api;
+use locoder::api;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    practice::logging();
+    locoder::logging();
     let db = sqlx::postgres::PgPoolOptions::new()
         .max_connections(20)
         .connect(&std::env::var("DATABASE_URL")?)
@@ -19,16 +19,16 @@ async fn main() -> anyhow::Result<()> {
     }
     let app = api::App {
         db: db.clone(),
-        origin: practice::env("PUBLIC_ORIGIN", "http://localhost:8080"),
-        secure: practice::env("COOKIE_SECURE", "true") == "true",
+        origin: locoder::env("PUBLIC_ORIGIN", "http://localhost:8080"),
+        secure: locoder::env("COOKIE_SECURE", "true") == "true",
     };
-    let shutdown = practice::shutdown::signal();
-    let dispatcher = tokio::spawn(practice::queue::dispatch_forever(
+    let shutdown = locoder::shutdown::signal();
+    let dispatcher = tokio::spawn(locoder::queue::dispatch_forever(
         db.clone(),
         shutdown.clone(),
     ));
-    let events = tokio::spawn(practice::queue::events_forever(db, shutdown.clone()));
-    let listener = tokio::net::TcpListener::bind(practice::env("API_BIND", "0.0.0.0:8080")).await?;
+    let events = tokio::spawn(locoder::queue::events_forever(db, shutdown.clone()));
+    let listener = tokio::net::TcpListener::bind(locoder::env("API_BIND", "0.0.0.0:8080")).await?;
     let server_shutdown = shutdown.clone();
     axum::serve(listener, api::router(app))
         .with_graceful_shutdown(async move { server_shutdown.cancelled().await })

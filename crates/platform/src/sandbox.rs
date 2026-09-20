@@ -48,7 +48,7 @@ impl Default for Podman {
 impl Podman {
     pub fn new() -> Self {
         Self {
-            image: crate::env("TOOLCHAIN_IMAGE", "localhost/practice-toolchain:1"),
+            image: crate::env("TOOLCHAIN_IMAGE", "localhost/locoder-toolchain:1"),
             runtime: crate::env("SANDBOX_RUNTIME", "runsc"),
         }
     }
@@ -139,7 +139,7 @@ impl Podman {
         Ok(())
     }
     pub async fn copy_bytes(&self, id: &str, name: &str, data: &[u8]) -> Result<()> {
-        let path = std::env::temp_dir().join(format!("practice-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("locoder-{}", uuid::Uuid::new_v4()));
         tokio::fs::write(&path, data).await?;
         let r = self
             .checked(&["cp", path.to_str().unwrap(), &format!("{id}:/input/{name}")])
@@ -221,7 +221,7 @@ impl SandboxBackend for Podman {
         compile: bool,
         shutdown: &crate::shutdown::Shutdown,
     ) -> Result<String> {
-        let name = format!("practice-{}", uuid::Uuid::new_v4());
+        let name = format!("locoder-{}", uuid::Uuid::new_v4());
         let memory = if compile { 1024 } else { l.memory_mib };
         let timeout = if compile {
             35
@@ -237,7 +237,7 @@ impl SandboxBackend for Podman {
             &timeout,
             "--name",
             &name,
-            "--label=practice.sandbox=true",
+            "--label=locoder.sandbox=true",
             "--runtime",
             &self.runtime,
             "--network=none",

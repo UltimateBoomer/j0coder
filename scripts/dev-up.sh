@@ -18,7 +18,7 @@ trap cleanup_on_error ERR
 trap 'cleanup_on_error; exit 130' INT
 trap 'cleanup_on_error; exit 143' TERM
 runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
-export PODMAN_SOCKET="$runtime_dir/practice-podman.sock"
+export PODMAN_SOCKET="$runtime_dir/locoder-podman.sock"
 export SANDBOX_RUNTIME="$root/.dev/gvisor/current/runsc"
 scripts/preflight.sh
 podman compose up -d

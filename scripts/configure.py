@@ -9,7 +9,7 @@ runtime_dir = pathlib.Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.get
 (root / '.env').write_text(
     f'POSTGRES_PASSWORD={pg}\nVALKEY_PASSWORD={valkey}\n'
     'PUBLIC_ORIGIN=http://localhost:8080\nCOOKIE_SECURE=false\nPORT=8080\n'
-    f'PODMAN_SOCKET={runtime_dir}/practice-podman.sock\n'
+    f'PODMAN_SOCKET={runtime_dir}/locoder-podman.sock\n'
     f'SANDBOX_RUNTIME={root}/.dev/gvisor/current/runsc\n'
 )
 (config / 'valkey.conf').write_text(f'bind 0.0.0.0\nprotected-mode yes\nrequirepass {valkey}\nappendonly yes\nappendfsync everysec\ndir /data\nmaxmemory-policy noeviction\n')

@@ -1,6 +1,6 @@
-# Practice
+# Locoder
 
-Private coding practice with a Svelte/Monaco browser interface, Rust/Axum API, PostgreSQL, Valkey Streams, and **Podman + gVisor** execution. C++20 and Python implement one typed method on `Solution`. There is no frontend Node server.
+A self-hosted coding workspace with a Svelte/Monaco browser interface, Rust/Axum API, PostgreSQL, Valkey Streams, and **Podman + gVisor** execution. Locoder supports free functions, stateful data structures, and legacy `Solution` problems in C++20 and Python. There is no frontend Node server.
 
 **Release status:** application and container builds, API/browser checks, real Valkey recovery checks, both language wrapper fixtures, and rootless gVisor judging have been verified. Isolated semantic completion and production deployment are implemented but **not deployment-certified**. See [verification](docs/verification.md) for exact evidence and remaining acceptance gates. Do not substitute crun/runc for runsc.
 
@@ -16,7 +16,7 @@ make dev-up
 
 The prerequisites are explicit Make dependencies: `dev-up` depends on `images` and `dev-gvisor`; `images` depends on configuration plus both image targets. Run `make help` for the available setup, quality, image, and runtime targets.
 
-The controller is an ordinary background process listening on `$XDG_RUNTIME_DIR/practice-podman.sock`; it needs neither administrator access nor a project systemd unit. Patched runsc asks the current user's existing systemd manager to create delegated cgroup scopes. Stop both the stack and controller with:
+The controller is an ordinary background process listening on `$XDG_RUNTIME_DIR/locoder-podman.sock`; it needs neither administrator access nor a project systemd unit. Patched runsc asks the current user's existing systemd manager to create delegated cgroup scopes. Stop both the stack and controller with:
 
 ```sh
 make dev-down
@@ -37,9 +37,9 @@ With SSH forwarding, use the same loopback hostname in the browser and `PUBLIC_O
 Bootstrap an administrator without putting the password in shell history or process arguments:
 
 ```sh
-read -rsp 'New admin password (12+ characters): ' practice_password; echo
-printf '%s\n' "$practice_password" | podman compose exec -T api api bootstrap-admin admin
-unset practice_password
+read -rsp 'New admin password (12+ characters): ' locoder_password; echo
+printf '%s\n' "$locoder_password" | podman compose exec -T api api bootstrap-admin admin
+unset locoder_password
 ```
 
 Sign in, open **Authoring**, create users, and create/publish a problem. Authoring includes a JSON definition editor and sanitized Markdown preview. Three original sample definitions are in [samples](samples); publish them using:
@@ -84,9 +84,9 @@ The API exposes `/healthz`, `/readyz` (database/Valkey), and authenticated admin
 For consistent backups and restores, use the same rootless user and project:
 
 ```sh
-scripts/backup.sh "$HOME/backups/practice-2026-09-18"
-# In a fresh checkout with no .env and no practice_* volumes:
-scripts/restore.sh "$HOME/backups/practice-2026-09-18"
+scripts/backup.sh "$HOME/backups/locoder-2026-09-18"
+# In a fresh checkout with no .env and no locoder_* volumes:
+scripts/restore.sh "$HOME/backups/locoder-2026-09-18"
 make dev-up
 ```
 
@@ -109,8 +109,8 @@ CI can also import and export intermediate layers through an OCI registry. Authe
 ```sh
 podman login registry.example.com
 make images \
-  CACHE_FROM_REPO=registry.example.com/team/practice-cache \
-  CACHE_TO_REPO=registry.example.com/team/practice-cache
+  CACHE_FROM_REPO=registry.example.com/team/locoder-cache \
+  CACHE_TO_REPO=registry.example.com/team/locoder-cache
 ```
 
 This uses the `app` and `toolchain` repositories below that prefix. Only trusted branches should set `CACHE_TO_REPO`; untrusted jobs should set `CACHE_FROM_REPO` alone. Leave both variables unset for normal local builds. Cache repositories must be private because intermediate layers can contain source files, and their registry retention policy should remove accumulated cache tags. These flags target the installed Podman 5.8 feature set; CI credentials and provider-specific workflow configuration remain external to this repository.

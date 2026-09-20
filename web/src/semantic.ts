@@ -9,7 +9,7 @@ export async function connect(_monaco:any,_editor:any,language:string,status:(s:
  const socket=toSocket(ws);const reader=new WebSocketMessageReader(socket);const writer=new WebSocketMessageWriter(socket);
  // Restrict initialize fields to the server's fixed workspace contract.
  const rawWrite=writer.write.bind(writer);writer.write=(message:any)=>{if(message.method==='initialize'){delete message.params.rootPath;delete message.params.initializationOptions;message.params.rootUri='file:///workspace';message.params.workspaceFolders=null}return rawWrite(message)};
- const client=new MonacoLanguageClient({name:`Practice ${language}`,clientOptions:{documentSelector:[language],errorHandler:{error:()=>({action:ErrorAction.Continue}),closed:()=>({action:CloseAction.DoNotRestart})}},messageTransports:{reader,writer}});
+ const client=new MonacoLanguageClient({name:`Locoder ${language}`,clientOptions:{documentSelector:[language],errorHandler:{error:()=>({action:ErrorAction.Continue}),closed:()=>({action:CloseAction.DoNotRestart})}},messageTransports:{reader,writer}});
  ws.onclose=()=>status('Basic completion · disconnected; reconnect when ready');
  await client.start();status('Semantic completion connected');
  return ()=>{void client.stop().finally(()=>ws.close());reader.dispose();writer.dispose()};

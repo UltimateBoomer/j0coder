@@ -1,5 +1,5 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    practice::logging();
-    practice::queue::worker(practice::shutdown::signal()).await
+    locoder::logging();
+    locoder::queue::worker(locoder::shutdown::signal()).await
 }

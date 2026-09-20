@@ -1,5 +1,5 @@
 [package]
-name = "practice"
+name = "locoder"
 version.workspace = true
 edition.workspace = true
 [dependencies]

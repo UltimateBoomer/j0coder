@@ -55,4 +55,4 @@ endpoint('/submissions','post','submit',obj({'id':uuid}),ref('Submit'),'202',[{'
 endpoint('/submissions','get','history',array({}),params=[{'name':'version','in':'query','required':True,'schema':uuid}])
 endpoint('/submissions/{id}','get','getSubmission',ref('Submission'))
 endpoint('/editor-ticket','post','editorTicket',obj({'ticket':string,'path':string}),obj({'language':ref('Language')}))
-open('openapi.json','w').write(json.dumps({'openapi':'3.1.0','info':{'title':'Practice API','version':'1.0.0'},'paths':paths,'components':{'schemas':schemas,'securitySchemes':{'session':{'type':'apiKey','in':'cookie','name':'practice_session'}}}},indent=2)+'\n')
+open('openapi.json','w').write(json.dumps({'openapi':'3.1.0','info':{'title':'Locoder API','version':'1.0.0'},'paths':paths,'components':{'schemas':schemas,'securitySchemes':{'session':{'type':'apiKey','in':'cookie','name':'practice_session'}}}},indent=2)+'\n')

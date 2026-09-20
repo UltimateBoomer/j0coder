@@ -1,4 +1,4 @@
-use practice::contract::*;
+use locoder::contract::*;
 use serde_json::json;
 #[test]
 fn published_samples_validate() {

@@ -8,7 +8,7 @@ mkdir -m 700 -p "$backup_dir"
 trap 'podman compose start' EXIT
 podman compose stop
 for volume in postgres valkey; do
- podman volume export "practice_${volume}" --output "$backup_dir/${volume}.tar"
+ podman volume export "locoder_${volume}" --output "$backup_dir/${volume}.tar"
 done
 cp .env "$backup_dir/env"
 cp -r data/config "$backup_dir/config"

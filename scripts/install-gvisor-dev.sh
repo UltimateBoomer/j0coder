@@ -16,8 +16,8 @@ install_dir="$dev/gvisor/$release-rootless-${patch_hash:0:12}"
 for command in git podman sha256sum tar; do
  command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done
-if [[ -x "$install_dir/runsc" && -d "$install_dir/gvisor-bin" && -f "$install_dir/.practice-patch-hash" ]] &&
- [[ $(<"$install_dir/.practice-patch-hash") == "$patch_hash" ]]; then
+if [[ -x "$install_dir/runsc" && -d "$install_dir/gvisor-bin" && -f "$install_dir/.locoder-patch-hash" ]] &&
+ [[ $(<"$install_dir/.locoder-patch-hash") == "$patch_hash" ]]; then
  printf 'gVisor development runtime already installed: %s\n' "$install_dir/runsc"
  exit 0
 fi
@@ -61,7 +61,7 @@ tar -xjf "$archive" -C "$staging"
  echo 'Built release is missing runsc or gvisor-bin' >&2
  exit 1
 }
-printf '%s\n' "$patch_hash" >"$staging/.practice-patch-hash"
+printf '%s\n' "$patch_hash" >"$staging/.locoder-patch-hash"
 mv "$staging" "$install_dir"
 ln -sfn "$(basename "$install_dir")" "$dev/gvisor/current"
 "$install_dir/runsc" --version

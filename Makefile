@@ -1,7 +1,7 @@
 PODMAN ?= podman
 BUILD_JOBS ?= 2
-APP_IMAGE ?= localhost/practice-app:1
-TOOLCHAIN_IMAGE ?= localhost/practice-toolchain:1
+APP_IMAGE ?= localhost/locoder-app:1
+TOOLCHAIN_IMAGE ?= localhost/locoder-toolchain:1
 CACHE_FROM_REPO ?=
 CACHE_TO_REPO ?=
 

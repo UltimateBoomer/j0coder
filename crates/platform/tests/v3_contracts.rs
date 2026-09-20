@@ -1,4 +1,4 @@
-use practice::contract::*;
+use locoder::contract::*;
 use serde_json::{Value, json};
 
 fn base(interface: Interface, tests: Vec<Case>) -> Problem {
@@ -211,9 +211,9 @@ fn sibling_catalog_accepts_lru_fixture_when_present() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../code-practice-problems");
     if root.exists() {
         let bytes = std::fs::read(root.join("problems/lru-cache.json")).unwrap();
-        practice::catalog::validate_problem(&bytes).unwrap();
+        locoder::catalog::validate_problem(&bytes).unwrap();
         let manifest = std::fs::read_to_string(root.join("catalog.json")).unwrap();
         assert!(manifest.contains("design/lru-cache"));
-        assert!(manifest.contains(&practice::catalog::sha256(&bytes)));
+        assert!(manifest.contains(&locoder::catalog::sha256(&bytes)));
     }
 }

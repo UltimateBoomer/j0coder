@@ -1,4 +1,4 @@
-use practice::{
+use locoder::{
     contract::*,
     sandbox::{Podman, judge},
 };
