@@ -1,21 +1,31 @@
 <script lang="ts">
  import {onMount} from 'svelte';
- import {api,ApiError,setCsrf} from './api';
+ import {api,ApiError,setCsrf,type ProblemSummary} from './api';
  import {parseRoute,problemListUrl,push,replace,type Route} from './router';
+ import Fuse from 'fuse.js';
  import DOMPurify from 'dompurify';import {marked} from 'marked';
- let user:any=null,loading=true,routeLoading=false,error='',username='',password='',problems:any[]=[],active:any=null;
+ let user:any=null,loading=true,routeLoading=false,error='',username='',password='',allProblems:ProblemSummary[]=[],problems:ProblemSummary[]=[],active:any=null;
  let route:Route=parseRoute(window.location),query='',difficulty='',tag='',Editor:any=null;
  let drafts:any[]=[],draftId='',draftText='',preview:any=null,notice='',newUsername='',newPassword='',loadSequence=0;
  const template={title:'New problem',statement:'# New problem\n\nDescribe the task.',difficulty:'easy',tags:['arrays'],signature:{method:'solve',params:[{name:'values',ty:{array:'int'}}],returns:'int'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:[[1,2]],expected:3,hidden:false},{args:[[]],expected:0,hidden:true}]};
  const markdown=(s:string)=>DOMPurify.sanitize(marked.parse(s,{async:false}) as string);
  const routeTitle=()=>route.kind==='problem'&&active?`${active.problem.title} · Practice`:route.kind.startsWith('admin')?'Authoring · Practice':route.kind==='access-denied'?'Access denied · Practice':route.kind==='not-found'?'Not found · Practice':'Problems · Practice';
- async function fetchList(filters:{q:string;difficulty:string;tag:string}){return api(`/problems?${new URLSearchParams(filters)}`)}
+ async function fetchList():Promise<ProblemSummary[]>{const filters={q:'',difficulty:'',tag:''};return api(`/problems?${new URLSearchParams(filters)}`) as Promise<ProblemSummary[]>}
+ function filterProblems(items:ProblemSummary[],q:string,difficultyFilter:string,tagFilter:string){
+  const normalizedTag=tagFilter.trim().toLocaleLowerCase();
+  const exact=items.filter(p=>(!difficultyFilter||p.difficulty===difficultyFilter)&&(!normalizedTag||p.tags.some(t=>t.toLocaleLowerCase()===normalizedTag)));
+  const search=q.trim();
+  return search?new Fuse(exact,{keys:[{name:'title',weight:0.8},{name:'tags',weight:0.2}],threshold:0.3,ignoreLocation:true,isCaseSensitive:false}).search(search).map(result=>result.item):exact;
+ }
+ function syncProblemFilters(){replace(problemListUrl({q:query,difficulty,tag}))}
+ $: problems=filterProblems(allProblems,query,difficulty,tag);
+ $: if(!loading&&!routeLoading&&route.kind==='problems')syncProblemFilters();
  function edit(d:any){draftId=d?.id||'';draftText=JSON.stringify(d?.draft||template,null,2);preview=null;notice=''}
  async function resolveRoute(){
   const current=parseRoute(window.location),sequence=++loadSequence;routeLoading=true;error='';
-  let next:Route=current,nextProblems:any[]=[],nextActive:any=null,nextDrafts:any[]=[],selected:any=null;
+  let next:Route=current,nextProblems:ProblemSummary[]=[],nextActive:any=null,nextDrafts:any[]=[],selected:any=null;
   try{
-   if(current.kind==='problems'){query=current.filters.q;difficulty=current.filters.difficulty;tag=current.filters.tag;nextProblems=await fetchList(current.filters)}
+   if(current.kind==='problems'){query=current.filters.q;difficulty=current.filters.difficulty;tag=current.filters.tag;nextProblems=await fetchList()}
    else if(current.kind==='problem'){nextActive=await api(`/problems/${current.problemId}`);Editor=Editor||(await import('./Editor.svelte')).default}
    else if(current.kind==='admin'||current.kind==='admin-new'||current.kind==='admin-edit'){
     if(!user.admin)next={kind:'access-denied'};
@@ -23,7 +33,7 @@
    }
   }catch(e){if(e instanceof ApiError&&(e.status===400||e.status===404))next={kind:'not-found'};else if(e instanceof ApiError&&e.status===403)next={kind:'access-denied'};else if(e instanceof ApiError&&e.status===401){user=null;setCsrf('')}else error=String(e)}
   if(sequence!==loadSequence)return;
-  route=next;active=nextActive;problems=nextProblems;drafts=nextDrafts;
+  route=next;active=nextActive;allProblems=next.kind==='problems'?nextProblems:allProblems;drafts=nextDrafts;
   if(next.kind==='admin-new')edit(null);else if(next.kind==='admin-edit'&&selected)edit(selected);else if(next.kind==='admin'){draftId='';draftText='';preview=null;notice=''}
   routeLoading=false;
  }
@@ -31,7 +41,7 @@
  onMount(()=>{const pop=()=>{if(user)resolveRoute();else route=parseRoute(window.location)};window.addEventListener('popstate',pop);init();return()=>window.removeEventListener('popstate',pop)});
  async function login(){error='';try{await api('/session','POST',{username,password});password='';user=await api('/session');setCsrf(user.csrf);await resolveRoute()}catch(e){error=String(e)}}
  async function logout(){try{await api('/session','DELETE');loadSequence++;user=null;active=null;setCsrf('')}catch(e){error=String(e)}}
- function go(url:string){push(url)}function search(){go(problemListUrl({q:query,difficulty,tag}))}
+ function go(url:string){push(url)}
  async function save(){notice='';try{const data=JSON.parse(draftText);if(draftId)await api(`/admin/problems/${draftId}`,'PUT',data);else{draftId=(await api('/admin/problems','POST',data)).id;replace(`/admin/problems/${draftId}`);route={kind:'admin-edit',problemId:draftId}}notice='Draft saved';drafts=await api('/admin/problems');return true}catch(e){error=String(e);return false}}
  async function publish(){if(!await save())return;try{const r=await api(`/admin/problems/${draftId}/publish`,'POST');notice=`Published immutable version ${r.version}`}catch(e){error=String(e)}}
  function showPreview(){try{preview=JSON.parse(draftText)}catch(e){error=String(e)}}
@@ -49,5 +59,5 @@
  <main><h1>Problem studio</h1><div class="studio"><aside><button class="primary" onclick={()=>go('/admin/problems/new')}>+ New problem</button>{#each drafts as d}<button class="draft" class:chosen={draftId===d.id} onclick={()=>go(`/admin/problems/${d.id}`)}>{d.draft.title}<small>{d.version?'Published · editable draft':'Draft'}</small></button>{/each}<form onsubmit={(e)=>{e.preventDefault();addUser()}}><h3>Create user</h3><label>Username<input bind:value={newUsername} required/></label><label>Password<input type="password" bind:value={newPassword} minlength="12" required/></label><button>Create account</button></form></aside><section>{#if draftText}<div class="toolbar"><button onclick={save}>Save draft</button><button onclick={showPreview}>Preview statement</button><button class="primary" onclick={publish}>Validate & publish</button></div><p class="muted small">Types: "int", "bool", "string", or {JSON.stringify({array:'int'})}. Tests require typed argument lists and expected results. Mark private cases with hidden: true.</p><label>Problem definition (JSON)<textarea class="definition" bind:value={draftText} spellcheck="false"></textarea></label>{#if preview}<article class="statement">{@html markdown(preview.statement||'')}</article>{/if}{:else}<p>Select a draft or create a new problem.</p>{/if}{#if notice}<p role="status" class="notice">{notice}</p>{/if}</section></div></main>
 {:else if route.kind==='problem'&&active&&Editor}{#key `${active.id}:${active.version}`}<svelte:component this={Editor} problem={active} {user} onerror={(e:string)=>error=e}/>{/key}
 {:else if route.kind==='problems'}
- <main><div class="list-heading"><h1>Problems</h1><span class="count">{problems.length} problems</span></div><form class="filters" onsubmit={(e)=>{e.preventDefault();search()}}><input aria-label="Search problems" placeholder="Search problems…" bind:value={query}/><select aria-label="Difficulty" bind:value={difficulty}><option value="">All difficulties</option><option>easy</option><option>medium</option><option>hard</option></select><input aria-label="Tag" placeholder="Filter by tag" bind:value={tag}/><button>Search</button></form><div class="problem-list"><div class="table-heading"><span>PROBLEM</span><span>DIFFICULTY</span></div>{#each problems as p,i}<button class="problem-row" onclick={()=>go(`/problems/${p.id}`)}><span class="number">{String(i+1).padStart(2,'0')}</span><span class="problem-title">{p.title}<small>{p.tags.join(' · ')}</small></span><span class={`badge ${p.difficulty}`}>{p.difficulty}</span><span class="arrow">↗</span></button>{:else}<div class="empty">No problems yet. {user.admin?'Open Authoring to publish your first challenge.':'Ask your administrator to publish a challenge.'}</div>{/each}</div></main>
+ <main><div class="list-heading"><h1>Problems</h1><span class="count">{problems.length} problems</span></div><div class="filters"><input aria-label="Search problems" placeholder="Search problems…" bind:value={query}/><select aria-label="Difficulty" bind:value={difficulty}><option value="">All difficulties</option><option>easy</option><option>medium</option><option>hard</option></select></div><div class="problem-list"><div class="table-heading"><span>PROBLEM</span><span>DIFFICULTY</span></div>{#each problems as p,i}<button class="problem-row" onclick={()=>go(`/problems/${p.id}`)}><span class="number">{String(i+1).padStart(2,'0')}</span><span class="problem-title">{p.title}<small>{p.tags.join(' · ')}</small></span><span class={`badge ${p.difficulty}`}>{p.difficulty}</span><span class="arrow">↗</span></button>{:else}<div class="empty">{#if allProblems.length}No matching problems.{:else}No problems yet. {user.admin?'Open Authoring to publish your first challenge.':'Ask your administrator to publish a challenge.'}{/if}</div>{/each}</div></main>
 {/if}

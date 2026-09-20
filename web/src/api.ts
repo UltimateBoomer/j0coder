@@ -1,5 +1,6 @@
 import type {components} from './api.generated';
 export type ProblemDetail=components['schemas']['ProblemDetail'];
+export type ProblemSummary=components['schemas']['ProblemSummary'];
 export type User=components['schemas']['User'];
 export type Submission=components['schemas']['Submission'];
 export let csrf = '';

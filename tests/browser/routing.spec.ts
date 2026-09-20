@@ -10,7 +10,8 @@ test('routes preserve authentication intent, filters, and browser history',async
  await page.goto('/');await signIn(page);await expect(page.getByRole('heading',{name:'Problems'})).toBeVisible();
  const session=await (await page.request.get('/api/v1/session')).json();
  const headers={'Origin':process.env.TEST_ORIGIN||'http://127.0.0.1:18080','X-CSRF-Token':session.csrf};
- const definition={title:`Routing sample ${Date.now()}`,statement:'Return the input.',difficulty:'medium',tags:['routing'],signature:{method:'echo',params:[{name:'value',ty:'string'}],returns:'string'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:['hello'],expected:'hello',hidden:false}]};
+ const uniqueTag=`route-tag-${Date.now()}`;
+ const definition={title:`Routing sample ${Date.now()}`,statement:'Return the input.',difficulty:'medium',tags:[uniqueTag],signature:{method:'echo',params:[{name:'value',ty:'string'}],returns:'string'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:['hello'],expected:'hello',hidden:false}]};
  const draft=await (await page.request.post('/api/v1/admin/problems',{headers,data:definition})).json();
  await page.request.post(`/api/v1/admin/problems/${draft.id}/publish`,{headers});
 
@@ -18,12 +19,21 @@ test('routes preserve authentication intent, filters, and browser history',async
  await page.goto(`/problems/${draft.id}`);expect(page.url()).toContain(`/problems/${draft.id}`);
  await signIn(page);await expect(page.getByRole('heading',{name:definition.title})).toBeVisible();
  await page.getByRole('button',{name:'Problems',exact:true}).click();
- await page.getByLabel('Search problems').fill('Routing sample');await page.getByLabel('Difficulty').selectOption('medium');await page.getByLabel('Tag').fill('routing');await page.getByRole('button',{name:'Search'}).click();
- await expect(page).toHaveURL(/\?q=Routing(\+|%20)sample&difficulty=medium&tag=routing$/);
+ const result=page.getByRole('button',{name:new RegExp(definition.title)});
+ await page.getByLabel('Search problems').fill('Routng sample');await expect(result).toBeVisible();
+ await page.getByLabel('Search problems').fill(uniqueTag);await expect(result).toBeVisible();
+ await page.getByLabel('Difficulty').selectOption('hard');await expect(result).toHaveCount(0);await expect(page.locator('.count')).toHaveText('0 problems');await expect(page.getByText('No matching problems.')).toBeVisible();
+ await page.getByLabel('Difficulty').selectOption('medium');await expect(result).toBeVisible();
+ await page.getByLabel('Search problems').fill('no-such-problem-query');await expect(page.locator('.count')).toHaveText('0 problems');
+ await page.getByLabel('Search problems').fill('');await page.getByLabel('Difficulty').selectOption('');await expect(page).toHaveURL(/\/$/);await expect(result).toBeVisible();
+ const titles=await page.locator('.problem-title').evaluateAll(nodes=>nodes.map(node=>node.childNodes[0]?.textContent||''));expect(titles).toEqual([...titles].sort((a,b)=>a.localeCompare(b)));
+ await page.getByLabel('Search problems').fill('Routing sample');await page.getByLabel('Difficulty').selectOption('medium');
+ await expect(page).toHaveURL(/\?q=Routing(\+|%20)sample&difficulty=medium$/);
  await page.getByRole('button',{name:new RegExp(definition.title)}).click();await page.goBack();
- await expect(page.getByLabel('Search problems')).toHaveValue('Routing sample');await expect(page.getByLabel('Difficulty')).toHaveValue('medium');await expect(page.getByLabel('Tag')).toHaveValue('routing');
+ await expect(page.getByLabel('Search problems')).toHaveValue('Routing sample');await expect(page.getByLabel('Difficulty')).toHaveValue('medium');await expect(page.getByLabel('Tag')).toHaveCount(0);
  await page.goForward();await expect(page.getByRole('heading',{name:definition.title})).toBeVisible();
  await page.reload();await expect(page.getByRole('heading',{name:definition.title})).toBeVisible();
+ await page.goto(`/?q=Routng%20sample&difficulty=medium&tag=${uniqueTag}`);await expect(result).toBeVisible();await expect(page.getByLabel('Search problems')).toHaveValue('Routng sample');
 });
 
 test('admin routes and route error states are addressable',async({page})=>{
