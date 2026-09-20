@@ -271,12 +271,16 @@ async fn work_loop(name: &str, db: &PgPool) -> Result<()> {
                             .await?;
                         continue;
                     }
+                    let tests = load_payload(db, &job)
+                        .await
+                        .map(|(_, tests)| tests)
+                        .unwrap_or_default();
                     Outcome {
                         elapsed_ms: 0,
                         verdict: Verdict::InfrastructureFailure,
                         passed: 0,
-                        total: 0,
-                        cases: vec![],
+                        total: tests.len(),
+                        cases: crate::sandbox::not_run(&tests),
                         diagnostic: None,
                     }
                 }

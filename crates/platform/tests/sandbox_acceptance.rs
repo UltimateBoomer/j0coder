@@ -67,12 +67,16 @@ async fn sandbox_verdicts_isolation_and_parallel_languages() -> anyhow::Result<(
     )
     .await?;
     assert_eq!(wrong.verdict, Verdict::WrongAnswer);
-    assert_eq!(wrong.cases.len(), 1);
+    assert_eq!(wrong.cases.len(), 2);
+    assert!(!wrong.cases[0].hidden);
+    assert!(wrong.cases[1].hidden);
+    assert!(wrong.cases[1].output.is_none());
+    assert!(wrong.cases[1].log.is_empty());
     assert!(!serde_json::to_string(&wrong)?.contains("-2147483648"));
-    assert_eq!(
-        judge(&cpp, "invalid syntax", &cases).await?.verdict,
-        Verdict::CompilationError
-    );
+    let compilation = judge(&cpp, "invalid syntax", &cases).await?;
+    assert_eq!(compilation.verdict, Verdict::CompilationError);
+    assert_eq!(compilation.cases.len(), cases.len());
+    assert!(compilation.cases.iter().all(|case| case.verdict.is_none()));
     assert_eq!(
         judge(
             &py,

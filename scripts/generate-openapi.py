@@ -16,7 +16,7 @@ schemas={
 'Credentials':obj({'username':string,'password':{'type':'string','minLength':12,'maxLength':256}}),
 'Language':{'type':'string','enum':['cpp','python']},
 'Verdict':{'type':'string','enum':['accepted','wrong_answer','compilation_error','runtime_error','time_limit','memory_limit','output_limit','infrastructure_failure']},
-'Outcome':obj({'elapsed_ms':{'type':'integer'},'verdict':ref('Verdict'),'passed':{'type':'integer'},'total':{'type':'integer'},'cases':array(obj({'verdict':{'anyOf':[ref('Verdict'),{'type':'null'}]},'output':{},'log':string})),'diagnostic':{'type':['string','null']} }),
+'Outcome':obj({'elapsed_ms':{'type':'integer'},'verdict':ref('Verdict'),'passed':{'type':'integer'},'total':{'type':'integer'},'cases':array(obj({'hidden':boolean,'verdict':{'anyOf':[ref('Verdict'),{'type':'null'}]},'output':{},'log':string})),'diagnostic':{'type':['string','null']} }),
 'Submission':obj({'id':uuid,'version':uuid,'status':{'type':'string','enum':['queued','running','completed']},'result':{'anyOf':[ref('Outcome'),{'type':'null'}]}}),
 'Submit':obj({'version':uuid,'language':ref('Language'),'source':{'type':'string','maxLength':100000},'mode':{'type':'string','enum':['run','submit']},'cases':array(ref('Case'))},['version','language','source','mode']),
 'ProblemDetail':obj({'id':uuid,'version':uuid,'problem':ref('Problem'),'starters':obj({'cpp':string,'python':string})}),

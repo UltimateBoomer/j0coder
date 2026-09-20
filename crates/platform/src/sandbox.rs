@@ -355,6 +355,7 @@ pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
             Ok(c) => {
                 result.verdict = Verdict::CompilationError;
                 result.diagnostic = Some(c.log);
+                result.cases = not_run(tests);
                 return Ok(result);
             }
             Err(v) => {
@@ -366,6 +367,7 @@ pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
                 } else {
                     Verdict::CompilationError
                 };
+                result.cases = not_run(tests);
                 return Ok(result);
             }
         }
@@ -414,13 +416,24 @@ pub async fn judge(job: &Job, source: &str, tests: &[Case]) -> Result<Outcome> {
         } else if result.verdict == Verdict::Accepted {
             result.verdict = verdict.clone().unwrap()
         }
-        if !case.hidden {
-            result.cases.push(CaseResult {
-                verdict,
-                output,
-                log,
-            })
-        }
+        result.cases.push(CaseResult {
+            hidden: case.hidden,
+            verdict,
+            output: if case.hidden { None } else { output },
+            log: if case.hidden { String::new() } else { log },
+        })
     }
     Ok(result)
+}
+
+pub fn not_run(tests: &[Case]) -> Vec<CaseResult> {
+    tests
+        .iter()
+        .map(|case| CaseResult {
+            hidden: case.hidden,
+            verdict: None,
+            output: None,
+            log: String::new(),
+        })
+        .collect()
 }

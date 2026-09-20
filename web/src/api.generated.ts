@@ -221,6 +221,7 @@ export interface components {
             passed: number;
             total: number;
             cases: {
+                hidden: boolean;
                 verdict: components["schemas"]["Verdict"] | null;
                 output: unknown;
                 log: string;

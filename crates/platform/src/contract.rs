@@ -180,6 +180,7 @@ pub enum Verdict {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaseResult {
+    pub hidden: bool,
     pub verdict: Option<Verdict>,
     pub output: Option<Value>,
     pub log: String,
