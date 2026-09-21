@@ -42,6 +42,7 @@ spec:
           {{- end }}
           env:
             - {name: PUBLIC_ORIGIN, value: {{ $root.Values.publicOrigin | quote }}}
+            - {name: COOKIE_SECURE, value: {{ $root.Values.cookieSecure | quote }}}
             - {name: MIGRATE_ON_START, value: "false"}
             - {name: SANDBOX_BACKEND, value: kubernetes}
             - {name: SANDBOX_NAMESPACE, value: {{ include "locoder.sandboxNamespace" $root | quote }}}

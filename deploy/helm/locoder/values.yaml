@@ -1,4 +1,5 @@
 publicOrigin: https://locoder.example.com
+cookieSecure: true
 images:
   app:
     repository: registry.example.com/locoder/app-kubernetes

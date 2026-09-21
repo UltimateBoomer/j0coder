@@ -2,7 +2,7 @@
 
 This Helm 3 chart installs the Locoder control plane and a dedicated namespace for short-lived gVisor sandbox Pods. It does not install PostgreSQL, Valkey, gVisor, an ingress controller, cert-manager, or an external-secrets operator.
 
-For a disposable Fedora development cluster using Minikube, Podman, containerd, and the gVisor addon, see [Local Kubernetes on Fedora](../../../docs/local-kubernetes-fedora.md).
+For a disposable Fedora development cluster using a Lima-managed QEMU VM, kubeadm, containerd, and gVisor, see [Local Kubernetes on Fedora](../../../docs/local-kubernetes-fedora.md). Podman is used only to build and export the local images.
 
 ## Prerequisites
 

@@ -1,0 +1,30 @@
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:k8s
+
+vmType: qemu
+cpus: 6
+memory: 12GiB
+disk: 40GiB
+
+# Images are copied explicitly. Never expose the host home or repository.
+mounts: []
+
+containerd:
+  system: true
+  user: false
+
+# Pin a tested Kubernetes minor instead of following Lima's moving "stable"
+# template default, which can advance independently of this repository.
+param:
+  release: v1.34
+  version: stable
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/sh
+      set -eu
+      install -d -m 0755 /etc/locoder
+      printf '%s\n' lima-kubeadm-qemu > /etc/locoder/development-vm

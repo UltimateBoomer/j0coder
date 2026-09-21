@@ -1,5 +1,9 @@
 PODMAN ?= podman
 BUILD_JOBS ?= 2
+LIMA_INSTANCE ?= locoder
+LIMA_CPUS ?= 6
+LIMA_MEMORY ?= 12
+LIMA_DISK_SIZE ?= 40
 APP_IMAGE ?= localhost/locoder-app:1
 KUBERNETES_APP_IMAGE ?= localhost/locoder-app-kubernetes:1
 TOOLCHAIN_IMAGE ?= localhost/locoder-toolchain:1
@@ -12,7 +16,7 @@ TOOLCHAIN_CACHE_FLAGS = $(if $(CACHE_FROM_REPO),--cache-from=$(CACHE_FROM_REPO)/
 .DEFAULT_GOAL := help
 
 .PHONY: help configure check build test app-image kubernetes-app-image toolchain-image images pin-images helm-check
-.PHONY: preflight up dev-gvisor dev-up dev-down
+.PHONY: preflight up dev-gvisor dev-up dev-down kube-dev-up kube-dev-down
 
 # Repository setup
 help:
@@ -37,7 +41,9 @@ help:
 	  '  preflight       Validate the configured gVisor sandbox' \
 	  '  up              Run preflight, then start the configured stack' \
 	  '  dev-up          Build images, install gVisor, and start the dev stack' \
-	  '  dev-down        Stop the dev stack and its gVisor controller'
+	  '  dev-down        Stop the dev stack and its gVisor controller' \
+	  '  kube-dev-up     Build and start an ephemeral Lima Kubernetes stack' \
+	  '  kube-dev-down   Delete the ephemeral Lima VM and its data'
 
 configure: .env
 
@@ -95,3 +101,17 @@ dev-up: images dev-gvisor
 
 dev-down:
 	./scripts/dev-down.sh
+
+# PostgreSQL and Valkey use emptyDir storage. Teardown deletes the complete
+# Lima VM and all of its data.
+kube-dev-up: configure helm-check toolchain-image kubernetes-app-image
+	LIMA_INSTANCE='$(LIMA_INSTANCE)' \
+	LIMA_CPUS='$(LIMA_CPUS)' \
+	LIMA_MEMORY='$(LIMA_MEMORY)' \
+	LIMA_DISK_SIZE='$(LIMA_DISK_SIZE)' \
+	KUBERNETES_APP_IMAGE='$(KUBERNETES_APP_IMAGE)' \
+	TOOLCHAIN_IMAGE='$(TOOLCHAIN_IMAGE)' \
+	./scripts/kube-dev-up.sh
+
+kube-dev-down:
+	LIMA_INSTANCE='$(LIMA_INSTANCE)' ./scripts/kube-dev-down.sh

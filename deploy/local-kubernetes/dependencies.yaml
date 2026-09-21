@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locoder-postgres
+  namespace: locoder
+  labels: {app.kubernetes.io/name: locoder-postgres}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: locoder-postgres}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: locoder-postgres}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: prepare-postgres-directories
+          image: docker.io/library/postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
+          command: [sh, -c, 'mkdir -p /setup/data /setup/run']
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 5m, memory: 8Mi, ephemeral-storage: 1Mi}
+            limits: {cpu: 100m, memory: 32Mi, ephemeral-storage: 16Mi}
+          volumeMounts:
+            - {name: postgres, mountPath: /setup}
+      containers:
+        - name: postgres
+          image: docker.io/library/postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          env:
+            - {name: POSTGRES_DB, value: practice}
+            - {name: POSTGRES_USER, value: practice}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: locoder-dev, key: POSTGRES_PASSWORD}}
+          ports: [{name: postgres, containerPort: 5432}]
+          readinessProbe: {exec: {command: [pg_isready, -U, practice, -d, practice]}, periodSeconds: 2, failureThreshold: 30}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi, ephemeral-storage: 128Mi}
+            limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 1Gi}
+          volumeMounts:
+            - {name: postgres, mountPath: /var/lib/postgresql/data, subPath: data}
+            - {name: postgres, mountPath: /var/run/postgresql, subPath: run}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: postgres, emptyDir: {sizeLimit: 1Gi}}
+        - {name: tmp, emptyDir: {sizeLimit: 32Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: locoder-postgres, namespace: locoder}
+spec:
+  selector: {app.kubernetes.io/name: locoder-postgres}
+  ports: [{name: postgres, port: 5432, targetPort: postgres}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locoder-valkey
+  namespace: locoder
+  labels: {app.kubernetes.io/name: locoder-valkey}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: locoder-valkey}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: locoder-valkey}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: valkey
+          image: docker.io/valkey/valkey@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+          command: [sh, -c, 'exec valkey-server --save "" --appendonly no --requirepass "$VALKEY_PASSWORD"']
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom: {secretKeyRef: {name: locoder-dev, key: VALKEY_PASSWORD}}
+          ports: [{name: valkey, containerPort: 6379}]
+          readinessProbe: {exec: {command: [sh, -c, 'valkey-cli -a "$VALKEY_PASSWORD" ping | grep -qx PONG']}, periodSeconds: 2, failureThreshold: 30}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi, ephemeral-storage: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: data, emptyDir: {sizeLimit: 256Mi}}
+        - {name: tmp, emptyDir: {sizeLimit: 32Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: locoder-valkey, namespace: locoder}
+spec:
+  selector: {app.kubernetes.io/name: locoder-valkey}
+  ports: [{name: valkey, port: 6379, targetPort: valkey}]

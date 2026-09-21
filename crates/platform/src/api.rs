@@ -408,7 +408,7 @@ async fn publish(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Re
     let version = Uuid::new_v4();
     let tests = json!(p.tests);
     p.tests.retain(|t| !t.hidden);
-    let provenance:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('catalog_key',catalog_key,'catalog_commit',catalog_commit,'upstream_revision',upstream_revision,'content_hash',content_hash,'adapter_metadata',adapter_metadata,'warnings',warnings) FROM problem_imports WHERE problem_id=$1").bind(id).fetch_optional(&mut *tx).await?;
+    let provenance:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('catalog_key',catalog_key,'repository_url',repository_url,'resolved_commit',resolved_commit,'manifest_checksum',manifest_checksum,'artifact_hash',artifact_hash) FROM problem_imports WHERE problem_id=$1").bind(id).fetch_optional(&mut *tx).await?;
     sqlx::query("INSERT INTO versions(id,problem_id,public,tests,catalog_provenance) VALUES($1,$2,$3,$4,$5)")
         .bind(version)
         .bind(id)

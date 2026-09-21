@@ -9,7 +9,7 @@ use k8s_openapi::{
 };
 use kube::{
     Api, Client,
-    api::{AttachParams, DeleteParams, ListParams, PostParams},
+    api::{AttachParams, DeleteParams, ListParams, LogParams, PostParams},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -338,22 +338,35 @@ impl Kubernetes {
         let mut stdout = process
             .stdout()
             .ok_or_else(|| anyhow::anyhow!("attach stdout unavailable"))?;
-        let read = async {
-            let mut out = Vec::new();
-            let mut buf = [0; 8192];
-            loop {
-                let n = stdout.read(&mut buf).await?;
-                if n == 0 {
-                    break;
+        let status = process
+            .take_status()
+            .ok_or_else(|| anyhow::anyhow!("attach status unavailable"))?;
+        tokio::pin!(status);
+        let deadline = tokio::time::sleep(wall);
+        tokio::pin!(deadline);
+        let mut out = Vec::new();
+        let mut buf = [0; 8192];
+        loop {
+            tokio::select! {
+                n = stdout.read(&mut buf) => {
+                    let n = n?;
+                    if n == 0 {
+                        return Ok((out, false));
+                    }
+                    ensure!(out.len() + n <= cap, "sandbox response exceeded bound");
+                    out.extend_from_slice(&buf[..n]);
                 }
-                ensure!(out.len() + n <= cap, "sandbox response exceeded bound");
-                out.extend_from_slice(&buf[..n]);
+                _ = &mut status => {
+                    process.abort();
+                    stdout.read_to_end(&mut out).await?;
+                    ensure!(out.len() <= cap, "sandbox response exceeded bound");
+                    return Ok((out, false));
+                }
+                _ = &mut deadline => {
+                    process.abort();
+                    return Ok((out, true));
+                }
             }
-            Ok::<_, anyhow::Error>(out)
-        };
-        match tokio::time::timeout(wall, read).await {
-            Ok(v) => Ok((v?, false)),
-            Err(_) => Ok((vec![], true)),
         }
     }
     pub async fn execute(
@@ -462,18 +475,31 @@ impl Kubernetes {
         let pod = self.pod(
             &name,
             "preflight",
-            vec!["sh".into(), "-c".into(), "dmesg; cat >/dev/null".into()],
+            vec!["dmesg".into()],
             256,
             60,
         );
         self.create_pod(&pod).await?;
-        let result = self
-            .attached(&name, b"", Duration::from_secs(10), 64 * 1024)
-            .await;
+        let result = tokio::time::timeout(self.start_timeout, async {
+            loop {
+                let pod = self.pods.get(&name).await?;
+                match pod.status.as_ref().and_then(|status| status.phase.as_deref()) {
+                    Some("Succeeded") => break,
+                    Some("Failed") => anyhow::bail!("gVisor preflight Pod failed"),
+                    _ => tokio::time::sleep(Duration::from_millis(200)).await,
+                }
+            }
+            self.pods
+                .logs(&name, &LogParams::default())
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("timed out waiting for gVisor preflight Pod"))?;
         self.delete_pod(&name).await;
-        let (out, timeout) = result?;
+        let out = result?;
         ensure!(
-            !timeout && String::from_utf8_lossy(&out).contains("gVisor"),
+            out.contains("gVisor"),
             "RuntimeClass did not identify as gVisor"
         );
         Ok(())
