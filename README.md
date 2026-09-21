@@ -1,10 +1,12 @@
 # Locoder
 
-Locoder is a self-hosted coding workspace for authoring and solving programming problems. It combines a Svelte/Monaco frontend, a Rust/Axum API, PostgreSQL, Valkey Streams, and isolated Podman + gVisor execution.
+Locoder is a self-hosted coding workspace for authoring and solving programming problems. It combines a Svelte/Monaco frontend, a Rust/Axum API, PostgreSQL, Valkey Streams, and isolated gVisor execution through either rootless Podman or Kubernetes.
 
 Problems can expose global C++ or top-level Python functions, stateful data structures, or the legacy `Solution` class contract. Published versions are immutable, hidden tests remain server-side, and every test runs inside a resource-limited sandbox.
 
-> Rootless Podman with the patched gVisor runtime is the only supported execution model. Do not substitute crun/runc or disable cgroup enforcement.
+> gVisor is mandatory for untrusted execution. Compose uses rootless Podman with the patched runtime; production Kubernetes uses an operator-installed gVisor RuntimeClass and never falls back to the node's ordinary runtime.
+
+For Kubernetes production installation, prerequisites, configuration, and rollback procedures, see [deploy/helm/locoder/README.md](deploy/helm/locoder/README.md). For local Fedora testing, see [docs/local-kubernetes-fedora.md](docs/local-kubernetes-fedora.md).
 
 ## Quick start
 

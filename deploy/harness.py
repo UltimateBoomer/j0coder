@@ -5,16 +5,38 @@ import base64
 import json
 import os
 import selectors
+import resource
 import subprocess
 import sys
 
 mode, cap = sys.argv[1], int(sys.argv[2])
 os.chdir('/work')
+resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024))
+try:
+    resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+except (ValueError, OSError):
+    pass
+
+# Kubernetes cannot copy into an unstarted Pod. Its controller sends one bounded
+# request containing the single input file and case input over attach stdin.
+protocol = os.environ.get('LOCODER_STREAM_PROTOCOL') == '1'
+request = None
+if protocol:
+    raw = sys.stdin.buffer.read(48 * 1024 * 1024 + 1)
+    if len(raw) > 48 * 1024 * 1024:
+        raise SystemExit('request too large')
+    request = json.loads(raw)
+    if set(request) != {'name', 'data', 'input'} or request['name'] not in ('solution.cpp', 'solution.py', 'program.b64'):
+        raise SystemExit('invalid request')
+    with open('/input/' + request['name'], 'wb') as f:
+        f.write(base64.b64decode(request['data'], validate=True))
 if mode == 'compile':
     command = ['clang++', '-std=c++20', '-O2', '-pipe', '/input/solution.cpp', '-o', '/work/program']
     data = b''
 else:
-    data = sys.stdin.buffer.read(2 * 1024 * 1024)
+    data = request['input'].encode() if protocol else sys.stdin.buffer.read(2 * 1024 * 1024)
     if os.path.isfile('/input/program.b64'):
         with open('/input/program.b64', 'rb') as f:
             binary = base64.b64decode(f.read(), validate=True)

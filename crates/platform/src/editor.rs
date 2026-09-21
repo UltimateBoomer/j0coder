@@ -1,7 +1,7 @@
 use crate::{
     api::{App, Error},
     contract::Language,
-    sandbox::{Podman, SandboxBackend},
+    sandbox::Backend,
 };
 use axum::{
     Json,
@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{process::Stdio, time::Duration};
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use valkey::AsyncCommands;
 
@@ -168,58 +168,24 @@ async fn bridge(
     session: &str,
     shutdown: &crate::shutdown::Shutdown,
 ) -> anyhow::Result<()> {
-    let b = Podman::new();
-    let name = format!("locoder-editor-{session}");
+    let b = Backend::from_env().await?;
     let cmd = t.language.lsp_command();
-    let mut args = vec![
-        "create",
-        "--timeout=3600",
-        "--name",
-        &name,
-        "--label=locoder.editor=true",
-        "--runtime",
-        &b.runtime,
-        "--network=none",
-        "--http-proxy=false",
-        "--read-only",
-        "--read-only-tmpfs=false",
-        "--user=65534:65534",
-        "--cap-drop=ALL",
-        "--security-opt=no-new-privileges",
-        "--security-opt=label=disable",
-        "--memory=512m",
-        "--memory-swap=512m",
-        "--cpus=1",
-        "--pids-limit=64",
-        "--tmpfs",
-        "/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777",
-        "--tmpfs",
-        "/workspace/.cache:rw,noexec,nosuid,nodev,size=32m,mode=1777",
-        "--log-driver=none",
-        "--workdir=/workspace",
-        "-i",
-        &b.image,
-    ];
-    args.extend(cmd.iter().copied());
-    let create = b.checked(&args);
-    let id = tokio::select! {
-        result = create => String::from_utf8(result?)?.trim().to_string(),
+    let create = b.start_lsp(cmd, session);
+    let mut process = tokio::select! {
+        result = create => result?,
         _ = shutdown.cancelled() => {
-            let _ = b.checked(&["rm", "-f", &name]).await;
             let _ = socket.send(Message::Close(None)).await;
             return Ok(());
         }
     };
     if shutdown.is_cancelled() {
         let _ = socket.send(Message::Close(None)).await;
-        b.cleanup(&id).await;
+        process.cleanup().await;
         return Ok(());
     }
     let result = async {
-        let mut process = b.command().args(["start", "-a", "-i", &id])
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
-        let mut stdin = process.stdin.take().unwrap();
-        let mut stdout = BufReader::new(process.stdout.take().unwrap());
+        let mut stdin = process.stdin.take().ok_or_else(||anyhow::anyhow!("LSP stdin unavailable"))?;
+        let mut stdout = BufReader::new(process.stdout.take().ok_or_else(||anyhow::anyhow!("LSP stdout unavailable"))?);
         // Frame reads must not be cancelled midway when a client message arrives.
         let (frames_tx, mut frames_rx) = tokio::sync::mpsc::channel(8);
         let reader_task = tokio::spawn(async move {
@@ -278,10 +244,9 @@ async fn bridge(
             Ok::<_,anyhow::Error>(())
         }.await;
         reader_task.abort();
-        let _ = process.kill().await;
         session_result
     }.await;
-    let _ = b.checked(&["rm", "-f", &id]).await;
+    process.cleanup().await;
     result
 }
 async fn send_frame<W: tokio::io::AsyncWrite + Unpin>(

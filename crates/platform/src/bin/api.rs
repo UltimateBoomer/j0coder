@@ -6,8 +6,14 @@ async fn main() -> anyhow::Result<()> {
         .max_connections(20)
         .connect(&std::env::var("DATABASE_URL")?)
         .await?;
-    sqlx::migrate!("../../migrations").run(&db).await?;
     let args: Vec<_> = std::env::args().collect();
+    if args.get(1).is_some_and(|a| a == "migrate") {
+        sqlx::migrate!("../../migrations").run(&db).await?;
+        return Ok(());
+    }
+    if locoder::env("MIGRATE_ON_START", "true") == "true" {
+        sqlx::migrate!("../../migrations").run(&db).await?;
+    }
     if args.get(1).is_some_and(|a| a == "bootstrap-admin") {
         let username = args.get(2).ok_or_else(|| {
             anyhow::anyhow!("usage: api bootstrap-admin USERNAME; password read from stdin")

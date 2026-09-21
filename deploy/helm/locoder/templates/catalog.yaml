@@ -1,0 +1,45 @@
+{{- if .Values.catalog.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: locoder-catalog, namespace: {{ .Release.Namespace }}}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: {{ .Release.Name }}-catalog, namespace: {{ .Release.Namespace }}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: catalog}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: locoder, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: catalog}}
+    spec:
+      serviceAccountName: locoder-catalog
+      automountServiceAccountToken: false
+      securityContext: {{- include "locoder.podSecurity" . | nindent 8 }}
+      nodeSelector: {{ toYaml .Values.catalogScheduling.nodeSelector | nindent 8 }}
+      tolerations: {{ toYaml .Values.catalogScheduling.tolerations | nindent 8 }}
+      affinity: {{ toYaml .Values.catalogScheduling.affinity | nindent 8 }}
+      volumes:
+        - {name: tmp, emptyDir: {sizeLimit: 256Mi}}
+        - name: ssh
+          secret: {secretName: {{ required "existingSecrets.catalogSsh.name is required when catalog is enabled" .Values.existingSecrets.catalogSsh.name }}}
+      containers:
+        - name: catalog-controller
+          image: {{ include "locoder.appImage" . }}
+          command: [catalog-controller]
+          securityContext: {{- include "locoder.containerSecurity" . | nindent 12 }}
+          resources: {{ toYaml .Values.resources.catalog | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: ssh, mountPath: /run/secrets, readOnly: true}
+          env:
+            - {name: CATALOG_ENABLED, value: "true"}
+            - {name: CATALOG_REPOSITORY_URL, value: {{ .Values.catalog.repositoryUrl | quote }}}
+            - {name: CATALOG_REVISION, value: {{ .Values.catalog.revision | quote }}}
+            - {name: CATALOG_STRATEGY, value: {{ .Values.catalog.strategy | quote }}}
+            - {name: CATALOG_SSH_KEY_PATH, value: /run/secrets/{{ .Values.existingSecrets.catalogSsh.privateKeyKey }} }
+            - {name: CATALOG_KNOWN_HOSTS_PATH, value: /run/secrets/{{ .Values.existingSecrets.catalogSsh.knownHostsKey }} }
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.existingSecrets.database.name }}, key: {{ .Values.existingSecrets.database.key }}}}
+{{- end }}

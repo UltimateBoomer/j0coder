@@ -1,0 +1,51 @@
+publicOrigin: https://locoder.example.com
+images:
+  app:
+    repository: registry.example.com/locoder/app-kubernetes
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  toolchain:
+    repository: registry.example.com/locoder/toolchain
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+imagePullSecrets: []
+existingSecrets:
+  database: {name: locoder-database, key: DATABASE_URL}
+  valkey: {name: locoder-valkey, key: VALKEY_URL}
+  catalogSsh: {name: "", privateKeyKey: private_key, knownHostsKey: known_hosts}
+sandbox:
+  namespace: ""
+  runtimeClass: runsc
+  podStartTimeoutSeconds: 30
+  cleanupIntervalSeconds: 30
+  ttlSeconds: 300
+  nodeSelector: {}
+  tolerations: []
+  quota: {cpu: "16", memory: 32Gi, ephemeralStorage: 16Gi, pods: "100"}
+replicas: {api: 2, worker: 2, editor: 2}
+workerConcurrency: 1
+resources:
+  api: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 256Mi}}
+  worker: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 256Mi}}
+  editor: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 256Mi}}
+  catalog: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 256Mi}}
+ingress: {enabled: true, className: "", annotations: {}, host: locoder.example.com, tlsSecret: ""}
+catalog: {enabled: false, repositoryUrl: "", revision: main, strategy: track_branch}
+hpa:
+  api: {enabled: false, minReplicas: 2, maxReplicas: 10, targetCPUUtilizationPercentage: 70}
+  editor: {enabled: false, minReplicas: 2, maxReplicas: 10, targetCPUUtilizationPercentage: 70}
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+  ingressPodSelector: {}
+  ingressCidrs: []
+  dnsNamespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+  dnsPodSelector: {}
+  apiServerCidrs: [10.0.0.0/8]
+  apiServerPort: 443
+  postgresCidrs: []
+  postgresPort: 5432
+  valkeyCidrs: []
+  valkeyPort: 6379
+  catalogSshCidrs: []
+  catalogSshPort: 22
+scheduling: {nodeSelector: {}, tolerations: [], affinity: {}, topologySpreadConstraints: []}
+catalogScheduling: {nodeSelector: {}, tolerations: [], affinity: {}}

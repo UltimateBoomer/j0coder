@@ -1,7 +1,10 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     locoder::logging();
-    locoder::sandbox::Podman::new().preflight().await?;
+    locoder::sandbox::Backend::from_env()
+        .await?
+        .preflight()
+        .await?;
     let shutdown = locoder::shutdown::signal();
     let router = axum::Router::new()
         .route("/editor/ws", axum::routing::get(locoder::editor::upgrade))

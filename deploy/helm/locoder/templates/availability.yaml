@@ -1,0 +1,25 @@
+{{- range $component := list "api" "editor" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: {{ $.Release.Name }}-{{ $component }}, namespace: {{ $.Release.Namespace }}}
+spec:
+  maxUnavailable: 1
+  selector: {matchLabels: {app.kubernetes.io/instance: {{ $.Release.Name }}, app.kubernetes.io/component: {{ $component }}}}
+{{- $hpa := index $.Values.hpa $component }}
+{{- if $hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: {{ $.Release.Name }}-{{ $component }}, namespace: {{ $.Release.Namespace }}}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ $.Release.Name }}-{{ $component }}}
+  minReplicas: {{ $hpa.minReplicas }}
+  maxReplicas: {{ $hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ $hpa.targetCPUUtilizationPercentage }}}
+{{- end }}
+{{- end }}

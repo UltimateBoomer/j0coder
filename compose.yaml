@@ -29,6 +29,7 @@ services:
       VALKEY_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      MIGRATE_ON_START: ${MIGRATE_ON_START:-true}
       MAX_TIME_MS: ${MAX_TIME_MS:-10000}
       MAX_MEMORY_MIB: ${MAX_MEMORY_MIB:-1024}
     networks: [database, queue, ingress]

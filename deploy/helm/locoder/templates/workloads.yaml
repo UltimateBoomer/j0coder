@@ -1,0 +1,89 @@
+{{- $root := . -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: locoder-api, namespace: {{ .Release.Namespace }}}
+automountServiceAccountToken: false
+{{- range $component := list "api" "worker" "editor" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $root.Release.Name }}-{{ $component }}
+  namespace: {{ $root.Release.Namespace }}
+  labels: {{- include "locoder.labels" $root | nindent 4 }}
+spec:
+  replicas: {{ index $root.Values.replicas $component }}
+  selector: {matchLabels: {app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $component }}}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: locoder, app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $component }}}
+    spec:
+      serviceAccountName: locoder-{{ $component }}
+      automountServiceAccountToken: {{ if or (eq $component "worker") (eq $component "editor") }}true{{ else }}false{{ end }}
+      securityContext: {{- include "locoder.podSecurity" $root | nindent 8 }}
+      imagePullSecrets: {{ toYaml $root.Values.imagePullSecrets | nindent 8 }}
+      nodeSelector: {{ toYaml $root.Values.scheduling.nodeSelector | nindent 8 }}
+      tolerations: {{ toYaml $root.Values.scheduling.tolerations | nindent 8 }}
+      affinity: {{ toYaml $root.Values.scheduling.affinity | nindent 8 }}
+      topologySpreadConstraints: {{ toYaml $root.Values.scheduling.topologySpreadConstraints | nindent 8 }}
+      volumes:
+        - {name: tmp, emptyDir: {sizeLimit: 32Mi}}
+      containers:
+        - name: {{ $component }}
+          image: {{ include "locoder.appImage" $root }}
+          imagePullPolicy: IfNotPresent
+          command: [{{ $component | quote }}]
+          securityContext: {{- include "locoder.containerSecurity" $root | nindent 12 }}
+          resources: {{ toYaml (index $root.Values.resources $component) | nindent 12 }}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+          {{- if ne $component "worker" }}
+          ports:
+            - {name: http, containerPort: {{ if eq $component "editor" }}8081{{ else }}8080{{ end }}}
+          {{- end }}
+          env:
+            - {name: PUBLIC_ORIGIN, value: {{ $root.Values.publicOrigin | quote }}}
+            - {name: MIGRATE_ON_START, value: "false"}
+            - {name: SANDBOX_BACKEND, value: kubernetes}
+            - {name: SANDBOX_NAMESPACE, value: {{ include "locoder.sandboxNamespace" $root | quote }}}
+            - {name: SANDBOX_RUNTIME_CLASS, value: {{ $root.Values.sandbox.runtimeClass | quote }}}
+            - {name: TOOLCHAIN_IMAGE, value: {{ include "locoder.toolchainImage" $root | quote }}}
+            - {name: KUBERNETES_POD_START_TIMEOUT, value: {{ $root.Values.sandbox.podStartTimeoutSeconds | quote }}}
+            - {name: KUBERNETES_CLEANUP_INTERVAL, value: {{ $root.Values.sandbox.cleanupIntervalSeconds | quote }}}
+            - {name: KUBERNETES_SANDBOX_TTL, value: {{ $root.Values.sandbox.ttlSeconds | quote }}}
+            - {name: SANDBOX_NODE_SELECTOR, value: {{ toJson $root.Values.sandbox.nodeSelector | quote }}}
+            - {name: SANDBOX_TOLERATIONS, value: {{ toJson $root.Values.sandbox.tolerations | quote }}}
+            - {name: WORKER_CONCURRENCY, value: {{ $root.Values.workerConcurrency | quote }}}
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ $root.Values.existingSecrets.database.name }}, key: {{ $root.Values.existingSecrets.database.key }}}}
+            - name: VALKEY_URL
+              valueFrom: {secretKeyRef: {name: {{ $root.Values.existingSecrets.valkey.name }}, key: {{ $root.Values.existingSecrets.valkey.key }}}}
+          {{- if ne $component "worker" }}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          {{- end }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-migrate-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  annotations: {"helm.sh/hook": pre-install,pre-upgrade, "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded}
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {{- include "locoder.podSecurity" . | nindent 8 }}
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 32Mi}}]
+      containers:
+        - name: migrate
+          image: {{ include "locoder.appImage" . }}
+          command: [api, migrate]
+          securityContext: {{- include "locoder.containerSecurity" . | nindent 12 }}
+          resources: {{ toYaml .Values.resources.api | nindent 12 }}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.existingSecrets.database.name }}, key: {{ .Values.existingSecrets.database.key }}}}

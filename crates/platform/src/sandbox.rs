@@ -1,16 +1,591 @@
 use crate::contract::*;
 use anyhow::{Result, ensure};
+use k8s_openapi::{
+    api::core::v1::{
+        Container, EmptyDirVolumeSource, Pod, PodSpec, ResourceRequirements, SeccompProfile,
+        SecurityContext, Toleration, Volume, VolumeMount,
+    },
+    apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::ObjectMeta},
+};
+use kube::{
+    Api, Client,
+    api::{AttachParams, DeleteParams, ListParams, PostParams},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::{process::Stdio, time::Duration};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     process::Command,
 };
 #[derive(Clone)]
 pub struct Podman {
     pub image: String,
     pub runtime: String,
+}
+
+#[derive(Clone)]
+pub struct Kubernetes {
+    pods: Api<Pod>,
+    image: String,
+    runtime_class: String,
+    start_timeout: Duration,
+    node_selector: BTreeMap<String, String>,
+    tolerations: Vec<Toleration>,
+}
+
+#[derive(Clone)]
+pub enum Backend {
+    Podman(Podman),
+    Kubernetes(Kubernetes),
+}
+
+fn backend_kind(value: &str) -> Result<&str> {
+    ensure!(
+        matches!(value, "podman" | "kubernetes"),
+        "unsupported SANDBOX_BACKEND {value:?}; expected podman or kubernetes"
+    );
+    Ok(value)
+}
+
+pub struct LspSession {
+    pub stdin: Option<Box<dyn AsyncWrite + Unpin + Send>>,
+    pub stdout: Option<Box<dyn AsyncRead + Unpin + Send>>,
+    cleanup: LspCleanup,
+}
+enum LspCleanup {
+    Podman(Podman, String, tokio::process::Child),
+    Kubernetes(Api<Pod>, String, kube::api::AttachedProcess),
+}
+impl LspSession {
+    pub async fn cleanup(mut self) {
+        match &mut self.cleanup {
+            LspCleanup::Podman(backend, id, child) => {
+                let _ = child.kill().await;
+                backend.cleanup(id).await;
+            }
+            LspCleanup::Kubernetes(pods, id, process) => {
+                process.abort();
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(10),
+                    pods.delete(
+                        id,
+                        &DeleteParams {
+                            grace_period_seconds: Some(0),
+                            ..Default::default()
+                        },
+                    ),
+                )
+                .await;
+            }
+        }
+    }
+}
+
+impl Backend {
+    pub async fn from_env() -> Result<Self> {
+        match backend_kind(&crate::env("SANDBOX_BACKEND", "podman"))? {
+            "podman" => Ok(Self::Podman(Podman::new())),
+            "kubernetes" => Ok(Self::Kubernetes(Kubernetes::new().await?)),
+            _ => unreachable!(),
+        }
+    }
+    pub async fn preflight(&self) -> Result<()> {
+        match self {
+            Self::Podman(b) => b.preflight().await,
+            Self::Kubernetes(b) => b.preflight().await,
+        }
+    }
+    pub async fn execute(
+        &self,
+        source: &[u8],
+        name: &str,
+        args: &str,
+        limits: &Limits,
+        compile: bool,
+        shutdown: &crate::shutdown::Shutdown,
+    ) -> Result<std::result::Result<Collected, Verdict>> {
+        match self {
+            Self::Podman(b) => {
+                b.execute(source, name, args, limits, compile, shutdown)
+                    .await
+            }
+            Self::Kubernetes(b) => {
+                b.execute(source, name, args, limits, compile, shutdown)
+                    .await
+            }
+        }
+    }
+    pub async fn start_lsp(&self, command: &[&str], session: &str) -> Result<LspSession> {
+        match self {
+            Self::Podman(b) => b.start_lsp(command, session).await,
+            Self::Kubernetes(b) => b.start_lsp(command, session).await,
+        }
+    }
+}
+
+impl Kubernetes {
+    pub async fn new() -> Result<Self> {
+        let client = Client::try_default().await?;
+        let namespace = crate::env("SANDBOX_NAMESPACE", "locoder-sandbox");
+        Ok(Self {
+            pods: Api::namespaced(client, &namespace),
+            image: crate::env("TOOLCHAIN_IMAGE", "localhost/locoder-toolchain:1"),
+            runtime_class: crate::env("SANDBOX_RUNTIME_CLASS", ""),
+            start_timeout: Duration::from_secs(
+                crate::env("KUBERNETES_POD_START_TIMEOUT", "30").parse()?,
+            ),
+            node_selector: serde_json::from_str(&crate::env("SANDBOX_NODE_SELECTOR", "{}"))?,
+            tolerations: serde_json::from_str(&crate::env("SANDBOX_TOLERATIONS", "[]"))?,
+        })
+    }
+    fn pod(
+        &self,
+        name: &str,
+        purpose: &str,
+        command: Vec<String>,
+        memory_mib: u64,
+        ttl: u64,
+    ) -> Pod {
+        let mut labels = BTreeMap::new();
+        labels.insert("app.kubernetes.io/managed-by".into(), "locoder".into());
+        labels.insert("locoder.io/owner".into(), "locoder".into());
+        labels.insert("locoder.io/purpose".into(), purpose.into());
+        labels.insert(
+            "locoder.io/id".into(),
+            name.trim_start_matches("locoder-").into(),
+        );
+        labels.insert(
+            "locoder.io/expiry".into(),
+            (chrono::Utc::now().timestamp() + ttl as i64).to_string(),
+        );
+        let security = SecurityContext {
+            allow_privilege_escalation: Some(false),
+            capabilities: Some(k8s_openapi::api::core::v1::Capabilities {
+                add: None,
+                drop: Some(vec!["ALL".into()]),
+            }),
+            read_only_root_filesystem: Some(true),
+            run_as_group: Some(65534),
+            run_as_non_root: Some(true),
+            run_as_user: Some(65534),
+            seccomp_profile: Some(SeccompProfile {
+                type_: "RuntimeDefault".into(),
+                localhost_profile: None,
+            }),
+            ..Default::default()
+        };
+        let mut requests = BTreeMap::new();
+        requests.insert("cpu".into(), Quantity("100m".into()));
+        requests.insert("memory".into(), Quantity("128Mi".into()));
+        requests.insert("ephemeral-storage".into(), Quantity("64Mi".into()));
+        let mut limits = BTreeMap::new();
+        limits.insert("cpu".into(), Quantity("1".into()));
+        limits.insert("memory".into(), Quantity(format!("{memory_mib}Mi")));
+        limits.insert("ephemeral-storage".into(), Quantity("256Mi".into()));
+        let volumes = [
+            ("tmp", "32Mi"),
+            ("input", "48Mi"),
+            ("work", "128Mi"),
+            ("editor-cache", "32Mi"),
+        ]
+        .into_iter()
+        .map(|(n, s)| Volume {
+            name: n.into(),
+            empty_dir: Some(EmptyDirVolumeSource {
+                medium: None,
+                size_limit: Some(Quantity(s.into())),
+            }),
+            ..Default::default()
+        })
+        .collect();
+        let mounts = [
+            ("tmp", "/tmp"),
+            ("input", "/input"),
+            ("work", "/work"),
+            ("editor-cache", "/workspace/.cache"),
+        ]
+        .into_iter()
+        .map(|(n, p)| VolumeMount {
+            name: n.into(),
+            mount_path: p.into(),
+            ..Default::default()
+        })
+        .collect();
+        Pod {
+            metadata: ObjectMeta {
+                name: Some(name.into()),
+                labels: Some(labels),
+                ..Default::default()
+            },
+            spec: Some(PodSpec {
+                automount_service_account_token: Some(false),
+                containers: vec![Container {
+                    name: "sandbox".into(),
+                    image: Some(self.image.clone()),
+                    image_pull_policy: Some("IfNotPresent".into()),
+                    command: Some(command),
+                    working_dir: (purpose == "editor").then(|| "/workspace".into()),
+                    env: Some(vec![k8s_openapi::api::core::v1::EnvVar {
+                        name: "LOCODER_STREAM_PROTOCOL".into(),
+                        value: Some("1".into()),
+                        ..Default::default()
+                    }]),
+                    stdin: Some(true),
+                    stdin_once: Some(true),
+                    tty: Some(false),
+                    security_context: Some(security),
+                    resources: Some(ResourceRequirements {
+                        limits: Some(limits),
+                        requests: Some(requests),
+                        ..Default::default()
+                    }),
+                    volume_mounts: Some(mounts),
+                    ..Default::default()
+                }],
+                enable_service_links: Some(false),
+                restart_policy: Some("Never".into()),
+                runtime_class_name: Some(self.runtime_class.clone()),
+                node_selector: (!self.node_selector.is_empty()).then(|| self.node_selector.clone()),
+                tolerations: (!self.tolerations.is_empty()).then(|| self.tolerations.clone()),
+                security_context: Some(k8s_openapi::api::core::v1::PodSecurityContext {
+                    fs_group: Some(65534),
+                    run_as_group: Some(65534),
+                    run_as_non_root: Some(true),
+                    run_as_user: Some(65534),
+                    seccomp_profile: Some(SeccompProfile {
+                        type_: "RuntimeDefault".into(),
+                        localhost_profile: None,
+                    }),
+                    ..Default::default()
+                }),
+                termination_grace_period_seconds: Some(1),
+                volumes: Some(volumes),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+    async fn create_pod(&self, pod: &Pod) -> Result<()> {
+        tokio::time::timeout(
+            self.start_timeout,
+            self.pods.create(&PostParams::default(), pod),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("timed out creating sandbox Pod"))??;
+        Ok(())
+    }
+    async fn delete_pod(&self, name: &str) {
+        let _ = tokio::time::timeout(
+            Duration::from_secs(10),
+            self.pods.delete(
+                name,
+                &DeleteParams {
+                    grace_period_seconds: Some(0),
+                    ..Default::default()
+                },
+            ),
+        )
+        .await;
+    }
+    async fn wait_running(&self, name: &str) -> Result<()> {
+        tokio::time::timeout(self.start_timeout, async {
+            loop {
+                let p = self.pods.get(name).await?;
+                if p.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Running") {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                if matches!(
+                    p.status.as_ref().and_then(|s| s.phase.as_deref()),
+                    Some("Failed" | "Succeeded")
+                ) {
+                    anyhow::bail!("sandbox Pod terminated before attach")
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("timed out waiting for sandbox Pod"))??;
+        Ok(())
+    }
+    async fn attached(
+        &self,
+        name: &str,
+        input: &[u8],
+        wall: Duration,
+        cap: usize,
+    ) -> Result<(Vec<u8>, bool)> {
+        self.wait_running(name).await?;
+        let mut process = tokio::time::timeout(
+            self.start_timeout,
+            self.pods.attach(
+                name,
+                &AttachParams::default()
+                    .stdin(true)
+                    .stdout(true)
+                    .stderr(false),
+            ),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("timed out attaching to sandbox Pod"))??;
+        let mut stdin = process
+            .stdin()
+            .ok_or_else(|| anyhow::anyhow!("attach stdin unavailable"))?;
+        stdin.write_all(input).await?;
+        stdin.shutdown().await?;
+        drop(stdin);
+        let mut stdout = process
+            .stdout()
+            .ok_or_else(|| anyhow::anyhow!("attach stdout unavailable"))?;
+        let read = async {
+            let mut out = Vec::new();
+            let mut buf = [0; 8192];
+            loop {
+                let n = stdout.read(&mut buf).await?;
+                if n == 0 {
+                    break;
+                }
+                ensure!(out.len() + n <= cap, "sandbox response exceeded bound");
+                out.extend_from_slice(&buf[..n]);
+            }
+            Ok::<_, anyhow::Error>(out)
+        };
+        match tokio::time::timeout(wall, read).await {
+            Ok(v) => Ok((v?, false)),
+            Err(_) => Ok((vec![], true)),
+        }
+    }
+    pub async fn execute(
+        &self,
+        source: &[u8],
+        name: &str,
+        input: &str,
+        limits: &Limits,
+        compile: bool,
+        shutdown: &crate::shutdown::Shutdown,
+    ) -> Result<std::result::Result<Collected, Verdict>> {
+        ensure!(
+            !self.runtime_class.is_empty(),
+            "SANDBOX_RUNTIME_CLASS is required"
+        );
+        let id = format!("locoder-{}", uuid::Uuid::new_v4().simple());
+        let cap = if compile {
+            64 * 1024 * 1024
+        } else {
+            limits.output_bytes as usize * 6 + 65536
+        };
+        let output = limits.output_bytes.to_string();
+        let pod = self.pod(
+            &id,
+            if compile { "compile" } else { "execute" },
+            vec![
+                "python3".into(),
+                "/opt/harness.py".into(),
+                if compile {
+                    "compile".into()
+                } else {
+                    "run".into()
+                },
+                output,
+            ],
+            if compile { 1024 } else { limits.memory_mib },
+            crate::env("KUBERNETES_SANDBOX_TTL", "300").parse()?,
+        );
+        self.create_pod(&pod).await?;
+        let request = serde_json::to_vec(
+            &serde_json::json!({"name":name,"data":base64_encode(source),"input":input}),
+        )?;
+        let wall = Duration::from_millis(if compile { 30000 } else { limits.time_ms });
+        let run = tokio::select! { r=self.attached(&id,&request,wall,cap) => r, _=shutdown.cancelled()=>Err(anyhow::anyhow!("execution cancelled during shutdown")) };
+        let should_wait_for_status = matches!(&run, Ok((_, false)));
+        let status = if should_wait_for_status {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    let pod = self.pods.get(&id).await?;
+                    if matches!(
+                        pod.status
+                            .as_ref()
+                            .and_then(|status| status.phase.as_deref()),
+                        Some("Failed" | "Succeeded")
+                    ) {
+                        return Ok::<_, kube::Error>(pod);
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            })
+            .await
+            .ok()
+            .and_then(Result::ok)
+        } else {
+            None
+        };
+        let oom = status
+            .as_ref()
+            .and_then(|p| p.status.as_ref())
+            .and_then(|s| s.container_statuses.as_ref())
+            .and_then(|s| s.first())
+            .and_then(|s| s.state.as_ref())
+            .and_then(|s| s.terminated.as_ref())
+            .and_then(|t| t.reason.as_deref())
+            == Some("OOMKilled");
+        self.delete_pod(&id).await;
+        let (bytes, timeout) = match run {
+            Ok(value) => value,
+            Err(error) if error.to_string().contains("response exceeded bound") => {
+                return Ok(Err(Verdict::OutputLimit));
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(if oom {
+            Err(Verdict::MemoryLimit)
+        } else if timeout {
+            Err(Verdict::TimeLimit)
+        } else {
+            match serde_json::from_slice::<Collected>(&bytes) {
+                Ok(c) if c.overflow => Err(Verdict::OutputLimit),
+                Ok(c) => Ok(c),
+                Err(_) => Err(if compile {
+                    Verdict::CompilationError
+                } else {
+                    Verdict::RuntimeError
+                }),
+            }
+        })
+    }
+    pub async fn preflight(&self) -> Result<()> {
+        ensure!(
+            !self.runtime_class.is_empty(),
+            "SANDBOX_RUNTIME_CLASS is required"
+        );
+        let name = format!("locoder-preflight-{}", uuid::Uuid::new_v4().simple());
+        let pod = self.pod(
+            &name,
+            "preflight",
+            vec!["sh".into(), "-c".into(), "dmesg; cat >/dev/null".into()],
+            256,
+            60,
+        );
+        self.create_pod(&pod).await?;
+        let result = self
+            .attached(&name, b"", Duration::from_secs(10), 64 * 1024)
+            .await;
+        self.delete_pod(&name).await;
+        let (out, timeout) = result?;
+        ensure!(
+            !timeout && String::from_utf8_lossy(&out).contains("gVisor"),
+            "RuntimeClass did not identify as gVisor"
+        );
+        Ok(())
+    }
+    async fn start_lsp(&self, command: &[&str], session: &str) -> Result<LspSession> {
+        ensure!(
+            !self.runtime_class.is_empty(),
+            "SANDBOX_RUNTIME_CLASS is required"
+        );
+        let name = format!(
+            "locoder-editor-{}",
+            session.to_ascii_lowercase().replace('_', "-")
+        );
+        let pod = self.pod(
+            &name,
+            "editor",
+            command.iter().map(|s| s.to_string()).collect(),
+            512,
+            3600,
+        );
+        self.create_pod(&pod).await?;
+        if let Err(e) = self.wait_running(&name).await {
+            self.delete_pod(&name).await;
+            return Err(e);
+        }
+        let attach = tokio::time::timeout(
+            self.start_timeout,
+            self.pods.attach(
+                &name,
+                &AttachParams::default()
+                    .stdin(true)
+                    .stdout(true)
+                    .stderr(false),
+            ),
+        )
+        .await;
+        let mut process = match attach {
+            Ok(Ok(process)) => process,
+            Ok(Err(error)) => {
+                self.delete_pod(&name).await;
+                return Err(error.into());
+            }
+            Err(_) => {
+                self.delete_pod(&name).await;
+                anyhow::bail!("timed out attaching to editor Pod");
+            }
+        };
+        let stdin = Box::new(
+            process
+                .stdin()
+                .ok_or_else(|| anyhow::anyhow!("LSP attach stdin unavailable"))?,
+        );
+        let stdout = Box::new(
+            process
+                .stdout()
+                .ok_or_else(|| anyhow::anyhow!("LSP attach stdout unavailable"))?,
+        );
+        Ok(LspSession {
+            stdin: Some(stdin),
+            stdout: Some(stdout),
+            cleanup: LspCleanup::Kubernetes(self.pods.clone(), name, process),
+        })
+    }
+    pub async fn cleanup_expired(&self) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        for p in self
+            .pods
+            .list(&ListParams::default().labels("app.kubernetes.io/managed-by=locoder"))
+            .await?
+        {
+            let expired = p
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|l| l.get("locoder.io/expiry"))
+                .and_then(|s| s.parse::<i64>().ok())
+                .is_some_and(|t| t <= now);
+            let terminal = matches!(
+                p.status.as_ref().and_then(|s| s.phase.as_deref()),
+                Some("Failed" | "Succeeded")
+            );
+            if (expired || terminal)
+                && let Some(n) = p.metadata.name
+            {
+                let _ = self.pods.delete(&n, &DeleteParams::default()).await;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in data.chunks(3) {
+        let n = ((c[0] as u32) << 16)
+            | ((c.get(1).copied().unwrap_or(0) as u32) << 8)
+            | c.get(2).copied().unwrap_or(0) as u32;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if c.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Collected {
@@ -147,6 +722,66 @@ impl Podman {
         let _ = tokio::fs::remove_file(path).await;
         r?;
         Ok(())
+    }
+    async fn start_lsp(&self, command: &[&str], session: &str) -> Result<LspSession> {
+        let name = format!("locoder-editor-{session}");
+        let mut args = vec![
+            "create",
+            "--timeout=3600",
+            "--name",
+            &name,
+            "--label=locoder.editor=true",
+            "--runtime",
+            &self.runtime,
+            "--network=none",
+            "--http-proxy=false",
+            "--read-only",
+            "--read-only-tmpfs=false",
+            "--user=65534:65534",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--security-opt=label=disable",
+            "--memory=512m",
+            "--memory-swap=512m",
+            "--cpus=1",
+            "--pids-limit=64",
+            "--tmpfs",
+            "/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777",
+            "--tmpfs",
+            "/workspace/.cache:rw,noexec,nosuid,nodev,size=32m,mode=1777",
+            "--log-driver=none",
+            "--workdir=/workspace",
+            "-i",
+            &self.image,
+        ];
+        args.extend(command.iter().copied());
+        let id = String::from_utf8(self.checked(&args).await?)?
+            .trim()
+            .to_string();
+        let mut child = self
+            .command()
+            .args(["start", "-a", "-i", &id])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let stdin = Box::new(
+            child
+                .stdin
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("LSP stdin unavailable"))?,
+        );
+        let stdout = Box::new(
+            child
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("LSP stdout unavailable"))?,
+        );
+        Ok(LspSession {
+            stdin: Some(stdin),
+            stdout: Some(stdout),
+            cleanup: LspCleanup::Podman(self.clone(), id, child),
+        })
     }
     pub async fn execute(
         &self,
@@ -371,7 +1006,7 @@ pub async fn judge_with_shutdown(
     tests: &[Case],
     shutdown: &crate::shutdown::Shutdown,
 ) -> Result<Outcome> {
-    let b = Podman::new();
+    let b = Backend::from_env().await?;
     let wrapped = match (&job.signature, &job.interface) {
         (Some(signature), _) => job.language.wrapper(signature, source)?,
         (_, Some(interface)) => job.language.wrapper_interface(interface, source)?,
@@ -576,4 +1211,63 @@ pub fn not_run(tests: &[Case]) -> Vec<CaseResult> {
             log: String::new(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod kubernetes_tests {
+    use super::*;
+
+    #[test]
+    fn validates_backend_selection() {
+        assert_eq!(backend_kind("podman").unwrap(), "podman");
+        assert_eq!(backend_kind("kubernetes").unwrap(), "kubernetes");
+        assert!(backend_kind("docker").is_err());
+    }
+
+    #[tokio::test]
+    async fn generated_pod_is_restricted_and_bounded() {
+        let client =
+            Client::try_from(kube::Config::new("https://127.0.0.1".parse().unwrap())).unwrap();
+        let backend = Kubernetes {
+            pods: Api::namespaced(client, "sandbox"),
+            image: "registry/toolchain@sha256:deadbeef".into(),
+            runtime_class: "runsc".into(),
+            start_timeout: Duration::from_secs(1),
+            node_selector: BTreeMap::new(),
+            tolerations: vec![],
+        };
+        let pod = backend.pod("locoder-test", "execute", vec!["true".into()], 256, 60);
+        let spec = pod.spec.unwrap();
+        assert_eq!(spec.runtime_class_name.as_deref(), Some("runsc"));
+        assert_eq!(spec.automount_service_account_token, Some(false));
+        assert_eq!(spec.host_network, None);
+        assert_eq!(spec.host_pid, None);
+        assert_eq!(spec.host_ipc, None);
+        assert!(
+            spec.volumes
+                .unwrap()
+                .iter()
+                .all(|v| v.empty_dir.is_some() && v.host_path.is_none())
+        );
+        let container = &spec.containers[0];
+        let security = container.security_context.as_ref().unwrap();
+        assert_eq!(security.run_as_non_root, Some(true));
+        assert_eq!(security.run_as_user, Some(65534));
+        assert_eq!(security.allow_privilege_escalation, Some(false));
+        assert_eq!(security.read_only_root_filesystem, Some(true));
+        assert_eq!(security.privileged, None);
+        assert_eq!(
+            security.capabilities.as_ref().unwrap().drop.as_deref(),
+            Some(&["ALL".into()][..])
+        );
+        let resources = container.resources.as_ref().unwrap();
+        assert!(
+            resources
+                .limits
+                .as_ref()
+                .unwrap()
+                .contains_key("ephemeral-storage")
+        );
+        assert!(resources.requests.as_ref().unwrap().contains_key("memory"));
+    }
 }

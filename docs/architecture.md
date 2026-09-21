@@ -2,6 +2,10 @@
 
 Locoder separates the trusted control plane from untrusted user execution. PostgreSQL is the durable authority, Valkey coordinates asynchronous work, and rootless Podman with gVisor provides the execution boundary.
 
+Production Kubernetes is an alternate controller transport for the same boundary. `SANDBOX_BACKEND=podman` remains the default; `kubernetes` uses in-cluster credentials and creates a fresh Pod for compilation, each function case or stateful trace, and each editor session. Public API contracts, queued jobs, comparison logic, and verdicts are unchanged.
+
+In Kubernetes, workers and editors hold namespace-scoped Pod and attach permissions in a dedicated Restricted-PSA sandbox namespace. API and catalog processes have no Kubernetes API credentials. Sandbox Pods have no service-account token or network access, require the configured gVisor RuntimeClass, and exchange submission material only over attach stdin/stdout. A controller timeout is recorded separately from an OOM termination; every path attempts immediate deletion, while expiry labels and a periodic sweeper recover after controller crashes.
+
 ## Intended architecture
 
 ```mermaid

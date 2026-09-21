@@ -151,7 +151,22 @@ redis.call('XACK',KEYS[4],'workers',ARGV[3]);redis.call('XDEL',KEYS[4],ARGV[3]);
 "#;
 const RELEASE: &str = r#"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end"#;
 pub async fn worker(shutdown: crate::shutdown::Shutdown) -> Result<()> {
-    crate::sandbox::Podman::new().preflight().await?;
+    let backend = crate::sandbox::Backend::from_env().await?;
+    backend.preflight().await?;
+    if let crate::sandbox::Backend::Kubernetes(kubernetes) = backend {
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            let interval: u64 = crate::env("KUBERNETES_CLEANUP_INTERVAL", "30")
+                .parse()
+                .unwrap_or(30);
+            while !shutdown.is_cancelled() {
+                if let Err(error) = kubernetes.cleanup_expired().await {
+                    tracing::warn!(%error, "Kubernetes sandbox cleanup failed");
+                }
+                tokio::select! { _=shutdown.cancelled()=>break, _=tokio::time::sleep(std::time::Duration::from_secs(interval))=>{} }
+            }
+        });
+    }
     let n: usize = crate::env("WORKER_CONCURRENCY", "1").parse()?;
     anyhow::ensure!((1..=32).contains(&n), "invalid concurrency");
     let db = sqlx::postgres::PgPoolOptions::new()
