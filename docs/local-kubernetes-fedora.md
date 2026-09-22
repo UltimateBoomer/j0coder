@@ -84,6 +84,8 @@ Expose Locoder through the Kubernetes API connection:
 kubectl -n locoder port-forward service/locoder-api 8080:8080
 ```
 
+The API forwards `/editor/ws` to the editor service, so this single port-forward also supports semantic completion.
+
 Open `http://localhost:8080`.
 
 Resource settings and the instance name can be overridden on initial creation:

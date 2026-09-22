@@ -344,6 +344,7 @@ impl Kubernetes {
         tokio::pin!(status);
         let deadline = tokio::time::sleep(wall);
         tokio::pin!(deadline);
+        let mut completed = false;
         let mut out = Vec::new();
         let mut buf = [0; 8192];
         loop {
@@ -356,11 +357,10 @@ impl Kubernetes {
                     ensure!(out.len() + n <= cap, "sandbox response exceeded bound");
                     out.extend_from_slice(&buf[..n]);
                 }
-                _ = &mut status => {
-                    process.abort();
-                    stdout.read_to_end(&mut out).await?;
-                    ensure!(out.len() <= cap, "sandbox response exceeded bound");
-                    return Ok((out, false));
+                _ = &mut status, if !completed => {
+                    // The exit status can arrive before the final stdout frames.
+                    // Aborting here discards a valid harness response.
+                    completed = true;
                 }
                 _ = &mut deadline => {
                     process.abort();
@@ -413,7 +413,7 @@ impl Kubernetes {
         let run = tokio::select! { r=self.attached(&id,&request,wall,cap) => r, _=shutdown.cancelled()=>Err(anyhow::anyhow!("execution cancelled during shutdown")) };
         let should_wait_for_status = matches!(&run, Ok((_, false)));
         let status = if should_wait_for_status {
-            tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::time::timeout(Duration::from_secs(10), async {
                 loop {
                     let pod = self.pods.get(&id).await?;
                     if matches!(
@@ -442,14 +442,51 @@ impl Kubernetes {
             .and_then(|s| s.terminated.as_ref())
             .and_then(|t| t.reason.as_deref())
             == Some("OOMKilled");
+        // Some runtimes close an attach stream without delivering its final
+        // stdout frames. A completed Pod's log is the same bounded harness
+        // response and remains available until the Pod is deleted.
+        let recovered = if status.is_some()
+            && matches!(&run, Ok((bytes, false)) if serde_json::from_slice::<Collected>(bytes).is_err())
+        {
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    if let Ok(log) = self
+                        .pods
+                        .logs(
+                            &id,
+                            &LogParams {
+                                limit_bytes: Some((cap + 1) as i64),
+                                ..Default::default()
+                            },
+                        )
+                        .await
+                        && !log.is_empty()
+                    {
+                        break log;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            })
+            .await
+            .ok()
+        } else {
+            None
+        };
         self.delete_pod(&id).await;
-        let (bytes, timeout) = match run {
+        let (mut bytes, timeout) = match run {
             Ok(value) => value,
             Err(error) if error.to_string().contains("response exceeded bound") => {
                 return Ok(Err(Verdict::OutputLimit));
             }
             Err(error) => return Err(error),
         };
+        if !timeout
+            && serde_json::from_slice::<Collected>(&bytes).is_err()
+            && let Some(log) = recovered
+        {
+            ensure!(log.len() <= cap, "sandbox response exceeded bound");
+            bytes = log.into_bytes();
+        }
         Ok(if oom {
             Err(Verdict::MemoryLimit)
         } else if timeout {
@@ -458,11 +495,10 @@ impl Kubernetes {
             match serde_json::from_slice::<Collected>(&bytes) {
                 Ok(c) if c.overflow => Err(Verdict::OutputLimit),
                 Ok(c) => Ok(c),
-                Err(_) => Err(if compile {
-                    Verdict::CompilationError
-                } else {
-                    Verdict::RuntimeError
-                }),
+                Err(error) => {
+                    tracing::warn!(response_bytes = bytes.len(), error = %error, "sandbox returned an invalid response");
+                    anyhow::bail!("sandbox returned an invalid response")
+                }
             }
         })
     }
@@ -472,18 +508,16 @@ impl Kubernetes {
             "SANDBOX_RUNTIME_CLASS is required"
         );
         let name = format!("locoder-preflight-{}", uuid::Uuid::new_v4().simple());
-        let pod = self.pod(
-            &name,
-            "preflight",
-            vec!["dmesg".into()],
-            256,
-            60,
-        );
+        let pod = self.pod(&name, "preflight", vec!["dmesg".into()], 256, 60);
         self.create_pod(&pod).await?;
         let result = tokio::time::timeout(self.start_timeout, async {
             loop {
                 let pod = self.pods.get(&name).await?;
-                match pod.status.as_ref().and_then(|status| status.phase.as_deref()) {
+                match pod
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.phase.as_deref())
+                {
                     Some("Succeeded") => break,
                     Some("Failed") => anyhow::bail!("gVisor preflight Pod failed"),
                     _ => tokio::time::sleep(Duration::from_millis(200)).await,
@@ -1242,6 +1276,98 @@ pub fn not_run(tests: &[Case]) -> Vec<CaseResult> {
 #[cfg(test)]
 mod kubernetes_tests {
     use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires a configured Kubernetes sandbox cluster"]
+    async fn compiles_a_minimal_cpp_program() -> Result<()> {
+        let backend = Backend::from_env().await?;
+        let (_trigger, shutdown) = crate::shutdown::channel();
+        let result = backend
+            .execute(
+                b"int main() { return 0; }",
+                "solution.cpp",
+                "",
+                &Limits::default(),
+                true,
+                &shutdown,
+            )
+            .await?;
+        let collected = result.map_err(|verdict| anyhow::anyhow!("{verdict:?}"))?;
+        anyhow::ensure!(collected.exit == 0, "compiler failed: {}", collected.log);
+        anyhow::ensure!(
+            collected.artifact.is_some(),
+            "compiler returned no artifact"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a configured Kubernetes sandbox cluster"]
+    async fn runs_a_minimal_python_program() -> Result<()> {
+        let backend = Backend::from_env().await?;
+        let (_trigger, shutdown) = crate::shutdown::channel();
+        let result = backend
+            .execute(
+                b"open('/work/result', 'w').write('1')",
+                "solution.py",
+                "",
+                &Limits::default(),
+                false,
+                &shutdown,
+            )
+            .await?;
+        let collected = result.map_err(|verdict| anyhow::anyhow!("{verdict:?}"))?;
+        anyhow::ensure!(collected.exit == 0, "runner failed: {}", collected.log);
+        anyhow::ensure!(
+            collected.output == Some(serde_json::json!(1)),
+            "unexpected output"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a configured Kubernetes sandbox cluster"]
+    async fn judges_a_cpp_submission() -> Result<()> {
+        let job = Job {
+            attempt_base: 0,
+            generation: uuid::Uuid::new_v4(),
+            schema: 3,
+            id: uuid::Uuid::new_v4(),
+            language: Language::Cpp,
+            version: uuid::Uuid::new_v4(),
+            signature: Some(Signature {
+                method: "solve".into(),
+                params: vec![Parameter {
+                    name: "x".into(),
+                    ty: Type::Int,
+                }],
+                returns: Type::Int,
+            }),
+            interface: None,
+            limits: Limits::default(),
+            mode: "submit".into(),
+            type_definitions: vec![],
+            comparison: Comparison::default(),
+        };
+        let cases = [Case {
+            args: Some(serde_json::json!([1])),
+            expected: Some(serde_json::json!(2)),
+            hidden: false,
+            constructor_args: None,
+            operations: None,
+        }];
+        let outcome = judge(
+            &job,
+            "class Solution { public: int solve(int x) { return x + 1; } };",
+            &cases,
+        )
+        .await?;
+        anyhow::ensure!(
+            outcome.verdict == Verdict::Accepted,
+            "judge returned {outcome:?}"
+        );
+        Ok(())
+    }
 
     #[test]
     fn validates_backend_selection() {

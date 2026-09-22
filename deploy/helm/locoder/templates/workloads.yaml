@@ -42,6 +42,9 @@ spec:
           {{- end }}
           env:
             - {name: PUBLIC_ORIGIN, value: {{ $root.Values.publicOrigin | quote }}}
+            {{- if eq $component "api" }}
+            - {name: EDITOR_UPSTREAM_WS, value: "ws://{{ $root.Release.Name }}-editor:8081/editor/ws"}
+            {{- end }}
             - {name: COOKIE_SECURE, value: {{ $root.Values.cookieSecure | quote }}}
             - {name: MIGRATE_ON_START, value: "false"}
             - {name: SANDBOX_BACKEND, value: kubernetes}
