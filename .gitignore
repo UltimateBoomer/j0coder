@@ -2,6 +2,7 @@
 /web/node_modules
 /web/dist
 .env
+/deploy/local-kubernetes/values.local.yaml
 /data
 /.dev
 /test-results

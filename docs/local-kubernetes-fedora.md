@@ -57,6 +57,20 @@ make kube-dev-up
 6. copies OCI archives into the VM and imports them into containerd's `k8s.io` namespace;
 7. reads PostgreSQL and Valkey credentials from `.env`, starts both services with `emptyDir` storage, and installs the production Helm chart with local values.
 
+For machine-specific Helm settings, create `deploy/local-kubernetes/values.local.yaml`. It is gitignored and applied after the tracked `values.yaml` on every `make kube-dev-up`. For example, to enable a private problem catalog:
+
+```yaml
+existingSecrets:
+  catalogSsh: {name: locoder-catalog-ssh, privateKeyKey: private_key, knownHostsKey: known_hosts}
+catalog:
+  enabled: true
+  repositoryUrl: git@github.com:YOUR_ACCOUNT/YOUR_REPO.git
+  revision: main
+  strategy: track_branch
+```
+
+Create the referenced Kubernetes SSH Secret separately; do not put private keys in either values file. The override is local to this checkout and must be recreated on a new machine.
+
 Lima forwards the Kubernetes API to localhost and exports a kubeconfig under its instance directory. The startup script prints its exact path. To locate it again:
 
 ```bash

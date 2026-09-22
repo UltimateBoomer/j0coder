@@ -1,9 +1,11 @@
 use crate::contract::*;
 use anyhow::Result;
 use sqlx::{PgPool, Row};
+use std::time::Duration;
 use uuid::Uuid;
 use valkey::{
     AsyncCommands,
+    aio::ConnectionManagerConfig,
     streams::{StreamAutoClaimReply, StreamReadReply},
 };
 pub const JOBS: &str = "practice:jobs:v1";
@@ -11,7 +13,12 @@ pub const EVENTS: &str = "practice:events:v1";
 pub async fn connection() -> Result<valkey::aio::ConnectionManager> {
     Ok(
         valkey::Client::open(crate::env("VALKEY_URL", "redis://valkey:6379"))?
-            .get_connection_manager()
+            // XREAD blocks for up to one second. The client's 500 ms default
+            // response timeout would otherwise interrupt every idle read.
+            .get_connection_manager_with_config(
+                ConnectionManagerConfig::default()
+                    .set_response_timeout(Some(Duration::from_secs(3))),
+            )
             .await?,
     )
 }
@@ -229,7 +236,7 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
                 continue;
             };
             let job: Job = serde_json::from_str(&payload)?;
-            anyhow::ensure!([1, 2].contains(&job.schema), "unsupported job");
+            anyhow::ensure!(supported_job_schema(job.schema), "unsupported job");
             let prefix = format!("practice:{}:{}", job.id, job.generation);
             let lease = format!("{prefix}:lease");
             let done = format!("{prefix}:done");
@@ -353,9 +360,20 @@ async fn load_payload(db: &PgPool, job: &Job) -> Result<(String, Vec<Case>)> {
         .await?;
     Ok((row.get("source"), serde_json::from_value(row.get("tests"))?))
 }
+fn supported_job_schema(schema: u8) -> bool {
+    (1..=3).contains(&schema)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn worker_accepts_current_job_schemas() {
+        for schema in 1..=3 {
+            assert!(supported_job_schema(schema));
+        }
+        assert!(!supported_job_schema(0));
+        assert!(!supported_job_schema(4));
+    }
     #[test]
     fn completion_is_fenced() {
         assert!(COMPLETE.find("~=ARGV[1]").unwrap() < COMPLETE.find("XADD").unwrap());

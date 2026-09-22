@@ -150,9 +150,14 @@ python3 "$root/scripts/kube-dev-secrets.py" "$root/.env" | "${kubectl_cmd[@]}" a
 "${kubectl_cmd[@]}" rollout status --namespace locoder deployment/locoder-valkey --timeout=180s
 
 echo "Installing Locoder"
+values_args=(--values "$root/deploy/local-kubernetes/values.yaml")
+local_values="$root/deploy/local-kubernetes/values.local.yaml"
+if [[ -f "$local_values" ]]; then
+    values_args+=(--values "$local_values")
+fi
 "${helm_cmd[@]}" upgrade --install locoder "$root/deploy/helm/locoder" \
     --namespace locoder \
-    --values "$root/deploy/local-kubernetes/values.yaml" \
+    "${values_args[@]}" \
     --set-string "images.app.repository=${app_image%:*}" \
     --set-string "images.app.digest=$app_digest" \
     --set-string "images.toolchain.repository=${toolchain_image%:*}" \
