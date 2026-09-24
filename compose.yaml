@@ -44,6 +44,8 @@ services:
   catalog-controller:
     image: ${APP_IMAGE:-localhost/locoder-app:1}
     command: [catalog-controller]
+    # Map the host owner of the 0600 deploy key to the image's non-root user.
+    userns_mode: keep-id:uid=65534,gid=65534
     environment:
       DATABASE_URL: postgres://practice:${POSTGRES_PASSWORD}@postgres:5432/practice
       CATALOG_REPOSITORY_URL: ${CATALOG_REPOSITORY_URL:-}

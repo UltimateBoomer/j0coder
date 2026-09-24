@@ -16,10 +16,15 @@ install_dir="$dev/gvisor/$release-rootless-${patch_hash:0:12}"
 for command in git podman sha256sum tar; do
  command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done
-if [[ -x "$install_dir/runsc" && -d "$install_dir/gvisor-bin" && -f "$install_dir/.locoder-patch-hash" ]] &&
- [[ $(<"$install_dir/.locoder-patch-hash") == "$patch_hash" ]]; then
- printf 'gVisor development runtime already installed: %s\n' "$install_dir/runsc"
- exit 0
+if [[ -x "$install_dir/runsc" && -d "$install_dir/gvisor-bin" ]]; then
+ for marker in .locoder-patch-hash .practice-patch-hash; do
+  if [[ -f "$install_dir/$marker" && $(<"$install_dir/$marker") == "$patch_hash" ]]; then
+   printf '%s\n' "$patch_hash" >"$install_dir/.locoder-patch-hash"
+   ln -sfn "$(basename "$install_dir")" "$dev/gvisor/current"
+   printf 'gVisor development runtime already installed: %s\n' "$install_dir/runsc"
+   exit 0
+  fi
+ done
 fi
 
 mkdir -p "$dev/src" "$dev/cache" "$dev/gvisor"
@@ -62,6 +67,11 @@ tar -xjf "$archive" -C "$staging"
  exit 1
 }
 printf '%s\n' "$patch_hash" >"$staging/.locoder-patch-hash"
+if [[ -e "$install_dir" ]]; then
+ backup="$install_dir.stale.$(date +%s).$$"
+ mv "$install_dir" "$backup"
+ printf 'Preserved incomplete gVisor runtime at %s\n' "$backup" >&2
+fi
 mv "$staging" "$install_dir"
 ln -sfn "$(basename "$install_dir")" "$dev/gvisor/current"
 "$install_dir/runsc" --version
