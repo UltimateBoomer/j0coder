@@ -1,12 +1,12 @@
 # Architecture and scaling
 
-Locoder separates the trusted control plane from untrusted user execution. PostgreSQL is the durable authority, Valkey coordinates asynchronous work, and rootless Podman with gVisor provides the execution boundary.
+Locoder separates the trusted control plane from untrusted user execution. PostgreSQL is the durable authority, Valkey coordinates asynchronous work, and gVisor provides the execution boundary. Local Compose development controls gVisor through rootless Podman; staging and production control it through Kubernetes.
 
-Production Kubernetes is an alternate controller transport for the same boundary. `SANDBOX_BACKEND=podman` remains the default; `kubernetes` uses in-cluster credentials and creates a fresh Pod for compilation, each function case or stateful trace, and each editor session. Public API contracts, queued jobs, comparison logic, and verdicts are unchanged.
+`SANDBOX_BACKEND=podman` is the local default. The Kubernetes deployment sets `SANDBOX_BACKEND=kubernetes`, uses in-cluster credentials, and creates a fresh Pod for compilation, each function case or stateful trace, and each editor session. Public API contracts, queued jobs, comparison logic, and verdicts are unchanged.
 
 In Kubernetes, workers and editors hold namespace-scoped Pod and attach permissions in a dedicated Restricted-PSA sandbox namespace. API and catalog processes have no Kubernetes API credentials. Sandbox Pods have no service-account token or network access, require the configured gVisor RuntimeClass, and exchange submission material only over attach stdin/stdout. A controller timeout is recorded separately from an OOM termination; every path attempts immediate deletion, while expiry labels and a periodic sweeper recover after controller crashes.
 
-## Intended architecture
+## Local Compose topology
 
 ```mermaid
 flowchart LR
@@ -45,7 +45,7 @@ flowchart LR
     class Queue coordination
 ```
 
-The API never receives the Podman socket. Workers and editors do receive it and are trusted controller components. Submitted programs run without networking, credentials, the Podman socket, or access to other tests.
+The API never receives the Podman socket. Workers and editors do receive it and are trusted controller components. Submitted programs run without networking, credentials, the Podman socket, or access to other tests. On Kubernetes, the workers and editors instead use their scoped service accounts to manage sandbox Pods.
 
 ## Submission lifecycle
 
@@ -56,7 +56,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant V as Valkey Streams
     participant W as Worker
-    participant P as Podman/runsc
+    participant P as gVisor sandbox backend
 
     User->>API: Submit source and immutable version
     API->>DB: Commit submission and outbox row
@@ -87,7 +87,7 @@ sequenceDiagram
     participant API
     participant V as Valkey
     participant E as Editor service
-    participant P as Podman/runsc
+    participant P as gVisor sandbox backend
     participant LSP as clangd or Pyright
 
     User->>API: Request editor ticket
@@ -95,13 +95,13 @@ sequenceDiagram
     API-->>User: Ticket and workspace path
     User->>E: Open authenticated WebSocket
     E->>V: Consume ticket
-    E->>P: Start isolated LSP container
+    E->>P: Start isolated LSP sandbox
     P->>LSP: Launch language server
     User->>E: Filtered LSP requests
     E-->>User: Filtered LSP responses
     E->>LSP: LSP requests
     LSP-->>E: LSP responses
-    E->>P: Destroy container on close or timeout
+    E->>P: Destroy sandbox on close or timeout
 ```
 
 The editor has no PostgreSQL credentials. Tickets are short-lived and one use. The service restricts LSP methods and workspace URIs and enforces idle, lifetime, per-user, and process-wide session limits.
@@ -135,7 +135,7 @@ Each API process currently runs dispatch and result-consumer loops. Stream coord
 
 ### Workers
 
-Workers are the primary submission-throughput scaling unit. They share the Valkey consumer group and can be added independently:
+Workers are the primary submission-throughput scaling unit. They share the Valkey consumer group and can be added independently. For local Compose development:
 
 ```sh
 podman compose up -d --scale worker=4
@@ -147,15 +147,15 @@ podman compose up -d --scale worker=4
 worker replicas × WORKER_CONCURRENCY × active sandboxes per submission
 ```
 
-A submission normally has one execution sandbox active at a time, plus compilation when required. Limits apply per sandbox, but the host still needs headroom for Podman, runsc, workers, and compilation bursts.
+A submission normally has one execution sandbox active at a time, plus compilation when required. Limits apply per sandbox, but execution nodes still need headroom for gVisor, workers, and compilation bursts.
 
-The Podman socket is node-local. Multi-host scaling requires one rootless Podman/runsc controller on every execution node and placement that connects each worker only to its local socket. Workers can share PostgreSQL and Valkey across nodes. Never expose the Podman socket over a public network.
+The Podman socket in the Compose deployment is node-local and must never be exposed over a public network. The Kubernetes chart uses service accounts and sandbox Pods for multi-node scaling; see its [capacity and scheduling guidance](../deploy/helm/locoder/README.md#capacity-and-scheduling).
 
 ### Editors
 
 Editor replicas can scale horizontally, but each WebSocket remains attached to one replica for its lifetime. Tickets are shared through Valkey, so the initial connection can be load-balanced without sticky routing; the proxy must preserve the upgraded connection afterward.
 
-Each replica enforces its own session capacity. Effective global capacity is the sum of replica limits, bounded by execution-node resources. Like workers, editors should control only a node-local Podman socket.
+Each replica enforces its own session capacity. Effective global capacity is the sum of replica limits, bounded by execution-node resources. Compose editors use the node-local Podman socket; Kubernetes editors use scoped permissions in the sandbox namespace.
 
 ### PostgreSQL and Valkey
 
@@ -167,21 +167,18 @@ Valkey carries jobs, result events, leases, and editor tickets. Enable persisten
 
 Catalog reconciliation is a singleton responsibility and should not be horizontally scaled. PostgreSQL advisory locking defensively serializes overlapping attempts. Very large catalogs would benefit from incremental fetch and validation rather than additional controllers.
 
-## Multi-node boundary
+## Deployment topology
 
-The current Compose topology targets one rootless Linux host. It can scale workers and editors on that host, but it does not schedule across machines. A multi-node deployment needs:
+The Compose topology targets one rootless Linux host. It can scale workers and editors on that host, but it does not schedule across machines. Staging and production use the [Kubernetes chart](../deploy/helm/locoder/README.md), which schedules application replicas and gVisor sandbox Pods across nodes. That deployment needs:
 
 - shared PostgreSQL and Valkey services;
 - ingress for API and editor replicas;
-- rootless Podman/runsc on every worker/editor node;
-- node-aware placement so controllers use only local Podman sockets;
-- identical application and toolchain images on every node;
+- a working gVisor RuntimeClass on sandbox nodes;
+- immutable application and toolchain image digests available to every scheduled node;
 - centralized metrics and logs that continue to redact source and hidden tests.
-
-The sandbox backend already separates create, start, collect, kill, and cleanup operations, leaving room for a future Kubernetes implementation. No Kubernetes manifests or execution backend are currently included.
 
 ## Security and resource boundaries
 
-Sandboxes run as UID 65534 with a read-only root filesystem, dropped capabilities, no-new-privileges, no networking, bounded tmpfs, and CPU, memory, PID, file, output, and wall-clock limits. The controller verifies that Podman recorded runsc as the OCI runtime. Compilation receives source but no tests; execution wrappers receive only the current case through standard input.
+Sandboxes run as UID 65534 with a read-only root filesystem, dropped capabilities, no-new-privileges, no networking, bounded tmpfs, and CPU, memory, PID, file, output, and wall-clock limits. The local controller verifies that Podman recorded runsc as the OCI runtime; the Kubernetes controller requires the configured gVisor RuntimeClass. Compilation receives source but no tests; execution wrappers receive only the current case through standard input.
 
 Hidden inputs, expected values, outputs, and runtime diagnostics are redacted from learner-facing responses. Service logs must not include source, test content, WebSocket tickets, or sandbox runtime output.

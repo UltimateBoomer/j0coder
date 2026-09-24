@@ -1,6 +1,6 @@
-# Ephemeral Kubernetes development cluster on Fedora
+# Ephemeral Kubernetes deployment test on Fedora
 
-Locoder uses a disposable Lima-managed QEMU VM containing a single-node Kubernetes 1.34 kubeadm cluster, system containerd, Flannel, and gVisor. The minor version is pinned in the repository overlay so Lima template updates cannot silently change it. QEMU runs as the developer and uses `/dev/kvm` for hardware acceleration. The workflow does not connect to system libvirt or require membership in the `libvirt` group. Podman is used only to build and export the local application and toolchain images.
+Use this disposable cluster to test the staging and production Helm deployment locally. For ordinary development, start with [Podman Compose](../README.md#develop-locally-with-podman-compose). The Lima-managed QEMU VM contains a single-node Kubernetes 1.34 kubeadm cluster, system containerd, Flannel, and gVisor. The minor version is pinned in the repository overlay so Lima template updates cannot silently change it. QEMU runs as the developer and uses `/dev/kvm` for hardware acceleration. The workflow does not connect to system libvirt or require membership in the `libvirt` group. Podman is used only to build and export the local application and toolchain images.
 
 ## One-time host setup
 
@@ -87,6 +87,25 @@ kubectl -n locoder port-forward service/locoder-api 8080:8080
 The API forwards `/editor/ws` to the editor service, so this single port-forward also supports semantic completion.
 
 Open `http://localhost:8080`.
+
+For a new cluster, create its first administrator in another terminal using the same `KUBECONFIG`:
+
+```bash
+read -rsp 'New admin password (12+ characters): ' locoder_password; echo
+printf '%s\n' "$locoder_password" | kubectl -n locoder exec -i deployment/locoder-api -- api bootstrap-admin admin
+unset locoder_password
+```
+
+In fish:
+
+```fish
+read --silent --prompt-str 'New admin password (12+ characters): ' locoder_password
+echo
+printf '%s\n' "$locoder_password" | kubectl -n locoder exec -i deployment/locoder-api -- api bootstrap-admin admin
+set -e locoder_password
+```
+
+Sign in as `admin`. The cluster and its database are deleted by `make kube-dev-down`, so a recreated cluster needs a new administrator.
 
 Resource settings and the instance name can be overridden on initial creation:
 

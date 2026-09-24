@@ -1,6 +1,6 @@
 # Locoder on Kubernetes
 
-This Helm 3 chart installs the Locoder control plane and a dedicated namespace for short-lived gVisor sandbox Pods. It does not install PostgreSQL, Valkey, gVisor, an ingress controller, cert-manager, or an external-secrets operator.
+This is the staging and production deployment path. The Helm 3 chart installs the Locoder control plane and a dedicated namespace for short-lived gVisor sandbox Pods. It does not install PostgreSQL, Valkey, gVisor, an ingress controller, cert-manager, or an external-secrets operator. For the default local development path, use [Podman Compose](../../../README.md#develop-locally-with-podman-compose).
 
 For a disposable Fedora development cluster using a Lima-managed QEMU VM, kubeadm, containerd, and gVisor, see [Local Kubernetes on Fedora](../../../docs/local-kubernetes-fedora.md). Podman is used only to build and export the local images.
 
@@ -11,13 +11,33 @@ For a disposable Fedora development cluster using a Lima-managed QEMU VM, kubead
 - External PostgreSQL and Valkey endpoints in existing Secrets. The default keys are `DATABASE_URL` and `VALKEY_URL`.
 - Immutable application and toolchain image digests. Build the Kubernetes application image with `deploy/KubernetesApp.Containerfile`; it contains no Podman client.
 - Egress CIDRs for the Kubernetes API, DNS, PostgreSQL, Valkey, ingress path, and optional catalog SSH destination appropriate to the cluster.
+- A TLS ingress and public HTTPS origin for browser access.
 
-Install after editing a values file:
+Create a staging or production values file from `values.yaml`. Set `publicOrigin`, `ingress.host`, `ingress.tlsSecret`, both image repositories and digests, `sandbox.runtimeClass`, the existing Secret references, and the network policy destinations for your cluster. Use separate values and credentials for each environment. Install after the external services, Secrets, RuntimeClass, and ingress are ready:
 
 ```sh
 helm upgrade --install locoder deploy/helm/locoder \
   --namespace locoder --create-namespace -f production-values.yaml
 ```
+
+The chart does not create a default administrator. Once the API Deployment is ready, create the initial administrator by supplying its password on stdin:
+
+```bash
+read -rsp 'New admin password (12+ characters): ' locoder_password; echo
+printf '%s\n' "$locoder_password" | kubectl -n locoder exec -i deployment/locoder-api -- api bootstrap-admin admin
+unset locoder_password
+```
+
+In fish:
+
+```fish
+read --silent --prompt-str 'New admin password (12+ characters): ' locoder_password
+echo
+printf '%s\n' "$locoder_password" | kubectl -n locoder exec -i deployment/locoder-api -- api bootstrap-admin admin
+set -e locoder_password
+```
+
+Sign in as `admin` at the configured public origin. Run the bootstrap command only for a new database; an existing username causes it to fail. The command runs inside an API Pod with the chart's database connection. If you use a different Helm release name or namespace, adjust `deployment/locoder-api` and `-n locoder` accordingly.
 
 The pre-install/pre-upgrade Job runs `api migrate`; API replicas set `MIGRATE_ON_START=false`. Database and Valkey Secrets are referenced, never copied into chart-managed objects. Worker and editor service accounts can only manage Pods and Pod attachments in the sandbox namespace. Sandbox Pods do not mount service-account tokens and are isolated by a default-deny policy.
 
