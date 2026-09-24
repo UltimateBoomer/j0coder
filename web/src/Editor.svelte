@@ -1,7 +1,8 @@
 <script lang="ts">
  import {onMount} from 'svelte';import {api,type ProblemDetail,type User} from './api';import DOMPurify from 'dompurify';import {marked} from 'marked';
  export let problem:ProblemDetail;export let user:User;export let onerror:(e:string)=>void;
- let host:HTMLDivElement, language:'cpp'|'python'='cpp',editor:any,monaco:any,semantic='Starting editor…',busy=false,history:any[]=[],selected:any=null,alive=true,subscription:any,disconnect:(()=>void)|undefined;
+ let host:HTMLDivElement, language:'cpp'|'python'='cpp',editor:any,monaco:any,semantic='Starting editor…',busy=false,history:any[]=[],selected:any=null,alive=true,subscription:any;
+ let connection:import('./semantic').Connection|undefined,connectionGeneration=0,retryCount=0,retryTimer:ReturnType<typeof setTimeout>|undefined;
  const key=()=>`practice:${user.id}:${problem.version}:${language}`;
  const statement=DOMPurify.sanitize(marked.parse(problem.problem.statement,{async:false}) as string);
  const stateful=()=>problem.problem.interface?.kind==='data_structure';
@@ -15,11 +16,39 @@
  function caseLabel(cases:any[],index:number){const item=cases[index];return `${item.hidden?'Hidden':'Visible'} case ${caseNumber(cases,index,Boolean(item.hidden))}: ${words(item.verdict)}`}
  function caseClass(verdict:string|null){if(verdict==='accepted')return 'pass';if(['time_limit','memory_limit','output_limit'].includes(verdict||''))return 'limit';if(verdict===null||verdict===undefined)return 'not-run';return 'fail'}
  function caseSymbol(verdict:string|null){if(verdict==='accepted')return '✓';if(['time_limit','memory_limit','output_limit'].includes(verdict||''))return '⚠';if(verdict===null||verdict===undefined)return '–';return '×'}
- async function connect(){disconnect?.();semantic='Connecting semantic completion…';try{const lsp=await import('./semantic');disconnect=await lsp.connect(monaco,editor,language,(s:string)=>semantic=s)}catch{semantic='Basic completion · semantic service unavailable'}}
- async function change(){disconnect?.();const old=editor.getModel();const model=monaco.editor.createModel(localStorage.getItem(key())||problem.starters[language],language==='cpp'?'cpp':'python',monaco.Uri.parse(`file:///workspace/solution.${language==='cpp'?'cpp':'py'}`));editor.setModel(model);old?.dispose();await connect()}
+ function stopSemantic(){
+  connectionGeneration++;
+  if(retryTimer)clearTimeout(retryTimer);
+  retryTimer=undefined;
+  connection?.dispose();connection=undefined;
+ }
+ function retrySemantic(generation:number){
+  if(!alive||generation!==connectionGeneration)return;
+  stopSemantic();
+  const delay=Math.min(10000,250*2**Math.min(retryCount++,6))*(0.75+Math.random()*0.5);
+  semantic='Basic completion · reconnecting semantic service…';
+  retryTimer=setTimeout(()=>{retryTimer=undefined;void connect()},delay);
+ }
+ async function connect(){
+  stopSemantic();
+  if(!alive||!editor)return;
+  const generation=connectionGeneration,currentLanguage=language;
+  semantic='Connecting semantic completion…';
+  try{
+   const lsp=await import('./semantic');
+   if(generation!==connectionGeneration||!alive)return;
+   const current=lsp.connect(currentLanguage,()=>retrySemantic(generation));
+   connection=current;
+   await current.ready;
+   if(generation!==connectionGeneration||!alive)return;
+   retryCount=0;
+   semantic='Semantic completion connected';
+  }catch{retrySemantic(generation)}
+ }
+ async function change(){stopSemantic();retryCount=0;const old=editor.getModel();const model=monaco.editor.createModel(localStorage.getItem(key())||problem.starters[language],language==='cpp'?'cpp':'python',monaco.Uri.parse(`file:///workspace/solution.${language==='cpp'?'cpp':'py'}`));editor.setModel(model);old?.dispose();await connect()}
  async function historyLoad(selectId?:string){const updated=await api(`/submissions?version=${problem.version}`);history=updated;if(selectId!==undefined)selected=updated.find((h:any)=>h.id===selectId)||selected;else if(selected===null)selected=updated[0]||null}
  async function waitForCompletion(id:string){busy=true;try{for(let count=0;alive&&count<4000;count++){const s=await api(`/submissions/${id}`);if(s.status==='completed'){await historyLoad(id);break}await new Promise(resolve=>setTimeout(resolve,1000))}}finally{busy=false}}
- onMount(()=>{alive=true;(async()=>{try{const setup=await import('./monaco');await setup.initialize();monaco=setup.monaco;editor=monaco.editor.create(host,{value:localStorage.getItem(key())||problem.starters[language],language:'cpp',theme:'vs-dark',automaticLayout:true,minimap:{enabled:false},fontSize:14,padding:{top:18},scrollBeyondLastLine:false,autoClosingBrackets:'always',autoClosingQuotes:'always',autoIndent:'full',insertSpaces:true,tabSize:4,bracketPairColorization:{enabled:true},formatOnType:false,formatOnPaste:false});subscription=editor.onDidChangeModelContent(save);await change();await historyLoad();if(selected&&selected.status!=='completed')await waitForCompletion(selected.id)}catch(e){onerror(String(e))}})();return()=>{alive=false;save();disconnect?.();subscription?.dispose();editor?.getModel()?.dispose();editor?.dispose()}});
+ onMount(()=>{alive=true;(async()=>{try{const setup=await import('./monaco');await setup.initialize();if(!alive)return;monaco=setup.monaco;editor=monaco.editor.create(host,{value:localStorage.getItem(key())||problem.starters[language],language:'cpp',theme:'vs-dark',automaticLayout:true,minimap:{enabled:false},fontSize:14,padding:{top:18},scrollBeyondLastLine:false,autoClosingBrackets:'always',autoClosingQuotes:'always',autoIndent:'full',insertSpaces:true,tabSize:4,bracketPairColorization:{enabled:true},formatOnType:false,formatOnPaste:false});subscription=editor.onDidChangeModelContent(save);await change();await historyLoad();if(selected&&selected.status!=='completed')await waitForCompletion(selected.id)}catch(e){onerror(String(e))}})();return()=>{alive=false;save();stopSemantic();subscription?.dispose();editor?.getModel()?.dispose();editor?.dispose()}});
  async function execute(){busy=true;try{save();const r=await api('/submissions','POST',{version:problem.version,language,source:editor.getValue(),mode:'submit'},crypto.randomUUID());await waitForCompletion(r.id)}catch(e){onerror(String(e))}finally{busy=false}}
 </script>
 

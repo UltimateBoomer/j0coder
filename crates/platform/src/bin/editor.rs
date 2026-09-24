@@ -1,11 +1,23 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     locoder::logging();
-    locoder::sandbox::Backend::from_env()
-        .await?
-        .preflight()
-        .await?;
+    let backend = locoder::sandbox::Backend::from_env().await?;
+    backend.preflight().await?;
     let shutdown = locoder::shutdown::signal();
+    let sweep_shutdown = shutdown.clone();
+    tokio::spawn(async move {
+        let mut previously_orphaned = std::collections::HashSet::new();
+        while !sweep_shutdown.is_cancelled() {
+            match locoder::editor::cleanup_orphans(&backend, &previously_orphaned).await {
+                Ok(orphaned) => previously_orphaned = orphaned,
+                Err(error) => tracing::warn!(%error, "editor orphan cleanup failed"),
+            }
+            tokio::select! {
+                _ = sweep_shutdown.cancelled() => break,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {},
+            }
+        }
+    });
     let router = axum::Router::new()
         .route("/editor/ws", axum::routing::get(locoder::editor::upgrade))
         .route("/healthz", axum::routing::get(|| async { "ok" }))

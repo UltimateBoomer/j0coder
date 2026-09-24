@@ -14,9 +14,48 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::{
+    collections::{HashSet, VecDeque},
+    time::Duration,
+};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use valkey::AsyncCommands;
+
+const SESSION_LEASE_SECS: i64 = 45;
+const START_TIMEOUT: Duration = Duration::from_secs(90);
+
+async fn renew_session(
+    connection: &mut valkey::aio::ConnectionManager,
+    user: uuid::Uuid,
+    session: &str,
+) -> anyhow::Result<bool> {
+    let expiry = chrono::Utc::now().timestamp() + SESSION_LEASE_SECS;
+    let renewed: i32 = valkey::Script::new("if not redis.call('ZSCORE',KEYS[1],ARGV[1]) or not redis.call('ZSCORE',KEYS[2],ARGV[1]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[1]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[1]);return 1")
+        .key("editor:active")
+        .key(format!("editor:user:{user}"))
+        .arg(session)
+        .arg(expiry)
+        .invoke_async(connection)
+        .await?;
+    Ok(renewed != 0)
+}
+
+pub async fn cleanup_orphans(
+    backend: &Backend,
+    previously_orphaned: &HashSet<String>,
+) -> anyhow::Result<HashSet<String>> {
+    let mut connection = crate::queue::connection().await?;
+    let _: usize = valkey::cmd("ZREMRANGEBYSCORE")
+        .arg("editor:active")
+        .arg("-inf")
+        .arg(chrono::Utc::now().timestamp())
+        .query_async(&mut connection)
+        .await?;
+    let active: HashSet<String> = connection.zrange("editor:active", 0, -1).await?;
+    backend
+        .cleanup_orphaned_editors(&active, previously_orphaned)
+        .await
+}
 
 #[derive(Clone)]
 pub struct EditorState {
@@ -95,7 +134,7 @@ pub async fn upgrade(
         .key("editor:active")
         .key(format!("editor:user:{}", t.user))
         .arg(now)
-        .arg(now + 360)
+        .arg(now + SESSION_LEASE_SECS)
         .arg(&id)
         .arg(crate::env("EDITOR_CAPACITY", "8"))
         .invoke_async(&mut c)
@@ -170,12 +209,51 @@ async fn bridge(
 ) -> anyhow::Result<()> {
     let b = Backend::from_env().await?;
     let cmd = t.language.lsp_command();
-    let create = b.start_lsp(cmd, session);
-    let mut process = tokio::select! {
-        result = create => result?,
-        _ = shutdown.cancelled() => {
-            let _ = socket.send(Message::Close(None)).await;
-            return Ok(());
+    // Keep startup owned by a task so closing the WebSocket never drops a
+    // partially completed sandbox creation without a chance to clean it up.
+    let session_id = session.to_owned();
+    let (start_tx, mut start_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let result = b.start_lsp(cmd, &session_id).await;
+        if let Err(Ok(process)) = start_tx.send(result) {
+            process.cleanup().await;
+        }
+    });
+    let mut pending = VecDeque::new();
+    let deadline = tokio::time::Instant::now() + START_TIMEOUT;
+    let mut disconnected = false;
+    let mut c = crate::queue::connection().await?;
+    let mut tick = tokio::time::interval(Duration::from_secs(10));
+    let mut process = loop {
+        tokio::select! {
+            result = &mut start_rx => {
+                let process = result??;
+                if disconnected || shutdown.is_cancelled() {
+                    process.cleanup().await;
+                    return Ok(());
+                }
+                break process;
+            }
+            message = socket.recv(), if !disconnected => {
+                match message {
+                    Some(Ok(Message::Text(text))) if pending.len() < 16 => pending.push_back(text),
+                    Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => {},
+                    _ => disconnected = true,
+                }
+            }
+            _ = shutdown.cancelled(), if !disconnected => {
+                disconnected = true;
+                let _ = socket.send(Message::Close(None)).await;
+            }
+            _ = tick.tick() => {
+                if !renew_session(&mut c, t.user, session).await? {
+                    disconnected = true;
+                    let _ = socket.send(Message::Close(None)).await;
+                }
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                anyhow::bail!("timed out starting editor sandbox");
+            }
         }
     };
     if shutdown.is_cancelled() {
@@ -196,12 +274,16 @@ async fn bridge(
             }
         });
         let mut activity = tokio::time::Instant::now();
-        let mut tick = tokio::time::interval(Duration::from_secs(30));
-        let mut c = crate::queue::connection().await?;
         let session_result = async {
             loop {
                 tokio::select! {
-                    message = socket.recv() => {
+                    message = async {
+                        if let Some(text) = pending.pop_front() {
+                            Some(Ok(Message::Text(text)))
+                        } else {
+                            socket.recv().await
+                        }
+                    } => {
                         let Some(Ok(Message::Text(text))) = message else { break; };
                         let mut value: Value = serde_json::from_str(&text)?;
                         if !safe_message(&value, t.language) {
@@ -228,10 +310,7 @@ async fn bridge(
                     }
                     _ = tick.tick() => {
                         if activity.elapsed()>Duration::from_secs(300) { break; }
-                        let expiry=chrono::Utc::now().timestamp()+360;
-                        let renewed:i32=valkey::Script::new("if not redis.call('ZSCORE',KEYS[1],ARGV[1]) or not redis.call('ZSCORE',KEYS[2],ARGV[1]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[1]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[1]);return 1")
-                            .key("editor:active").key(format!("editor:user:{}",t.user)).arg(session).arg(expiry).invoke_async(&mut c).await?;
-                        if renewed==0 { break; }
+                        if !renew_session(&mut c,t.user,session).await? { break; }
                     }
                     _ = shutdown.cancelled() => {
                         let _ = send_frame(&mut stdin, &json!({"jsonrpc":"2.0","id":"service-shutdown","method":"shutdown"})).await;

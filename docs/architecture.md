@@ -104,7 +104,7 @@ sequenceDiagram
     E->>P: Destroy sandbox on close or timeout
 ```
 
-The editor has no PostgreSQL credentials. Tickets are short-lived and one use. The service restricts LSP methods and workspace URIs and enforces idle, lifetime, per-user, and process-wide session limits.
+The editor has no PostgreSQL credentials. Tickets are short-lived and one use. The service restricts LSP methods and workspace URIs. Valkey enforces a shared session cap and a two-session per-user cap with renewable 45-second reservations. Sessions close after five minutes without client messages; the sandbox has a one-hour runtime limit. Editor replicas periodically remove sandboxes whose reservations have expired.
 
 ## Catalog reconciliation
 
@@ -155,7 +155,7 @@ The Podman socket in the Compose deployment is node-local and must never be expo
 
 Editor replicas can scale horizontally, but each WebSocket remains attached to one replica for its lifetime. Tickets are shared through Valkey, so the initial connection can be load-balanced without sticky routing; the proxy must preserve the upgraded connection afterward.
 
-Each replica enforces its own session capacity. Effective global capacity is the sum of replica limits, bounded by execution-node resources. Compose editors use the node-local Podman socket; Kubernetes editors use scoped permissions in the sandbox namespace.
+Valkey enforces one shared `EDITOR_CAPACITY` limit across replicas (eight by default). Compose editors use the node-local Podman socket; Kubernetes editors use scoped permissions in the sandbox namespace.
 
 ### PostgreSQL and Valkey
 

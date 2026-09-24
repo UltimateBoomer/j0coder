@@ -13,7 +13,7 @@ use kube::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::{process::Stdio, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -122,6 +122,56 @@ impl Backend {
             Self::Podman(b) => b.start_lsp(command, session).await,
             Self::Kubernetes(b) => b.start_lsp(command, session).await,
         }
+    }
+    pub async fn cleanup_orphaned_editors(
+        &self,
+        active: &HashSet<String>,
+        previously_orphaned: &HashSet<String>,
+    ) -> Result<HashSet<String>> {
+        let mut orphaned = HashSet::new();
+        match self {
+            Self::Podman(b) => {
+                let output = b
+                    .checked(&[
+                        "ps",
+                        "-a",
+                        "--filter=label=locoder.editor=true",
+                        "--format={{.ID}} {{.Names}}",
+                    ])
+                    .await?;
+                for line in String::from_utf8(output)?.lines() {
+                    if let Some((id, name)) = line.split_once(' ')
+                        && let Some(session) = name.strip_prefix("locoder-editor-")
+                        && !active.contains(session)
+                    {
+                        orphaned.insert(session.to_owned());
+                        if previously_orphaned.contains(session) {
+                            b.cleanup(id).await;
+                        }
+                    }
+                }
+            }
+            Self::Kubernetes(b) => {
+                for pod in
+                    b.pods
+                        .list(&ListParams::default().labels(
+                            "app.kubernetes.io/managed-by=locoder,locoder.io/purpose=editor",
+                        ))
+                        .await?
+                {
+                    if let Some(name) = pod.metadata.name
+                        && let Some(session) = name.strip_prefix("locoder-editor-")
+                        && !active.contains(session)
+                    {
+                        orphaned.insert(session.to_owned());
+                        if previously_orphaned.contains(session) {
+                            b.delete_pod(&name).await;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(orphaned)
     }
 }
 
@@ -581,16 +631,18 @@ impl Kubernetes {
                 anyhow::bail!("timed out attaching to editor Pod");
             }
         };
-        let stdin = Box::new(
-            process
-                .stdin()
-                .ok_or_else(|| anyhow::anyhow!("LSP attach stdin unavailable"))?,
-        );
-        let stdout = Box::new(
-            process
-                .stdout()
-                .ok_or_else(|| anyhow::anyhow!("LSP attach stdout unavailable"))?,
-        );
+        let Some(stdin) = process.stdin() else {
+            process.abort();
+            self.delete_pod(&name).await;
+            anyhow::bail!("LSP attach stdin unavailable");
+        };
+        let Some(stdout) = process.stdout() else {
+            process.abort();
+            self.delete_pod(&name).await;
+            anyhow::bail!("LSP attach stdout unavailable");
+        };
+        let stdin = Box::new(stdin);
+        let stdout = Box::new(stdout);
         Ok(LspSession {
             stdin: Some(stdin),
             stdout: Some(stdout),
@@ -728,7 +780,14 @@ impl Podman {
                 .command()
                 .args(["inspect", "--format", "{{.OCIRuntime}}", id])
                 .output()
-                .await?;
+                .await;
+            let inspect = match inspect {
+                Ok(inspect) => inspect,
+                Err(error) => {
+                    let _ = self.command().args(["rm", "-f", id]).output().await;
+                    return Err(error.into());
+                }
+            };
             let runtime = String::from_utf8_lossy(&inspect.stdout);
             if !inspect.status.success() || runtime.trim().rsplit('/').next() != Some("runsc") {
                 let _ = self.command().args(["rm", "-f", id]).output().await;
@@ -818,25 +877,32 @@ impl Podman {
         let id = String::from_utf8(self.checked(&args).await?)?
             .trim()
             .to_string();
-        let mut child = self
+        let child = self
             .command()
             .args(["start", "-a", "-i", &id])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .spawn()?;
-        let stdin = Box::new(
-            child
-                .stdin
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("LSP stdin unavailable"))?,
-        );
-        let stdout = Box::new(
-            child
-                .stdout
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("LSP stdout unavailable"))?,
-        );
+            .spawn();
+        let mut child = match child {
+            Ok(child) => child,
+            Err(error) => {
+                self.cleanup(&id).await;
+                return Err(error.into());
+            }
+        };
+        let Some(stdin) = child.stdin.take() else {
+            let _ = child.kill().await;
+            self.cleanup(&id).await;
+            anyhow::bail!("LSP stdin unavailable");
+        };
+        let Some(stdout) = child.stdout.take() else {
+            let _ = child.kill().await;
+            self.cleanup(&id).await;
+            anyhow::bail!("LSP stdout unavailable");
+        };
+        let stdin = Box::new(stdin);
+        let stdout = Box::new(stdout);
         Ok(LspSession {
             stdin: Some(stdin),
             stdout: Some(stdout),

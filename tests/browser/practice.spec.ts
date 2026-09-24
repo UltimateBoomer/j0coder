@@ -18,14 +18,27 @@ test('admin publishes sanitized statements and edits both languages',async({page
 });
 test('regular user solves in Python and C++ with semantic completion',async({page})=>{
  test.skip(process.env.TEST_RUNNER!=='1','Requires deployed gVisor worker and editor services');
+ test.setTimeout(240000);
  const origin=process.env.TEST_ORIGIN||'http://127.0.0.1:18080';
  await page.goto('/');await page.getByLabel('Username',{exact:true}).fill('admin');await page.getByLabel('Password',{exact:true}).fill('Integration-password-123');await page.getByRole('button',{name:'Sign in'}).click();await expect(page.getByRole('button',{name:'Authoring',exact:true})).toBeVisible();
  const me=await (await page.request.get('/api/v1/session')).json();const student='browser'+Date.now();const headers={'Origin':origin,'X-CSRF-Token':me.csrf};
  expect((await page.request.post('/api/v1/admin/users',{headers,data:{username:student,password:'Browser-student-password'}})).status()).toBe(201);
  const problem={title:'Solve echo '+Date.now(),statement:'Return the input.',difficulty:'easy',tags:['acceptance'],schema:3,interface:{kind:'function',name:'echo',params:[{name:'value',ty:'string'}],returns:'string'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:['hello'],expected:'hello',hidden:false},{args:['private unicode 🦀'],expected:'private unicode 🦀',hidden:true}]};
  const draft=await (await page.request.post('/api/v1/admin/problems',{headers,data:problem})).json();expect((await page.request.post(`/api/v1/admin/problems/${draft.id}/publish`,{headers})).ok()).toBeTruthy();await page.getByRole('button',{name:'Sign out'}).click();await page.getByLabel('Username',{exact:true}).fill(student);await page.getByLabel('Password',{exact:true}).fill('Browser-student-password');await page.getByRole('button',{name:'Sign in'}).click();await page.getByRole('button',{name:new RegExp(problem.title)}).click();await expect(page.locator('.monaco-editor').first()).toBeVisible();
+ // Each reload replaces an in-flight editor session; the final page must recover.
+ for(let i=0;i<6;i++){
+  await expect(page.locator('.semantic')).toContainText(/Connecting semantic completion|Semantic completion connected|reconnecting semantic service/,{timeout:45000});
+  await page.reload({waitUntil:'domcontentloaded'});
+ }
+ await expect(page.locator('.semantic')).toContainText('Semantic completion connected',{timeout:120000});
  for(const language of ['python','cpp']){
-  await page.getByLabel('Language',{exact:true}).selectOption(language);await expect(page.getByRole('status')).toContainText(/Semantic completion connected|Basic completion/,{timeout:45000});
+  await page.getByLabel('Language',{exact:true}).selectOption(language);await expect(page.locator('.semantic')).toContainText('Semantic completion connected',{timeout:120000});
+  const editor=page.locator('.monaco-editor').first();
+  await editor.click();await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.insertText(language==='python'?'value = "hello"\nvalue.':'#include <vector>\nint main() { std::vector<int> values; values.');
+  await page.keyboard.press('ControlOrMeta+Space');
+  await expect(page.locator('.suggest-widget.visible')).toContainText(language==='python'?'upper':'push_back',{timeout:20000});
+  await page.keyboard.press('Escape');
   await page.locator('.monaco-editor').first().click();await page.keyboard.press('ControlOrMeta+A');await page.keyboard.insertText(language==='python'?'def echo(value: str) -> str:\n    return value':'#include <string>\nstd::string echo(std::string value) { return value; }');
   await page.getByRole('button',{name:'Run',exact:true}).click();await expect(page.locator('.result-panel h3')).toContainText('accepted',{timeout:60000});await expect(page.locator('.result-heading')).toContainText('2 / 2');await expect(page.getByText('Custom tests',{exact:true})).toHaveCount(0);await expect(page.getByRole('img',{name:'Visible case 1: accepted'})).toBeVisible();await expect(page.getByRole('img',{name:'Hidden case 1: accepted'})).toBeVisible();const cards=page.locator('.comparison-card');await expect(cards).toHaveCount(3);await expect(cards.nth(0)).toContainText('Input');await expect(cards.nth(0)).toContainText('["hello"]');await expect(cards.nth(1)).toContainText('Expected output');await expect(cards.nth(1)).toContainText('"hello"');await expect(cards.nth(2)).toContainText('Current output');await expect(cards.nth(2)).toContainText('"hello"');expect(await page.locator('body').textContent()).not.toContain('private unicode 🦀');
  }
