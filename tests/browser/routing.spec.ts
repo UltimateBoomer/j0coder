@@ -11,7 +11,7 @@ test('routes preserve authentication intent, filters, and browser history',async
  const session=await (await page.request.get('/api/v1/session')).json();
  const headers={'Origin':process.env.TEST_ORIGIN||'http://127.0.0.1:18080','X-CSRF-Token':session.csrf};
  const uniqueTag=`route-tag-${Date.now()}`;
- const definition={title:`Routing sample ${Date.now()}`,statement:'Return the input.',difficulty:'medium',tags:[uniqueTag],signature:{method:'echo',params:[{name:'value',ty:'string'}],returns:'string'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:['hello'],expected:'hello',hidden:false}]};
+ const definition={title:`Routing sample ${Date.now()}`,statement:'Return the input.',difficulty:'medium',tags:[uniqueTag],schema:3,interface:{kind:'function',name:'echo',params:[{name:'value',ty:'string'}],returns:'string'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:['hello'],expected:'hello',hidden:false}]};
  const draft=await (await page.request.post('/api/v1/admin/problems',{headers,data:definition})).json();
  await page.request.post(`/api/v1/admin/problems/${draft.id}/publish`,{headers});
 

@@ -211,11 +211,6 @@ export interface components {
             name: string;
             ty: components["schemas"]["Type"];
         };
-        Signature: {
-            method: string;
-            params: components["schemas"]["Parameter"][];
-            returns: components["schemas"]["Type"];
-        };
         Limits: {
             time_ms: number;
             memory_mib: number;
@@ -264,14 +259,13 @@ export interface components {
         Case: components["schemas"]["FunctionCase"] | components["schemas"]["StatefulCase"];
         Problem: {
             /** @enum {integer} */
-            schema?: 1 | 2 | 3;
+            schema: 3;
             title: string;
             statement: string;
             /** @enum {string} */
             difficulty: "easy" | "medium" | "hard";
             tags: string[];
-            signature?: components["schemas"]["Signature"];
-            interface?: components["schemas"]["Interface"];
+            interface: components["schemas"]["Interface"];
             limits: components["schemas"]["Limits"];
             tests: components["schemas"]["Case"][];
         };

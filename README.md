@@ -2,7 +2,7 @@
 
 Locoder is a self-hosted coding workspace for authoring and solving programming problems. It combines a Svelte/Monaco frontend, a Rust/Axum API, PostgreSQL, Valkey Streams, and isolated gVisor execution through either rootless Podman or Kubernetes.
 
-Problems can expose global C++ or top-level Python functions, stateful data structures, or the legacy `Solution` class contract. Published versions are immutable, hidden tests remain server-side, and every test runs inside a resource-limited sandbox.
+Problems can expose global C++ or top-level Python functions, or stateful data structures. Published versions are immutable, hidden tests remain server-side, and every test runs inside a resource-limited sandbox.
 
 > gVisor is mandatory for untrusted execution. Compose uses rootless Podman with the patched runtime; production Kubernetes uses an operator-installed gVisor RuntimeClass and never falls back to the node's ordinary runtime.
 
@@ -63,7 +63,7 @@ Schema 3 supports two interfaces:
 - `function`: a global C++ function or top-level Python function.
 - `data_structure`: a named class with a constructor and ordered method traces.
 
-Schema 1 and 2 `Solution` class problems remain supported. Types include integers, floats, booleans, strings, arrays, nullable values, and declared structured types. `void` is limited to data-structure method returns.
+Every problem must declare `schema: 3` and an `interface`; legacy `signature` fields are rejected. Types include integers, floats, booleans, strings, arrays, nullable values, and declared structured types. `void` is limited to data-structure method returns.
 
 Each function case receives a fresh sandbox. Each stateful case constructs one fresh instance and executes its complete operation trace under one time and memory limit. Hidden cases expose only their designation and verdict.
 

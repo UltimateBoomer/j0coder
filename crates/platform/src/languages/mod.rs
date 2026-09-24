@@ -2,7 +2,7 @@ mod cpp;
 mod python;
 
 use self::{cpp::Cpp, python::Python};
-use crate::contract::{Interface, Language, Signature, Type};
+use crate::contract::{Interface, Language, Type};
 use anyhow::Result;
 use serde::Serialize;
 
@@ -16,8 +16,6 @@ pub struct Execution {
 trait LanguageImplementation {
     fn identifier(&self) -> &'static str;
     fn type_spelling(&self, ty: &Type) -> String;
-    fn starter_template(&self) -> &'static str;
-    fn wrapper_template(&self) -> &'static str;
     fn execution(&self) -> Execution;
     fn editor_uri(&self) -> &'static str;
     fn lsp_command(&self) -> &'static [&'static str];
@@ -32,20 +30,6 @@ struct ParameterContext {
     name: String,
     #[serde(rename = "type")]
     ty: String,
-}
-
-#[derive(Serialize)]
-struct StarterContext {
-    method: String,
-    return_type: String,
-    parameters: Vec<ParameterContext>,
-}
-
-#[derive(Serialize)]
-struct WrapperContext<'a> {
-    source: &'a str,
-    method: &'a str,
-    parameters: Vec<ParameterContext>,
 }
 
 #[derive(Serialize)]
@@ -83,40 +67,6 @@ impl Language {
 
     pub fn identifier(self) -> &'static str {
         self.implementation().identifier()
-    }
-
-    pub fn starter(self, signature: &Signature) -> Result<String> {
-        let implementation = self.implementation();
-        let context = StarterContext {
-            method: signature.method.clone(),
-            return_type: implementation.type_spelling(&signature.returns),
-            parameters: signature
-                .params
-                .iter()
-                .map(|parameter| ParameterContext {
-                    name: parameter.name.clone(),
-                    ty: implementation.type_spelling(&parameter.ty),
-                })
-                .collect(),
-        };
-        render_template("starter", implementation.starter_template(), context)
-    }
-
-    pub fn wrapper(self, signature: &Signature, source: &str) -> Result<String> {
-        let implementation = self.implementation();
-        let context = WrapperContext {
-            source,
-            method: &signature.method,
-            parameters: signature
-                .params
-                .iter()
-                .map(|parameter| ParameterContext {
-                    name: parameter.name.clone(),
-                    ty: implementation.type_spelling(&parameter.ty),
-                })
-                .collect(),
-        };
-        render_template("wrapper", implementation.wrapper_template(), context)
     }
 
     pub fn starter_interface(self, interface: &Interface) -> Result<String> {
@@ -307,24 +257,6 @@ mod tests {
                 .implementation()
                 .type_spelling(&Type::Array(Box::new(Type::Int))),
             "list[int]"
-        );
-        assert!(
-            Language::Cpp
-                .implementation()
-                .starter_template()
-                .contains("class Solution")
-        );
-        assert!(
-            Language::Cpp
-                .implementation()
-                .wrapper_template()
-                .contains("/work/result")
-        );
-        assert!(
-            Language::Python
-                .implementation()
-                .starter_template()
-                .contains("class Solution")
         );
         assert_eq!(
             Language::Cpp.execution(),

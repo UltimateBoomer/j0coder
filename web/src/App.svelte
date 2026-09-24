@@ -18,9 +18,8 @@
   const search=q.trim();
   return search?new Fuse(exact,{keys:[{name:'title',weight:0.65},{name:'summary',weight:0.2},{name:'tags',weight:0.15}],threshold:0.3,ignoreLocation:true,isCaseSensitive:false}).search(search).map(result=>result.item):exact;
  }
- function syncProblemFilters(){replace(problemListUrl({q:query,difficulty,tag}))}
  $: problems=filterProblems(allProblems,query,difficulty,tag);
- $: if(!loading&&!routeLoading&&route.kind==='problems')syncProblemFilters();
+ $: if(!loading&&!routeLoading&&route.kind==='problems')replace(problemListUrl({q:query,difficulty,tag}));
  function edit(d:any){draftId=d?.id||'';draftText=JSON.stringify(d?.draft||template,null,2);preview=null;notice=''}
  async function resolveRoute(){
   const current=parseRoute(window.location),sequence=++loadSequence;routeLoading=true;error='';

@@ -39,7 +39,7 @@ Before database-backed payloads were introduced, an idle disposable PostgreSQL c
 
 ## Remaining product limits
 
-- Problem authoring uses a structured JSON editor with Markdown preview, not separate form controls for every signature/test field.
+- Problem authoring uses a structured JSON editor with Markdown preview, not separate form controls for every interface/test field.
 - Reconciliation after total Valkey loss has a one-hour maximum scheduling delay.
 - Source and submission retention is manual; define a database retention policy before indefinite use.
 - Local toolchain/app builds need image archival or registry digest publication for reproducible deployment; apt repository contents are not snapshot-pinned.

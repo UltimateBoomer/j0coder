@@ -8,7 +8,6 @@ array=lambda x:{'type':'array','items':x}
 schemas={
 'Type':{'oneOf':[{'type':'string','enum':['void','int','int64','float','bool','string']},obj({'array':ref('Type')}),obj({'nullable':ref('Type')}),obj({'named':string})]},
 'Parameter':obj({'name':string,'ty':ref('Type')}),
-'Signature':obj({'method':string,'params':array(ref('Parameter')),'returns':ref('Type')}),
 'Limits':obj({'time_ms':{'type':'integer'},'memory_mib':{'type':'integer'},'output_bytes':{'type':'integer'}}),
 'FunctionInterface':obj({'kind':{'const':'function'},'name':string,'params':array(ref('Parameter')),'returns':ref('Type')}),
 'Constructor':obj({'params':array(ref('Parameter'))}),
@@ -19,7 +18,7 @@ schemas={
 'Operation':obj({'method':string,'args':array({}),'expected':{}},['method','args','expected']),
 'StatefulCase':obj({'constructor_args':array({}),'operations':array(ref('Operation')),'hidden':boolean},['constructor_args','operations']),
 'Case':{'oneOf':[ref('FunctionCase'),ref('StatefulCase')]},
-'Problem':obj({'schema':{'type':'integer','enum':[1,2,3]},'title':string,'statement':string,'difficulty':{'type':'string','enum':['easy','medium','hard']},'tags':array(string),'signature':ref('Signature'),'interface':ref('Interface'),'limits':ref('Limits'),'tests':array(ref('Case'))},['title','statement','difficulty','tags','limits','tests']),
+'Problem':obj({'schema':{'type':'integer','enum':[3]},'title':string,'statement':string,'difficulty':{'type':'string','enum':['easy','medium','hard']},'tags':array(string),'interface':ref('Interface'),'limits':ref('Limits'),'tests':array(ref('Case'))},['schema','title','statement','difficulty','tags','interface','limits','tests']),
 'User':obj({'id':uuid,'username':string,'admin':boolean,'csrf':string}),
 'Credentials':obj({'username':string,'password':{'type':'string','minLength':12,'maxLength':256}}),
 'Language':{'type':'string','enum':['cpp','python']},

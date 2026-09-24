@@ -1960,28 +1960,6 @@
           "ty"
         ]
       },
-      "Signature": {
-        "type": "object",
-        "properties": {
-          "method": {
-            "type": "string"
-          },
-          "params": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Parameter"
-            }
-          },
-          "returns": {
-            "$ref": "#/components/schemas/Type"
-          }
-        },
-        "required": [
-          "method",
-          "params",
-          "returns"
-        ]
-      },
       "Limits": {
         "type": "object",
         "properties": {
@@ -2172,8 +2150,6 @@
           "schema": {
             "type": "integer",
             "enum": [
-              1,
-              2,
               3
             ]
           },
@@ -2197,9 +2173,6 @@
               "type": "string"
             }
           },
-          "signature": {
-            "$ref": "#/components/schemas/Signature"
-          },
           "interface": {
             "$ref": "#/components/schemas/Interface"
           },
@@ -2214,10 +2187,12 @@
           }
         },
         "required": [
+          "schema",
           "title",
           "statement",
           "difficulty",
           "tags",
+          "interface",
           "limits",
           "tests"
         ]

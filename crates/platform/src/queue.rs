@@ -361,16 +361,16 @@ async fn load_payload(db: &PgPool, job: &Job) -> Result<(String, Vec<Case>)> {
     Ok((row.get("source"), serde_json::from_value(row.get("tests"))?))
 }
 fn supported_job_schema(schema: u8) -> bool {
-    (1..=3).contains(&schema)
+    schema == 3
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn worker_accepts_current_job_schemas() {
-        for schema in 1..=3 {
-            assert!(supported_job_schema(schema));
-        }
+        assert!(supported_job_schema(3));
+        assert!(!supported_job_schema(1));
+        assert!(!supported_job_schema(2));
         assert!(!supported_job_schema(0));
         assert!(!supported_job_schema(4));
     }
@@ -506,16 +506,15 @@ mod integration {
         let job = Job {
             attempt_base: 0,
             generation,
-            schema: 1,
+            schema: 3,
             id,
             version,
             language: Language::Python,
-            signature: Some(Signature {
-                method: "solve".into(),
+            interface: Interface::Function {
+                name: "solve".into(),
                 params: vec![],
                 returns: Type::Int,
-            }),
-            interface: None,
+            },
             limits: Limits::default(),
             mode: "submit".into(),
             type_definitions: vec![],

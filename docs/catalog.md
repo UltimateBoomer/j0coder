@@ -19,6 +19,8 @@ The repository root must contain `catalog.json`:
 }
 ```
 
+Each problem artifact must declare `schema: 3` and a `function` or `data_structure` interface. The manifest remains schema 1.
+
 Every regular file in a release must be listed (apart from `catalog.json`). Keys and paths must be unique. Symlinks, traversal, extra files, checksum mismatches, and invalid problem contracts reject the complete release. The controller never runs repository code.
 
 `track_branch` resolves the configured branch on each poll. `pinned_commit` requires a full 40-character commit hash and changes only when an administrator changes that hash. Successful changes are automatically published as immutable versions; unchanged artifacts reuse their versions. Removing a key unlists the problem while retaining its history and provenance.

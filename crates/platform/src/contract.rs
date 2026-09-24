@@ -248,13 +248,6 @@ pub struct Parameter {
     pub ty: Type,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Signature {
-    pub method: String,
-    pub params: Vec<Parameter>,
-    pub returns: Type,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Constructor {
     #[serde(default)]
     pub params: Vec<Parameter>,
@@ -285,33 +278,24 @@ pub enum Interface {
 }
 
 impl Interface {
-    pub fn function_signature(&self) -> Option<Signature> {
-        match self {
-            Self::Function {
-                name,
-                params,
-                returns,
-            } => Some(Signature {
-                method: name.clone(),
-                params: params.clone(),
-                returns: returns.clone(),
-            }),
-            _ => None,
-        }
-    }
     pub fn validate_with(&self, defs: &[TypeDefinition]) -> Result<()> {
         match self {
             Self::Function { .. } => {
-                let s = self.function_signature().unwrap();
-                s.validate_with(defs)?;
+                let Self::Function {
+                    name,
+                    params,
+                    returns,
+                } = self
+                else {
+                    unreachable!()
+                };
+                ensure!(identifier(name), "invalid function name");
+                validate_params(params, defs)?;
                 ensure!(
-                    !matches!(s.returns, Type::Void),
-                    "function cannot return void"
+                    returns.depth() <= 8 && !contains_void(returns),
+                    "invalid function return"
                 );
-                ensure!(
-                    s.params.iter().all(|p| !contains_void(&p.ty)),
-                    "void parameter"
-                );
+                type_refs(returns, &defs.iter().map(|d| d.name.as_str()).collect())?;
             }
             Self::DataStructure {
                 name,
@@ -389,41 +373,6 @@ pub fn identifier(s: &str) -> bool {
         && [Language::Cpp, Language::Python]
             .iter()
             .all(|l| !l.is_reserved(s))
-}
-impl Signature {
-    pub fn validate(&self) -> Result<()> {
-        self.validate_with(&[])
-    }
-    pub fn validate_with(&self, defs: &[TypeDefinition]) -> Result<()> {
-        ensure!(identifier(&self.method), "invalid method name");
-        ensure!(self.params.len() <= 16, "too many parameters");
-        let known: HashSet<_> = defs.iter().map(|d| d.name.as_str()).collect();
-        let mut names = HashSet::new();
-        for p in &self.params {
-            ensure!(
-                identifier(&p.name) && names.insert(&p.name) && p.ty.depth() <= 8,
-                "invalid parameter"
-            );
-            type_refs(&p.ty, &known)?
-        }
-        ensure!(self.returns.depth() <= 8, "type too deep");
-        ensure!(
-            !contains_void(&self.returns),
-            "legacy signature cannot use void"
-        );
-        type_refs(&self.returns, &known)
-    }
-    pub fn args_valid(&self, v: &Value) -> bool {
-        self.args_valid_with(v, &[])
-    }
-    pub fn args_valid_with(&self, v: &Value, d: &[TypeDefinition]) -> bool {
-        v.as_array().is_some_and(|a| {
-            a.len() == self.params.len()
-                && a.iter()
-                    .zip(&self.params)
-                    .all(|(v, p)| p.ty.valid_with(v, d))
-        })
-    }
 }
 fn type_refs(t: &Type, known: &HashSet<&str>) -> Result<()> {
     match t {
@@ -572,12 +521,9 @@ fn compare(p: &Comparison, t: &Type, a: &Value, b: &Value) -> bool {
     }
 }
 
-fn one() -> u8 {
-    1
-}
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Problem {
-    #[serde(default = "one")]
     pub schema: u8,
     pub title: String,
     #[serde(default)]
@@ -593,10 +539,7 @@ pub struct Problem {
     pub type_definitions: Vec<TypeDefinition>,
     #[serde(default)]
     pub comparison: Comparison,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<Signature>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interface: Option<Interface>,
+    pub interface: Interface,
     #[serde(default)]
     pub limits: Limits,
     pub tests: Vec<Case>,
@@ -621,7 +564,7 @@ impl Problem {
         }
     }
     pub fn validate(&self) -> Result<()> {
-        ensure!([1, 2, 3].contains(&self.schema), "unsupported schema");
+        ensure!(self.schema == 3, "unsupported problem schema");
         ensure!(self.type_definitions.len() <= 32, "too many definitions");
         let mut names = HashSet::new();
         for d in &self.type_definitions {
@@ -649,19 +592,7 @@ impl Problem {
                 type_refs(&f.ty, &known)?;
             }
         }
-        if self.schema == 3 {
-            ensure!(self.signature.is_none(), "schema 3 rejects signature");
-            self.interface
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("schema 3 requires interface"))?
-                .validate_with(&self.type_definitions)?;
-        } else {
-            ensure!(self.interface.is_none(), "legacy schema rejects interface");
-            self.signature
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("legacy schema requires signature"))?
-                .validate_with(&self.type_definitions)?;
-        }
+        self.interface.validate_with(&self.type_definitions)?;
         ensure!(
             !self.title.trim().is_empty()
                 && self.title.len() <= 200
@@ -675,12 +606,6 @@ impl Problem {
         );
         let score = self.effective_score();
         ensure!((1..=5).contains(&score), "difficulty_score must be 1-5");
-        if self.schema == 2 {
-            ensure!(
-                self.difficulty == Self::difficulty_band(score),
-                "difficulty does not match score"
-            )
-        }
         ensure!(
             self.tags.len() <= 20 && self.tags.iter().all(|s| s.len() <= 40),
             "invalid tags"
@@ -703,9 +628,7 @@ impl Problem {
         self.comparison.validate()?;
         for t in &self.tests {
             self.validate_case(t)?;
-            if self.signature.is_some()
-                || matches!(self.interface, Some(Interface::Function { .. }))
-            {
+            if matches!(self.interface, Interface::Function { .. }) {
                 ensure!(
                     t.expected.is_some(),
                     "published function tests require expected"
@@ -715,43 +638,26 @@ impl Problem {
         Ok(())
     }
     pub fn validate_case(&self, t: &Case) -> Result<()> {
-        if let Some(sig) = &self.signature {
-            ensure!(
-                t.constructor_args.is_none() && t.operations.is_none(),
-                "legacy case shape"
-            );
-            let args = t
-                .args
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("missing args"))?;
-            ensure!(
-                sig.args_valid_with(args, &self.type_definitions)
-                    && t.expected
-                        .as_ref()
-                        .is_none_or(|v| sig.returns.valid_with(v, &self.type_definitions)),
-                "invalid typed test"
-            );
-            return Ok(());
-        }
-        match self.interface.as_ref().unwrap() {
+        match &self.interface {
             Interface::Function { .. } => {
                 ensure!(
                     t.constructor_args.is_none() && t.operations.is_none(),
                     "function case shape"
                 );
-                let sig = self
-                    .interface
-                    .as_ref()
-                    .unwrap()
-                    .function_signature()
-                    .unwrap();
+                let Interface::Function {
+                    params, returns, ..
+                } = &self.interface
+                else {
+                    unreachable!()
+                };
                 ensure!(
                     t.args
                         .as_ref()
-                        .is_some_and(|a| sig.args_valid_with(a, &self.type_definitions))
+                        .and_then(Value::as_array)
+                        .is_some_and(|a| args_match(a, params, &self.type_definitions))
                         && t.expected
                             .as_ref()
-                            .is_none_or(|v| sig.returns.valid_with(v, &self.type_definitions)),
+                            .is_none_or(|v| returns.valid_with(v, &self.type_definitions)),
                     "invalid typed test"
                 );
             }
@@ -777,8 +683,6 @@ impl Problem {
                 for op in ops {
                     let m = self
                         .interface
-                        .as_ref()
-                        .unwrap()
                         .method(&op.method)
                         .ok_or_else(|| anyhow::anyhow!("unknown method {}", op.method))?;
                     let args = op
@@ -815,10 +719,7 @@ pub struct Job {
     pub id: Uuid,
     pub language: Language,
     pub version: Uuid,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<Signature>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interface: Option<Interface>,
+    pub interface: Interface,
     pub limits: Limits,
     pub mode: String,
     #[serde(default)]

@@ -1067,11 +1067,7 @@ pub async fn judge_with_shutdown(
     shutdown: &crate::shutdown::Shutdown,
 ) -> Result<Outcome> {
     let b = Backend::from_env().await?;
-    let wrapped = match (&job.signature, &job.interface) {
-        (Some(signature), _) => job.language.wrapper(signature, source)?,
-        (_, Some(interface)) => job.language.wrapper_interface(interface, source)?,
-        _ => anyhow::bail!("job has no interface"),
-    };
+    let wrapped = job.language.wrapper_interface(&job.interface, source)?;
     let execution = job.language.execution();
     let mut artifact = None;
     let mut result = Outcome {
@@ -1176,27 +1172,8 @@ fn compare_case(
     case: &Case,
     output: Option<&Value>,
 ) -> (Option<Verdict>, Option<String>) {
-    if let Some(sig) = &job.signature {
-        let Some(actual) = output else {
-            return (Some(Verdict::RuntimeError), None);
-        };
-        if !sig.returns.valid_with(actual, &job.type_definitions) {
-            return (Some(Verdict::RuntimeError), None);
-        }
-        return (
-            case.expected.as_ref().map(|e| {
-                if job.comparison.matches(&sig.returns, e, actual) {
-                    Verdict::Accepted
-                } else {
-                    Verdict::WrongAnswer
-                }
-            }),
-            None,
-        );
-    }
-    match job.interface.as_ref() {
-        None => (Some(Verdict::RuntimeError), None),
-        Some(crate::contract::Interface::Function { returns, .. }) => {
+    match &job.interface {
+        crate::contract::Interface::Function { returns, .. } => {
             let Some(actual) = output else {
                 return (Some(Verdict::RuntimeError), None);
             };
@@ -1215,7 +1192,7 @@ fn compare_case(
                 )
             }
         }
-        Some(interface @ crate::contract::Interface::DataStructure { .. }) => {
+        interface @ crate::contract::Interface::DataStructure { .. } => {
             let actual = match output.and_then(Value::as_array) {
                 Some(v) => v,
                 None => return (Some(Verdict::RuntimeError), None),
@@ -1335,15 +1312,14 @@ mod kubernetes_tests {
             id: uuid::Uuid::new_v4(),
             language: Language::Cpp,
             version: uuid::Uuid::new_v4(),
-            signature: Some(Signature {
-                method: "solve".into(),
+            interface: Interface::Function {
+                name: "solve".into(),
                 params: vec![Parameter {
                     name: "x".into(),
                     ty: Type::Int,
                 }],
                 returns: Type::Int,
-            }),
-            interface: None,
+            },
             limits: Limits::default(),
             mode: "submit".into(),
             type_definitions: vec![],
@@ -1356,12 +1332,7 @@ mod kubernetes_tests {
             constructor_args: None,
             operations: None,
         }];
-        let outcome = judge(
-            &job,
-            "class Solution { public: int solve(int x) { return x + 1; } };",
-            &cases,
-        )
-        .await?;
+        let outcome = judge(&job, "int32_t solve(int32_t x) { return x + 1; }", &cases).await?;
         anyhow::ensure!(
             outcome.verdict == Verdict::Accepted,
             "judge returned {outcome:?}"

@@ -26,6 +26,15 @@ class Acceptance(unittest.TestCase):
   cls.sample=json.loads(pathlib.Path('samples/1.json').read_text());cls.sample['title']='API integration '+uuid.uuid4().hex[:8]
   status,data=cls.admin.request('/admin/problems','POST',cls.sample);assert status==200
   cls.problem=data['id'];status,data=cls.admin.request('/admin/problems/'+cls.problem+'/publish','POST');assert status==200;cls.version=data['version']
+ def test_rejects_legacy_definitions(self):
+  for schema in (1,2):
+   status,draft=self.admin.request('/admin/problems','POST',{**self.sample,'schema':schema})
+   self.assertEqual(status,200)
+   self.assertEqual(self.admin.request('/admin/problems/'+draft['id']+'/publish','POST')[0],400)
+   self.assertEqual(self.admin.request('/admin/problems/validate','POST',{**self.sample,'schema':schema})[0],400)
+  self.assertEqual(self.admin.request('/admin/problems','POST',{**self.sample,'signature':{'method':'between','params':[],'returns':'bool'}})[0],422)
+  without_interface={k:v for k,v in self.sample.items() if k!='interface'}
+  self.assertEqual(self.admin.request('/admin/problems','POST',without_interface)[0],422)
  def test_auth_and_csrf(self):
   self.assertEqual(Client().request('/problems')[0],401)
   self.assertEqual(self.user.request('/admin/problems')[0],403)
@@ -35,10 +44,10 @@ class Acceptance(unittest.TestCase):
   code,data=self.user.request('/problems/'+self.problem);self.assertEqual(code,200)
   self.assertEqual(len(data['problem']['tests']),2)
   self.assertNotIn('-2147483648',json.dumps(data))
-  self.assertIn('Solution',data['starters']['python'])
+  self.assertIn('def between(',data['starters']['python'])
   self.assertEqual(self.user.request('/problems?difficulty=easy&tag=scalar')[0],200)
  def test_idempotency_ownership_and_validation(self):
-  body=dict(version=self.version,source='class Solution: pass',language='python',mode='submit');key=str(uuid.uuid4())
+  body=dict(version=self.version,source='def between(value, left, right): return min(left, right) <= value <= max(left, right)',language='python',mode='submit');key=str(uuid.uuid4())
   code,a=self.user.request('/submissions','POST',body,{'Idempotency-Key':key});self.assertEqual(code,202)
   code,b=self.user.request('/submissions','POST',body,{'Idempotency-Key':key});self.assertEqual(a,b)
   self.assertEqual(self.user.request('/submissions','POST',{**body,'source':'different'},{'Idempotency-Key':key})[0],409)
@@ -52,7 +61,7 @@ class Acceptance(unittest.TestCase):
   self.assertEqual(self.admin.request('/admin/problems/'+self.problem,'PUT',draft)[0],204)
   self.assertEqual(self.user.request('/problems/'+self.problem)[1],old)
   status,new=self.admin.request('/admin/problems/'+self.problem+'/publish','POST');self.assertEqual(status,200);self.assertNotEqual(new['version'],self.version)
-  bad={**draft,'signature':{**draft['signature'],'method':'__import__'}}
-  self.admin.request('/admin/problems/'+self.problem,'PUT',bad)
-  self.assertEqual(self.admin.request('/admin/problems/'+self.problem+'/publish','POST')[0],400)
+  bad={**draft,'signature':{'method':'between','params':[],'returns':'bool'}}
+  self.assertEqual(self.admin.request('/admin/problems/'+self.problem,'PUT',bad)[0],422)
+  self.assertEqual(self.admin.request('/admin/problems/'+self.problem+'/publish','POST')[0],200)
 if __name__=='__main__':unittest.main(verbosity=2)

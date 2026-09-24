@@ -1,4 +1,5 @@
 {
+  "schema": 3,
   "title": "Between the Markers",
   "statement": "## Task\nReturn whether `value` lies between `left` and `right`, inclusive. The markers may arrive in either order.\n\nImplement `between(value, left, right)`. All arguments are signed 32-bit integers.",
   "difficulty": "easy",
@@ -6,24 +7,6 @@
     "comparisons",
     "scalar"
   ],
-  "signature": {
-    "method": "between",
-    "params": [
-      {
-        "name": "value",
-        "ty": "int"
-      },
-      {
-        "name": "left",
-        "ty": "int"
-      },
-      {
-        "name": "right",
-        "ty": "int"
-      }
-    ],
-    "returns": "bool"
-  },
   "tests": [
     {
       "args": [
@@ -66,5 +49,24 @@
     "time_ms": 2000,
     "memory_mib": 256,
     "output_bytes": 1048576
+  },
+  "interface": {
+    "kind": "function",
+    "name": "between",
+    "params": [
+      {
+        "name": "value",
+        "ty": "int"
+      },
+      {
+        "name": "left",
+        "ty": "int"
+      },
+      {
+        "name": "right",
+        "ty": "int"
+      }
+    ],
+    "returns": "bool"
   }
 }

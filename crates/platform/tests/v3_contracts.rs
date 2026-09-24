@@ -13,8 +13,7 @@ fn base(interface: Interface, tests: Vec<Case>) -> Problem {
         attribution: None,
         type_definitions: vec![],
         comparison: Comparison::default(),
-        signature: None,
-        interface: Some(interface),
+        interface,
         limits: Limits::default(),
         tests,
     }
@@ -135,7 +134,7 @@ fn rejects_unknown_duplicate_and_oversized_operations() {
 
 #[test]
 fn schema_three_rejects_legacy_signature_and_function_void() {
-    let mut p = base(
+    let p = base(
         Interface::Function {
             name: "run".into(),
             params: vec![],
@@ -150,12 +149,9 @@ fn schema_three_rejects_legacy_signature_and_function_void() {
         }],
     );
     assert!(p.validate().is_err());
-    p.signature = Some(Signature {
-        method: "run".into(),
-        params: vec![],
-        returns: Type::Int,
-    });
-    assert!(p.validate().is_err());
+    let mut value = serde_json::to_value(&p).unwrap();
+    value["signature"] = json!({"method":"run","params":[],"returns":"int"});
+    assert!(serde_json::from_value::<Problem>(value).is_err());
 }
 
 #[test]
@@ -206,14 +202,65 @@ fn stateful_starters_and_wrappers_parse_and_compile() {
 }
 
 #[test]
-fn sibling_catalog_accepts_lru_fixture_when_present() {
+fn sibling_catalog_validates_all_four_problems_when_present() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../code-practice-problems");
-    if root.exists() {
-        let bytes = std::fs::read(root.join("problems/lru-cache.json")).unwrap();
-        locoder::catalog::validate_problem(&bytes).unwrap();
-        let manifest = std::fs::read_to_string(root.join("catalog.json")).unwrap();
-        assert!(manifest.contains("design/lru-cache"));
-        assert!(manifest.contains(&locoder::catalog::sha256(&bytes)));
+    if !root.exists() {
+        return;
     }
+    let checkout = std::env::temp_dir().join(format!("locoder-catalog-{}", std::process::id()));
+    std::fs::create_dir_all(checkout.join("problems")).unwrap();
+    std::fs::copy(root.join("catalog.json"), checkout.join("catalog.json")).unwrap();
+    for entry in std::fs::read_dir(root.join("problems")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            checkout.join("problems").join(entry.file_name()),
+        )
+        .unwrap();
+    }
+    let release = locoder::catalog::validate_release(&checkout).unwrap();
+    assert_eq!(release.problems.len(), 4);
+    assert!(
+        release
+            .problems
+            .iter()
+            .all(|entry| entry.problem.schema == 3
+                && entry.hash
+                    == locoder::catalog::sha256(
+                        &std::fs::read(checkout.join(&entry.path)).unwrap()
+                    ))
+    );
+    std::fs::remove_dir_all(checkout).unwrap();
+}
+
+#[test]
+fn write_trusted_data_structure_fixtures() {
+    if std::env::var("WRITE_FIXTURES").is_err() {
+        return;
+    }
+    let root = std::path::Path::new("/tmp/practice-fixtures");
+    std::fs::create_dir_all(root).unwrap();
+    let interface = lru_interface();
+    let cpp = "#include <bits/stdc++.h>\nusing namespace std;\nclass LRUCache { int capacity; list<pair<int,int>> values; public: LRUCache(int c):capacity(c) {} int get(int key) { for(auto it=values.begin();it!=values.end();++it) if(it->first==key){int value=it->second;values.erase(it);values.push_front({key,value});return value;} return -1; } void put(int key,int value){ for(auto it=values.begin();it!=values.end();++it) if(it->first==key){values.erase(it);break;} values.push_front({key,value});if((int)values.size()>capacity)values.pop_back();} };";
+    let py = "class LRUCache:\n def __init__(self,capacity): self.capacity=capacity; self.values={}\n def get(self,key):\n  if key not in self.values: return -1\n  value=self.values.pop(key); self.values[key]=value; return value\n def put(self,key,value):\n  self.values.pop(key,None); self.values[key]=value\n  if len(self.values)>self.capacity: self.values.pop(next(iter(self.values)))";
+    std::fs::write(
+        root.join("lru.cpp"),
+        Language::Cpp.wrapper_interface(&interface, cpp).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("lru.py"),
+        Language::Python.wrapper_interface(&interface, py).unwrap(),
+    )
+    .unwrap();
+    let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../code-practice-problems/problems/lru-cache.json");
+    let cases: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(catalog).unwrap()).unwrap();
+    std::fs::write(
+        root.join("lru.json"),
+        serde_json::to_vec(&cases["tests"]).unwrap(),
+    )
+    .unwrap();
 }

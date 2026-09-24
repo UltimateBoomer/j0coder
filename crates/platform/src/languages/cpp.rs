@@ -1,9 +1,6 @@
 use super::{Execution, LanguageImplementation};
 use crate::contract::Type;
 
-const STARTER_TEMPLATE: &str = include_str!("../../templates/starter.cpp.j2");
-const WRAPPER_TEMPLATE: &str = include_str!("../../templates/wrapper.cpp.j2");
-
 pub(super) struct Cpp;
 
 impl LanguageImplementation for Cpp {
@@ -23,14 +20,6 @@ impl LanguageImplementation for Cpp {
             Type::Nullable(inner) => format!("optional<{}>", self.type_spelling(inner)),
             Type::Named(name) => name.clone(),
         }
-    }
-
-    fn starter_template(&self) -> &'static str {
-        STARTER_TEMPLATE
-    }
-
-    fn wrapper_template(&self) -> &'static str {
-        WRAPPER_TEMPLATE
     }
 
     fn execution(&self) -> Execution {

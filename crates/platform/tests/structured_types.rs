@@ -2,14 +2,14 @@ use locoder::contract::*;
 use serde_json::json;
 
 #[test]
-fn legacy_difficulty_maps_without_rewrite() {
+fn difficulty_score_defaults_from_band() {
     let p: Problem = serde_json::from_str(include_str!("../../../samples/1.json")).unwrap();
-    assert_eq!(p.schema, 1);
+    assert_eq!(p.schema, 3);
     assert_eq!(p.effective_score(), 2);
     p.validate().unwrap()
 }
 #[test]
-fn v2_float_and_nested_multiset() {
+fn float_and_nested_multiset() {
     let policy = Comparison {
         array: ArrayComparison::Multiset,
         absolute_tolerance: 0.001,
