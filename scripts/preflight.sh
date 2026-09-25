@@ -3,11 +3,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 requested_socket=${PODMAN_SOCKET:-}
 requested_runtime=${SANDBOX_RUNTIME:-}
+requested_image=${TOOLCHAIN_IMAGE:-}
 set -a
 source .env
 set +a
 [[ -z "$requested_socket" ]] || PODMAN_SOCKET=$requested_socket
 [[ -z "$requested_runtime" ]] || SANDBOX_RUNTIME=$requested_runtime
+[[ -z "$requested_image" ]] || TOOLCHAIN_IMAGE=$requested_image
 runtime=${SANDBOX_RUNTIME:-$PWD/.dev/gvisor/current/runsc}
 PODMAN_SOCKET=${PODMAN_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/locoder-podman.sock}
 image=${TOOLCHAIN_IMAGE:-localhost/locoder-toolchain:1}
