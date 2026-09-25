@@ -2,7 +2,9 @@
 
 Use a Podman engine separate from production. These credentials are intentionally public test fixtures. The script refuses pre-existing named containers rather than deleting them.
 
-For a complete rootless development deployment, including live gVisor runners, use `make dev-up`. It uses a project-local patched runsc and a background user-owned Podman API rather than a systemd unit. `make dev-down` stops it. The preflight rejects a runtime that does not enforce the configured cgroup limits.
+Stop the native development stack with `make dev-down` before starting these disposable dependencies; they use the same host ports.
+
+For a complete rootless development environment, including live gVisor runners, use `make dev-up`. PostgreSQL and Valkey run in Compose; trusted services run natively in tmux. A background user-owned Podman API provides the sandbox runtime. `make dev-down` stops them. The preflight rejects a runtime that does not enforce the configured cgroup limits.
 
 ```sh
 scripts/test-services.sh

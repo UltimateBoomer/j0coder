@@ -1,0 +1,26 @@
+name: locoder
+services:
+  postgres:
+    image: docker.io/library/postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
+    environment:
+      POSTGRES_DB: practice
+      POSTGRES_USER: practice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/configure.py}
+    ports: ['127.0.0.1:15432:5432']
+    volumes: [postgres:/var/lib/postgresql/data]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U practice -d practice]
+      interval: 5s
+      retries: 20
+  valkey:
+    image: docker.io/valkey/valkey@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    command: [valkey-server, /usr/local/etc/valkey/valkey.conf]
+    ports: ['127.0.0.1:16379:6379']
+    volumes:
+      - valkey:/data
+      - ./data/config/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro,Z
+    restart: unless-stopped
+volumes:
+  postgres: {}
+  valkey: {}

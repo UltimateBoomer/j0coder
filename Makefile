@@ -16,7 +16,7 @@ TOOLCHAIN_CACHE_FLAGS = $(if $(CACHE_FROM_REPO),--cache-from=$(CACHE_FROM_REPO)/
 .DEFAULT_GOAL := help
 
 .PHONY: help configure check build test app-image kubernetes-app-image toolchain-image images pin-images helm-check
-.PHONY: preflight up dev-gvisor dev-up dev-down kube-dev-up kube-dev-down
+.PHONY: preflight up dev-gvisor dev-up dev-attach dev-down kube-dev-up kube-dev-down
 
 # Repository setup
 help:
@@ -40,8 +40,9 @@ help:
 	  'Runtime:' \
 	  '  preflight       Validate the configured gVisor sandbox' \
 	  '  up              Run preflight, then start the configured stack' \
-	  '  dev-up          Build images, install gVisor, and start the dev stack' \
-	  '  dev-down        Stop the dev stack and its gVisor controller' \
+	  '  dev-up          Start native services and Compose database/queue dependencies' \
+	  '  dev-attach      Attach to the development tmux session' \
+	  '  dev-down        Stop native services, dependencies, and gVisor controller' \
 	  '  kube-dev-up     Build and start an ephemeral Lima Kubernetes stack' \
 	  '  kube-dev-down   Delete the ephemeral Lima VM and its data'
 
@@ -95,9 +96,12 @@ dev-gvisor:
 	./scripts/install-gvisor-dev.sh
 
 # Runtime startup and health checks remain together so failures can stop the
-# controller and Compose services through one shell trap.
-dev-up: images dev-gvisor
-	./scripts/dev-up.sh
+# native services, controller, and Compose dependencies through one shell trap.
+dev-up: configure toolchain-image dev-gvisor
+	TOOLCHAIN_IMAGE='$(TOOLCHAIN_IMAGE)' ./scripts/dev-up.sh
+
+dev-attach:
+	tmux -L locoder-dev attach -t locoder
 
 dev-down:
 	./scripts/dev-down.sh

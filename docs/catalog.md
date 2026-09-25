@@ -4,7 +4,7 @@ The catalog controller reads one private SSH Git repository. Deployment values s
 
 Set `CATALOG_REPOSITORY_URL`, `CATALOG_STRATEGY` (`track_branch` or `pinned_commit`), `CATALOG_REVISION`, `CATALOG_POLL_INTERVAL_SECONDS`, and `CATALOG_ENABLED`. Mount an SSH deploy key and a pinned OpenSSH `known_hosts` file using `CATALOG_SSH_KEY_PATH` and `CATALOG_KNOWN_HOSTS_PATH`. HTTPS and local repository URLs are rejected.
 
-For local Podman Compose, keep the deploy key owned by your host account with mode `0600`. The catalog service uses Podman's `keep-id` user namespace to map that host account to the image's non-root UID 65534, so Git can read the key without relaxing its host permissions. After changing either SSH file or the Compose configuration, run `podman compose up -d catalog-controller` to recreate the service.
+For native local development, keep the deploy key owned by your host account with mode `0600`. Set `CATALOG_SSH_KEY_PATH` and `CATALOG_KNOWN_HOSTS_PATH` to host paths in `.env`; the catalog controller reads them as your user. After changing those settings, restart its tmux window with `tmux -L locoder-dev respawn-window -k -t locoder:catalog-controller`. The full Compose deployment uses Podman's `keep-id` user namespace to map the host account to image UID 65534.
 
 The repository root must contain `catalog.json`:
 

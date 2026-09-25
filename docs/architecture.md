@@ -135,7 +135,7 @@ Each API process currently runs dispatch and result-consumer loops. Stream coord
 
 ### Workers
 
-Workers are the primary submission-throughput scaling unit. They share the Valkey consumer group and can be added independently. For local Compose development:
+Workers are the primary submission-throughput scaling unit. They share the Valkey consumer group and can be added independently. For the full Compose deployment:
 
 ```sh
 podman compose up -d --scale worker=4

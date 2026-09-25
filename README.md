@@ -4,23 +4,38 @@ Locoder is a self-hosted coding workspace for authoring and solving programming 
 
 Problems can expose global C++ or top-level Python functions, or stateful data structures. Published versions are immutable, hidden tests remain server-side, and every test runs inside a resource-limited sandbox.
 
-> gVisor is mandatory for untrusted execution. Local development uses rootless Podman Compose and the project-local patched runsc runtime. Staging and production use Kubernetes with an operator-installed gVisor RuntimeClass.
+> gVisor is mandatory for untrusted execution. Local development uses rootless Podman for PostgreSQL, Valkey, and sandbox execution, with the project-local patched runsc runtime. Staging and production use Kubernetes with an operator-installed gVisor RuntimeClass.
 
-## Develop locally with Podman Compose
+## Develop locally
 
-This is the default development path. It runs as your current Linux user and does not install a system service. Install Podman, a `podman compose` provider (such as podman-compose), Git, curl, and the host user-namespace helpers. The images use Docker-compatible container formats, but the local startup scripts and sandbox controller currently require Podman.
+This is the default development path. It runs as your current Linux user and does not install a system service. Install Podman, a `podman compose` provider (such as podman-compose), tmux, Rust/Cargo, Node.js/npm, Git, curl, and the host user-namespace helpers.
 
 ```sh
 make dev-up
 ```
 
-On the first run, Locoder creates `.env`, builds the application and toolchain images and a pinned gVisor release, then starts the Compose stack. Network access is required and setup may take a while. Build artifacts and the runtime stay under the ignored `.dev/` directory; later starts reuse the local cache.
+On the first run, Locoder creates `.env`, builds the sandbox toolchain image and a pinned gVisor release, installs frontend dependencies, and builds the Rust binaries. Network access is required and setup may take a while. Later starts reuse the local build caches.
 
-Create the first administrator after the stack is ready:
+PostgreSQL and Valkey run in `compose.dev.yaml`, with ports published only on `127.0.0.1`. The API, worker, editor, catalog controller, and Vite run natively in a tmux session. Open `http://localhost:8080`; changes under `web/` hot reload there. Vite proxies API requests and editor WebSockets to the native services. To inspect each service's output:
+
+```sh
+make dev-attach
+```
+
+Switch windows with `Ctrl-b n`, or read the logs under `.dev/run/logs/`. After changing a Rust service, rebuild and restart its window. For example:
+
+```sh
+cargo build --locked --bin api
+tmux -L locoder-dev respawn-window -k -t locoder:api
+```
+
+The full application image is still available through `make app-image`.
+
+Create the first administrator after the services are ready:
 
 ```bash
 read -rsp 'New admin password (12+ characters): ' locoder_password; echo
-printf '%s\n' "$locoder_password" | podman compose exec -T api api bootstrap-admin admin
+printf '%s\n' "$locoder_password" | scripts/dev-service.sh api bootstrap-admin admin
 unset locoder_password
 ```
 
@@ -29,11 +44,11 @@ In fish:
 ```fish
 read --silent --prompt-str 'New admin password (12+ characters): ' locoder_password
 echo
-printf '%s\n' "$locoder_password" | podman compose exec -T api api bootstrap-admin admin
+printf '%s\n' "$locoder_password" | scripts/dev-service.sh api bootstrap-admin admin
 set -e locoder_password
 ```
 
-Open `http://localhost:8080` and sign in as `admin`. Stop the stack and its dedicated Podman controller with:
+Sign in as `admin`. Stop the native services, Compose dependencies, and dedicated Podman controller with:
 
 ```sh
 make dev-down
@@ -55,7 +70,7 @@ The Git-managed catalog is optional. Its current controller accepts SSH reposito
 
 ### Local runtime boundary
 
-The Compose stack defaults to loopback-only HTTP. Ordinary services use the current user's default OCI runtime. The worker and editor reach a separate rootless Podman API socket whose default runtime is patched runsc. Startup preflight verifies gVisor and its memory, CPU, and PID enforcement. Never expose PostgreSQL, Valkey, or the Podman socket.
+Native services and the Compose dependencies listen on loopback only. The worker and editor reach a separate rootless Podman API socket whose default runtime is patched runsc. Startup preflight verifies gVisor and its memory, CPU, and PID enforcement. Never expose PostgreSQL, Valkey, or the Podman socket.
 
 ## Staging and production on Kubernetes
 
@@ -111,7 +126,7 @@ Integration and browser tests require isolated PostgreSQL/Valkey services or a c
 
 ## Backup and restore
 
-For a local Compose installation, back up PostgreSQL and Valkey together using the same rootless user and Compose project:
+For a full Compose installation, back up PostgreSQL and Valkey together using the same rootless user and Compose project:
 
 ```sh
 scripts/backup.sh "$HOME/backups/locoder-$(date +%F)"
