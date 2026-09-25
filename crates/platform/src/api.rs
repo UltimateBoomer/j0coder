@@ -239,6 +239,57 @@ async fn problem(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Re
         }
     })))
 }
+#[derive(Deserialize)]
+struct SolutionDraft {
+    source: String,
+}
+async fn get_solution(
+    State(a): State<App>,
+    h: HeaderMap,
+    Path((version, language)): Path<(Uuid, String)>,
+) -> Result<Response> {
+    let u = user(&a, &h, false).await?;
+    if !["cpp", "python"].contains(&language.as_str()) {
+        return Err(bad("invalid language"));
+    }
+    let row = sqlx::query("SELECT source,updated_at FROM solution_drafts WHERE user_id=$1 AND version_id=$2 AND language=$3")
+        .bind(u.id).bind(version).bind(language).fetch_optional(&a.db).await?;
+    let Some(row) = row else {
+        return Ok((
+            [(header::CACHE_CONTROL, "no-store")],
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error":"solution not found"})),
+            ),
+        )
+            .into_response());
+    };
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(json!({"source":row.get::<String,_>("source"),"updated_at":row.get::<chrono::DateTime<chrono::Utc>,_>("updated_at")}))).into_response())
+}
+async fn put_solution(
+    State(a): State<App>,
+    h: HeaderMap,
+    Path((version, language)): Path<(Uuid, String)>,
+    Json(draft): Json<SolutionDraft>,
+) -> Result<StatusCode> {
+    let u = user(&a, &h, true).await?;
+    if !["cpp", "python"].contains(&language.as_str()) {
+        return Err(bad("invalid language"));
+    }
+    if draft.source.len() > 100000 {
+        return Err(bad("source exceeds 100000 bytes"));
+    }
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM versions WHERE id=$1)")
+        .bind(version)
+        .fetch_one(&a.db)
+        .await?;
+    if !exists {
+        return Err(Error(StatusCode::NOT_FOUND, "version not found".into()));
+    }
+    sqlx::query("INSERT INTO solution_drafts(user_id,version_id,language,source) VALUES($1,$2,$3,$4) ON CONFLICT(user_id,version_id,language) DO UPDATE SET source=excluded.source,updated_at=now()")
+        .bind(u.id).bind(version).bind(language).bind(draft.source).execute(&a.db).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
 async fn drafts(State(a): State<App>, h: HeaderMap) -> Result<Json<Value>> {
     admin(&a, &h, false).await?;
     let rows = sqlx::query("SELECT p.id,p.draft,p.current_version,(i.problem_id IS NOT NULL) AS managed FROM problems p LEFT JOIN problem_imports i ON i.problem_id=p.id ORDER BY p.draft->>'title'")
@@ -597,5 +648,5 @@ async fn metrics(State(a): State<App>, h: HeaderMap) -> Result<String> {
     Ok(output)
 }
 pub fn router(a: App) -> Router {
-    Router::new().route("/healthz",get(||async{"ok"})).route("/readyz",get(ready)).route("/api/v1/openapi.json",get(||async{([(header::CONTENT_TYPE,"application/json")],include_str!("../../../openapi.json"))})).route("/metrics",get(metrics)).route("/editor/ws",get(crate::editor_proxy::upgrade)).route("/api/v1/session",get(me).post(login).delete(logout)).route("/api/v1/problems",get(problems)).route("/api/v1/problems/{id}",get(problem)).route("/api/v1/admin/users",post(add_user)).route("/api/v1/admin/problems",get(drafts).post(new_draft)).route("/api/v1/admin/problems/validate",post(validate_definition)).route("/api/v1/admin/catalog",get(catalog_status).put(update_catalog_settings)).route("/api/v1/admin/problems/{id}",put(save_draft)).route("/api/v1/admin/problems/{id}/publish",post(publish)).route("/api/v1/submissions",get(history).post(submit)).route("/api/v1/submissions/{id}",get(submission)).route("/api/v1/editor-ticket",post(crate::editor::ticket)).fallback_service(tower_http::services::ServeDir::new(crate::env("WEB_DIR","web/dist")).not_found_service(tower_http::services::ServeFile::new(format!("{}/index.html",crate::env("WEB_DIR","web/dist"))))).layer(DefaultBodyLimit::max(2*1024*1024)).layer(axum::middleware::from_fn(|req:axum::extract::Request,next:axum::middleware::Next|async move {let mut response=next.run(req).await;let h=response.headers_mut();h.insert("x-content-type-options","nosniff".parse().unwrap());h.insert("referrer-policy","same-origin".parse().unwrap());h.insert("content-security-policy","default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'".parse().unwrap());response})).with_state(a)
+    Router::new().route("/healthz",get(||async{"ok"})).route("/readyz",get(ready)).route("/api/v1/openapi.json",get(||async{([(header::CONTENT_TYPE,"application/json")],include_str!("../../../openapi.json"))})).route("/metrics",get(metrics)).route("/editor/ws",get(crate::editor_proxy::upgrade)).route("/api/v1/session",get(me).post(login).delete(logout)).route("/api/v1/problems",get(problems)).route("/api/v1/problems/{id}",get(problem)).route("/api/v1/solutions/{version}/{language}",get(get_solution).put(put_solution)).route("/api/v1/admin/users",post(add_user)).route("/api/v1/admin/problems",get(drafts).post(new_draft)).route("/api/v1/admin/problems/validate",post(validate_definition)).route("/api/v1/admin/catalog",get(catalog_status).put(update_catalog_settings)).route("/api/v1/admin/problems/{id}",put(save_draft)).route("/api/v1/admin/problems/{id}/publish",post(publish)).route("/api/v1/submissions",get(history).post(submit)).route("/api/v1/submissions/{id}",get(submission)).route("/api/v1/editor-ticket",post(crate::editor::ticket)).fallback_service(tower_http::services::ServeDir::new(crate::env("WEB_DIR","web/dist")).not_found_service(tower_http::services::ServeFile::new(format!("{}/index.html",crate::env("WEB_DIR","web/dist"))))).layer(DefaultBodyLimit::max(2*1024*1024)).layer(axum::middleware::from_fn(|req:axum::extract::Request,next:axum::middleware::Next|async move {let mut response=next.run(req).await;let h=response.headers_mut();h.insert("x-content-type-options","nosniff".parse().unwrap());h.insert("referrer-policy","same-origin".parse().unwrap());h.insert("content-security-policy","default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'".parse().unwrap());response})).with_state(a)
 }
