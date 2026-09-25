@@ -1,11 +1,22 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>
+#include <optional>
+namespace nlohmann {
+template <typename T> struct adl_serializer<std::optional<T>> {
+    static void to_json(json& value, const std::optional<T>& item) {
+        if (item) value = *item; else value = nullptr;
+    }
+    static void from_json(const json& value, std::optional<T>& item) {
+        if (value.is_null()) item.reset(); else item = value.get<T>();
+    }
+};
+}
 using namespace std;
 {{ source }}
 int main() {
     auto t=nlohmann::json::parse(std::cin); auto c=t.at("constructor_args");
-    {{ name }} object({% for parameter in parameters %}c.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %});
+    {% if parameters %}{{ name }} object({% for parameter in parameters %}c.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %});{% else %}{{ name }} object;{% endif %}
     nlohmann::json results=nlohmann::json::array(); size_t index=0;
     try { for (auto const& operation:t.at("operations")) { auto const method=operation.at("method").get<string>(); auto const& a=operation.at("args");
 {% for method in methods %}        if (method=="{{ method.name }}") { {% if method.is_void %}object.{{ method.name }}({% for parameter in method.parameters %}a.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %}); results.push_back(nullptr);{% else %}results.push_back(object.{{ method.name }}({% for parameter in method.parameters %}a.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %}));{% endif %} }

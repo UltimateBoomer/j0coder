@@ -130,5 +130,6 @@ Protect backups as secrets. For staging and production, back up the external Pos
 
 - [Architecture and scaling](docs/architecture.md)
 - [Git-managed catalog](docs/catalog.md)
+- [Problem curation plan](docs/problem-curation-plan.md)
 - [Testing](docs/testing.md)
 - [Verification record](docs/verification.md)

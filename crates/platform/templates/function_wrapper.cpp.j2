@@ -1,6 +1,17 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>
+#include <optional>
+namespace nlohmann {
+template <typename T> struct adl_serializer<std::optional<T>> {
+    static void to_json(json& value, const std::optional<T>& item) {
+        if (item) value = *item; else value = nullptr;
+    }
+    static void from_json(const json& value, std::optional<T>& item) {
+        if (value.is_null()) item.reset(); else item = value.get<T>();
+    }
+};
+}
 using namespace std;
 {{ source }}
 int main() { auto a=nlohmann::json::parse(std::cin); auto r={{ name }}({% for parameter in parameters %}a.at({{ loop.index0 }}).get<{{ parameter.type }}>(){% if not loop.last %},{% endif %}{% endfor %}); std::ofstream f("/work/result"); f << nlohmann::json(r).dump(); }

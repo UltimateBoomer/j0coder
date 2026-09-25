@@ -202,7 +202,45 @@ fn stateful_starters_and_wrappers_parse_and_compile() {
 }
 
 #[test]
-fn sibling_catalog_validates_all_four_problems_when_present() {
+fn cpp_wrappers_support_nullable_values_and_empty_constructors() {
+    let function = Interface::Function {
+        name: "height".into(),
+        params: vec![Parameter {
+            name: "tree".into(),
+            ty: Type::Array(Box::new(Type::Nullable(Box::new(Type::Int)))),
+        }],
+        returns: Type::Int,
+    };
+    let wrapper = Language::Cpp
+        .wrapper_interface(
+            &function,
+            "int32_t height(vector<optional<int32_t>>) { return 0; }",
+        )
+        .unwrap();
+    assert!(wrapper.contains("adl_serializer<std::optional<T>>"));
+    assert!(wrapper.contains("get<vector<optional<int32_t>>>()"));
+
+    let stateful = Interface::DataStructure {
+        name: "Empty".into(),
+        constructor: Constructor { params: vec![] },
+        methods: vec![Method {
+            name: "get".into(),
+            params: vec![],
+            returns: Type::Int,
+        }],
+    };
+    let wrapper = Language::Cpp
+        .wrapper_interface(
+            &stateful,
+            "class Empty { public: int32_t get() { return 0; } };",
+        )
+        .unwrap();
+    assert!(wrapper.contains("Empty object;"));
+    assert!(!wrapper.contains("Empty object();"));
+}
+
+#[test]
+fn sibling_catalog_validates_all_problems_when_present() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../code-practice-problems");
     if !root.exists() {
@@ -220,7 +258,12 @@ fn sibling_catalog_validates_all_four_problems_when_present() {
         .unwrap();
     }
     let release = locoder::catalog::validate_release(&checkout).unwrap();
-    assert_eq!(release.problems.len(), 4);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("catalog.json")).unwrap()).unwrap();
+    assert_eq!(
+        release.problems.len(),
+        manifest["problems"].as_array().unwrap().len()
+    );
     assert!(
         release
             .problems
