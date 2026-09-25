@@ -14,3 +14,15 @@ select, select option, select optgroup {
 select { accent-color: var(--accent); }
 select:hover { background-color: var(--hover); }
 select option:checked { color: var(--text); background-color: var(--selected); }
+
+/* Keep the catalog within the viewport while allowing its rows to scroll independently. */
+.problems-page{height:calc(100dvh - 56px);max-width:1180px;margin:0 auto;padding:32px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.problems-page h1{margin-bottom:0}
+.problems-page .filters{margin:24px 0 20px}
+.problems-page .problem-list{display:flex;flex:1;flex-direction:column;min-height:0}
+.problem-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.problem-scroll .problem-row{height:88px;padding:16px 23px}
+.problem-scroll .problem-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.problem-scroll .problem-title small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.problem-scroll .badge{white-space:nowrap}
+@media(max-width:800px){.problems-page{padding:20px}.problem-scroll .problem-row{gap:13px;padding:12px}}

@@ -8,6 +8,15 @@
  let route:Route=parseRoute(window.location),query='',difficulty='',tag='',Editor:any=null;
  let drafts:any[]=[],draftId='',draftText='',preview:any=null,notice='',newUsername='',newPassword='',loadSequence=0;
  let catalog:any=null,catalogText='';
+ const rowHeight=88,overscan=5;
+ let listScrollElement:HTMLElement|null=null,listScrollTop=0,listViewportHeight=0;
+ function measureList(node:HTMLElement){
+  const observer=new ResizeObserver(()=>listViewportHeight=node.clientHeight);
+  observer.observe(node);
+  listViewportHeight=node.clientHeight;
+  return {destroy(){observer.disconnect()}};
+ }
+ function resetListScroll(){listScrollTop=0;if(listScrollElement)listScrollElement.scrollTop=0}
  type ThemeChoice='system'|'light'|'dark';
  const savedTheme=localStorage.getItem('locoder:theme');
  let themeChoice:ThemeChoice=savedTheme==='light'||savedTheme==='dark'||savedTheme==='system'?savedTheme:'system';
@@ -18,7 +27,21 @@
  const template={schema:3,title:'New problem',statement:'# New problem\n\nDescribe the task.',difficulty:'easy',tags:['arrays'],interface:{kind:'function',name:'solve',params:[{name:'values',ty:{array:'int'}}],returns:'int'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:[[1,2]],expected:3,hidden:false},{args:[[]],expected:0,hidden:true}]};
  const markdown=(s:string)=>DOMPurify.sanitize(marked.parse(s,{async:false}) as string);
  const routeTitle=()=>route.kind==='problem'&&active?`${active.problem.title} · Locoder`:route.kind.startsWith('admin')?'Authoring · Locoder':route.kind==='access-denied'?'Access denied · Locoder':route.kind==='not-found'?'Not found · Locoder':'Problems · Locoder';
- async function fetchList():Promise<ProblemSummary[]>{const filters={q:'',difficulty:'',tag:''};return api(`/problems?${new URLSearchParams(filters)}`) as Promise<ProblemSummary[]>}
+ async function fetchList():Promise<ProblemSummary[]>{
+  const items:ProblemSummary[]=[];
+  let cursor='';
+  while(true){
+   const params=new URLSearchParams({limit:'100'});
+   if(cursor)params.set('cursor',cursor);
+   const page=await api(`/problems?${params}`) as (ProblemSummary&{cursor:string})[];
+   items.push(...page);
+   if(page.length<100)break;
+   const nextCursor=page[page.length-1].cursor;
+   if(!nextCursor||nextCursor===cursor)throw new Error('Problem list pagination did not advance');
+   cursor=nextCursor;
+  }
+  return items;
+ }
  function filterProblems(items:ProblemSummary[],q:string,difficultyFilter:string,tagFilter:string){
   const normalizedTag=tagFilter.trim().toLocaleLowerCase();
   const exact=items.filter(p=>(!difficultyFilter||p.difficulty===difficultyFilter)&&(!normalizedTag||p.tags.some(t=>t.toLocaleLowerCase()===normalizedTag)));
@@ -26,6 +49,8 @@
   return search?new Fuse(exact,{keys:[{name:'title',weight:0.65},{name:'summary',weight:0.2},{name:'tags',weight:0.15}],threshold:0.3,ignoreLocation:true,isCaseSensitive:false}).search(search).map(result=>result.item):exact;
  }
  $: problems=filterProblems(allProblems,query,difficulty,tag);
+ $: firstRow=Math.max(0,Math.min(problems.length,Math.floor(listScrollTop/rowHeight)-overscan));
+ $: lastRow=Math.min(problems.length,firstRow+Math.ceil(listViewportHeight/rowHeight)+overscan*2);
  $: if(!loading&&!routeLoading&&route.kind==='problems')replace(problemListUrl({q:query,difficulty,tag}));
  function edit(d:any){draftId=d?.id||'';draftText=JSON.stringify(d?.draft||template,null,2);preview=null;notice=''}
  async function resolveRoute(){
@@ -41,6 +66,7 @@
   }catch(e){if(e instanceof ApiError&&(e.status===400||e.status===404))next={kind:'not-found'};else if(e instanceof ApiError&&e.status===403)next={kind:'access-denied'};else if(e instanceof ApiError&&e.status===401){user=null;setCsrf('')}else error=String(e)}
   if(sequence!==loadSequence)return;
   route=next;active=nextActive;allProblems=next.kind==='problems'?nextProblems:allProblems;drafts=nextDrafts;
+  if(next.kind==='problems')resetListScroll();
   if(next.kind==='admin-new')edit(null);else if(next.kind==='admin-edit'&&selected)edit(selected);else if(next.kind==='admin'){draftId='';draftText='';preview=null;notice=''}
   routeLoading=false;
  }
@@ -67,5 +93,30 @@
  <main><h1>Problem studio</h1>{#if catalog}<section><h2>Git catalog</h2>{#if catalogText}<label>Catalog settings (JSON)<textarea class="definition" bind:value={catalogText} spellcheck="false"></textarea></label><button class="primary" onclick={saveCatalog}>Save catalog settings</button>{:else}<p class="muted">No catalog has been configured. Seed it through deployment settings on first start.</p>{/if}<p class="muted small">Discovered: {catalog.state.discovered_revision||'—'} · Applied: {catalog.state.applied_revision||'—'} · Last success: {catalog.state.last_successful_reconciliation||'—'}</p>{#if catalog.state.last_error}<p class="alert">{catalog.state.last_error}</p>{/if}<details><summary>Recent reconciliation runs</summary><pre>{JSON.stringify(catalog.runs,null,2)}</pre></details></section>{/if}<div class="studio"><aside><button class="primary" onclick={()=>go('/admin/problems/new')}>+ New problem</button>{#each drafts as d}<button class="draft" class:chosen={draftId===d.id} onclick={()=>go(`/admin/problems/${d.id}`)}>{d.draft.title}<small>{d.managed?'Git managed':d.version?'Published · editable draft':'Draft'}</small></button>{/each}<form onsubmit={(e)=>{e.preventDefault();addUser()}}><h3>Create user</h3><label>Username<input bind:value={newUsername} required/></label><label>Password<input type="password" bind:value={newPassword} minlength="12" required/></label><button>Create account</button></form></aside><section>{#if draftText}{#if drafts.find(d=>d.id===draftId)?.managed}<p class="muted">This definition is managed by Git and is read-only.</p>{:else}<div class="toolbar"><button onclick={save}>Save draft</button><button onclick={showPreview}>Preview statement</button><button class="primary" onclick={publish}>Validate & publish</button></div>{/if}<p class="muted small">Types: "int", "bool", "string", or {JSON.stringify({array:'int'})}. Tests require typed argument lists and expected results. Mark private cases with hidden: true.</p><label>Problem definition (JSON)<textarea class="definition" bind:value={draftText} readonly={drafts.find(d=>d.id===draftId)?.managed} spellcheck="false"></textarea></label>{#if preview}<article class="statement">{@html markdown(preview.statement||'')}</article>{/if}{:else}<p>Select a draft or create a new problem.</p>{/if}{#if notice}<p role="status" class="notice">{notice}</p>{/if}</section></div></main>
 {:else if route.kind==='problem'&&active&&Editor}{#key `${active.id}:${active.version}`}<svelte:component this={Editor} problem={active} {user} theme={resolvedTheme} onerror={(e:string)=>error=e}/>{/key}
 {:else if route.kind==='problems'}
- <main><div class="list-heading"><h1>Problems</h1><span class="count">{problems.length} problems</span></div><div class="filters"><input aria-label="Search problems" placeholder="Search problems…" bind:value={query}/><select aria-label="Difficulty" bind:value={difficulty}><option value="">All difficulties</option><option>easy</option><option>medium</option><option>hard</option></select></div><div class="problem-list"><div class="table-heading"><span>PROBLEM</span><span>DIFFICULTY</span></div>{#each problems as p,i}<button class="problem-row" onclick={()=>go(`/problems/${p.id}`)}><span class="number">{String(i+1).padStart(2,'0')}</span><span class="problem-title">{p.title}<small>{p.summary||p.tags.join(' · ')}</small></span><span class={`badge ${p.difficulty}`}>{p.difficulty} · {p.difficulty_score}</span><span class="arrow">↗</span></button>{:else}<div class="empty">{#if allProblems.length}No matching problems.{:else}No problems yet. {user.admin?'Open Authoring to publish your first challenge.':'Ask your administrator to publish a challenge.'}{/if}</div>{/each}</div></main>
+ <main class="problems-page">
+  <div class="list-heading"><h1>Problems</h1><span class="count">{problems.length} problems</span></div>
+  <div class="filters">
+   <input aria-label="Search problems" placeholder="Search problems…" bind:value={query} oninput={resetListScroll}/>
+   <select aria-label="Difficulty" bind:value={difficulty} onchange={resetListScroll}><option value="">All difficulties</option><option>easy</option><option>medium</option><option>hard</option></select>
+  </div>
+  <div class="problem-list">
+   <div class="table-heading"><span>PROBLEM</span><span>DIFFICULTY</span></div>
+   <div class="problem-scroll" aria-label="Problem list" role="region" bind:this={listScrollElement} use:measureList onscroll={(event)=>listScrollTop=event.currentTarget.scrollTop}>
+    {#if problems.length}
+     <div style:height={`${firstRow*rowHeight}px`} aria-hidden="true"></div>
+     {#each problems.slice(firstRow,lastRow) as p,i (p.id)}
+      <button class="problem-row" onclick={()=>go(`/problems/${p.id}`)}>
+       <span class="number">{String(firstRow+i+1).padStart(2,'0')}</span>
+       <span class="problem-title">{p.title}<small>{p.summary||p.tags.join(' · ')}</small></span>
+       <span class={`badge ${p.difficulty}`}>{p.difficulty} · {p.difficulty_score}</span>
+       <span class="arrow">↗</span>
+      </button>
+     {/each}
+     <div style:height={`${(problems.length-lastRow)*rowHeight}px`} aria-hidden="true"></div>
+    {:else}
+     <div class="empty">{#if allProblems.length}No matching problems.{:else}No problems yet. {user.admin?'Open Authoring to publish your first challenge.':'Ask your administrator to publish a challenge.'}{/if}</div>
+    {/if}
+   </div>
+  </div>
+ </main>
 {/if}
