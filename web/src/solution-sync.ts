@@ -14,19 +14,22 @@ export class SolutionSync {
  private path(language:SolutionLanguage){return `/solutions/${this.version}/${language}`}
 
  async load(language:SolutionLanguage):Promise<string>{
-  const local=localStorage.getItem(this.key(language));
-  const pending=localStorage.getItem(this.pendingKey(language))==='1';
+  // Finish older writes before comparing the browser cache with the server.
+  await this.flush(language);
   try{
    const cloud=await api(this.path(language));
+   const local=localStorage.getItem(this.key(language));
+   const pending=localStorage.getItem(this.pendingKey(language))==='1';
    if(pending&&local!==null){
-    if(local===cloud.source)localStorage.removeItem(this.pendingKey(language));
-    else this.schedule(language,0);
+    this.schedule(language,0);
     return local;
    }
    localStorage.setItem(this.key(language),cloud.source);
    localStorage.removeItem(this.pendingKey(language));
    return cloud.source;
   }catch(error){
+   const local=localStorage.getItem(this.key(language));
+   const pending=localStorage.getItem(this.pendingKey(language))==='1';
    if(error instanceof ApiError&&error.status===404){
     if(local!==null&&local!==this.starters[language])this.markDirty(language,local,0);
    }else if(pending&&local!==null){

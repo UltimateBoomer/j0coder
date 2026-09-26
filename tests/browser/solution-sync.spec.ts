@@ -121,3 +121,31 @@ test('serializes writes while edits continue',async({page})=>{
  await expect.poll(()=>backend.drafts.get(`${firstVersion}:cpp`)).toBe('int solve() { return 3; }');
  expect(writes).toBe(2);
 });
+
+test('does not clear an unsent draft while an older write is in flight',async({page})=>{
+ test.setTimeout(90000);
+ const original='int solve() { return 4; }';
+ const backend:Backend={drafts:new Map([[`${firstVersion}:cpp`,original]]),version:firstVersion,failWrites:0};
+ await mockBackend(page.context(),backend);
+ let releaseFirst!:()=>void,markStarted!:()=>void;
+ const firstStarted=new Promise<void>(resolve=>markStarted=resolve);
+ const gate=new Promise<void>(resolve=>releaseFirst=resolve);
+ let writes=0;
+ await page.route(`**/api/v1/solutions/${firstVersion}/cpp`,async route=>{
+  if(route.request().method()==='PUT'&&++writes===1){markStarted();await gate}
+  await route.fallback();
+ });
+ await openEditor(page);
+ await expect(page.locator('.monaco-editor .view-lines').first()).toContainText('return 4');
+ await replaceCode(page,'int solve() { return 5; }');
+ await firstStarted;
+ await replaceCode(page,original);
+ await page.getByLabel('Language').selectOption('python');
+ await page.getByLabel('Language').selectOption('cpp');
+ releaseFirst();
+ await expect.poll(()=>writes).toBe(2);
+ await expect.poll(()=>backend.drafts.get(`${firstVersion}:cpp`)).toBe(original);
+ await expect.poll(()=>page.evaluate(key=>localStorage.getItem(key),`practice:${userId}:${firstVersion}:cpp:unsent`)).toBeNull();
+ await page.reload();
+ await expect(page.locator('.monaco-editor .view-lines').first()).toContainText('return 4',{timeout:45000});
+});

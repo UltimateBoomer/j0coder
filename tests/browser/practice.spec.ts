@@ -31,6 +31,12 @@ test('regular user solves in Python and C++ with semantic completion',async({pag
   await page.reload({waitUntil:'domcontentloaded'});
  }
  await expect(page.locator('.semantic')).toContainText('Semantic completion connected',{timeout:120000});
+ const initialEditor=page.locator('.monaco-editor').first();
+ await initialEditor.click();await page.keyboard.press('ControlOrMeta+A');
+ await page.keyboard.insertText('#include <vector>\nint main() { std::vector<int> values; values.');
+ await page.keyboard.press('ControlOrMeta+Space');
+ await expect(page.locator('.suggest-widget.visible')).toContainText('push_back',{timeout:20000});
+ await page.keyboard.press('Escape');
  for(const language of ['python','cpp']){
   await page.getByLabel('Language',{exact:true}).selectOption(language);await expect(page.locator('.semantic')).toContainText('Semantic completion connected',{timeout:120000});
   const editor=page.locator('.monaco-editor').first();
