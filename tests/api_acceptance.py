@@ -57,11 +57,38 @@ class Acceptance(unittest.TestCase):
   self.assertEqual(self.user.request('/submissions','POST',{**body,'mode':'run','cases':[dict(args=[2147483648,0,2])]}, {'Idempotency-Key':str(uuid.uuid4())})[0],400)
  def test_publish_immutable(self):
   old=self.user.request('/problems/'+self.problem)[1]
+  solution='/solutions/'+self.version+'/python'
+  self.assertEqual(self.user.request(solution,'PUT',{'source':'saved before republishing'})[0],204)
   draft={**self.sample,'title':'Updated immutable title'}
   self.assertEqual(self.admin.request('/admin/problems/'+self.problem,'PUT',draft)[0],204)
   self.assertEqual(self.user.request('/problems/'+self.problem)[1],old)
   status,new=self.admin.request('/admin/problems/'+self.problem+'/publish','POST');self.assertEqual(status,200);self.assertNotEqual(new['version'],self.version)
+  self.assertEqual(self.user.request('/solutions/'+new['version']+'/python')[0],404)
+  self.assertEqual(self.user.request(solution)[1]['source'],'saved before republishing')
   bad={**draft,'signature':{'method':'between','params':[],'returns':'bool'}}
   self.assertEqual(self.admin.request('/admin/problems/'+self.problem,'PUT',bad)[0],422)
   self.assertEqual(self.admin.request('/admin/problems/'+self.problem+'/publish','POST')[0],200)
+ def test_solution_drafts(self):
+  subject=Client();name='draft'+uuid.uuid4().hex[:12];password='Integration-draft-password'
+  self.assertEqual(self.admin.request('/admin/users','POST',dict(username=name,password=password))[0],201)
+  subject.login(name,password)
+  path='/solutions/'+self.version+'/cpp'
+  self.assertEqual(Client().request(path)[0],401)
+  self.assertEqual(subject.request(path)[0],404)
+  self.assertEqual(subject.request(path,'PUT',{'source':'first'})[0],204)
+  status,draft=subject.request(path);self.assertEqual(status,200);self.assertEqual(draft['source'],'first');self.assertIn('updated_at',draft)
+  self.assertEqual(subject.request(path,'PUT',{'source':'second'})[0],204)
+  self.assertEqual(subject.request(path)[1]['source'],'second')
+  self.assertEqual(self.user.request(path)[0],404)
+  self.assertEqual(self.admin.request(path)[0],404)
+  self.assertEqual(self.admin.request(path,'PUT',{'source':'admin code'})[0],204)
+  self.assertEqual(subject.request(path)[1]['source'],'second')
+  self.assertEqual(subject.request('/solutions/'+self.version+'/python')[0],404)
+  self.assertEqual(subject.request('/solutions/'+self.version+'/invalid','PUT',{'source':'x'})[0],400)
+  self.assertEqual(subject.request('/solutions/'+self.version+'/invalid')[0],400)
+  self.assertEqual(subject.request(path,'PUT',{'source':'é'*50001})[0],400)
+  self.assertEqual(subject.request(path,'PUT',{'source':'x'},{'X-CSRF-Token':'wrong'})[0],403)
+  self.assertEqual(subject.request(path,'PUT',{'source':'x'},{'Origin':'https://evil.example'})[0],403)
+  self.assertEqual(subject.request('/solutions/'+str(uuid.uuid4())+'/cpp','PUT',{'source':'x'})[0],404)
+  self.assertEqual(subject.request(path)[1]['source'],'second')
 if __name__=='__main__':unittest.main(verbosity=2)

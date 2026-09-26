@@ -12,6 +12,7 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  });
  await page.route('**/api/v1/**',route=>{
   const path=new URL(route.request().url()).pathname;
+  if(path.includes('/solutions/'))return route.fulfill(route.request().method()==='GET'?{status:404,json:{error:'solution not found'}}:{status:204});
   const data=path.endsWith('/session')?{id:'user-id',username:'tester',admin:false,csrf:'csrf'}:path.endsWith(`/problems/${id}`)?problem:[];
   return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
  });

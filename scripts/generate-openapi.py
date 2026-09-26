@@ -28,6 +28,7 @@ schemas={
 'Submit':obj({'version':uuid,'language':ref('Language'),'source':{'type':'string','maxLength':100000},'mode':{'type':'string','enum':['run','submit']},'cases':array(ref('Case'))},['version','language','source','mode']),
 'ProblemDetail':obj({'id':uuid,'version':uuid,'problem':ref('Problem'),'starters':obj({'cpp':string,'python':string})}),
 'ProblemSummary':obj({'id':uuid,'version':uuid,'title':string,'summary':string,'difficulty':string,'difficulty_score':{'type':'integer','minimum':1,'maximum':5},'tags':array(string)}),
+'SolutionDraft':obj({'source':string,'updated_at':{'type':'string','format':'date-time'}}),
 'Error':obj({'error':string})}
 paths={}
 def endpoint(path,method,name,response,body=None,code='200',params=None):
@@ -42,6 +43,9 @@ endpoint('/session','post','login',obj({'ok':boolean}),ref('Credentials'))
 endpoint('/session','delete','logout',obj({'ok':boolean}))
 endpoint('/problems','get','listProblems',array(ref('ProblemSummary')),params=[{'name':n,'in':'query','schema':string} for n in ['q','tag','difficulty','cursor']]+[{'name':n,'in':'query','schema':{'type':'integer'}} for n in ['min_score','max_score','limit']])
 endpoint('/problems/{id}','get','getProblem',ref('ProblemDetail'))
+solution_params=[{'name':'version','in':'path','required':True,'schema':uuid},{'name':'language','in':'path','required':True,'schema':ref('Language')}]
+endpoint('/solutions/{version}/{language}','get','getSolution',ref('SolutionDraft'),params=solution_params.copy())
+endpoint('/solutions/{version}/{language}','put','putSolution',{},obj({'source':{'type':'string','description':'At most 100000 UTF-8 bytes'}}),'204',solution_params.copy())
 endpoint('/admin/users','post','createUser',{},ref('Credentials'),'201')
 endpoint('/admin/problems','get','listDrafts',array(obj({'id':uuid,'draft':ref('Problem'),'version':{'type':['string','null']},'managed':boolean})))
 endpoint('/admin/problems','post','createDraft',obj({'id':uuid}),ref('Problem'))
