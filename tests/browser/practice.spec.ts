@@ -27,10 +27,10 @@ test('regular user solves in Python and C++ with semantic completion',async({pag
  const draft=await (await page.request.post('/api/v1/admin/problems',{headers,data:problem})).json();expect((await page.request.post(`/api/v1/admin/problems/${draft.id}/publish`,{headers})).ok()).toBeTruthy();await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Sign out'}).click();await page.getByLabel('Username',{exact:true}).fill(student);await page.getByLabel('Password',{exact:true}).fill('Browser-student-password');await page.getByRole('button',{name:'Sign in'}).click();await page.getByRole('button',{name:new RegExp(problem.title)}).click();await expect(page.locator('.monaco-editor').first()).toBeVisible();
  // Each reload replaces an in-flight editor session; the final page must recover.
  for(let i=0;i<6;i++){
-  await expect(page.locator('.semantic')).toContainText(/Connecting semantic completion|Semantic completion connected|reconnecting semantic service/,{timeout:45000});
+  await expect(page.locator('.semantic')).toHaveAttribute('aria-label',/Connecting semantic completion|Semantic completion connected|reconnecting semantic service/,{timeout:45000});
   await page.reload({waitUntil:'domcontentloaded'});
  }
- await expect(page.locator('.semantic')).toContainText('Semantic completion connected',{timeout:120000});
+ await expect(page.locator('.semantic')).toHaveAttribute('aria-label','Semantic completion connected',{timeout:120000});
  const initialEditor=page.locator('.monaco-editor').first();
  await initialEditor.click();await page.keyboard.press('ControlOrMeta+A');
  await page.keyboard.insertText('#include <vector>\nint main() { std::vector<int> values; values.');
@@ -38,7 +38,7 @@ test('regular user solves in Python and C++ with semantic completion',async({pag
  await expect(page.locator('.suggest-widget.visible')).toContainText('push_back',{timeout:20000});
  await page.keyboard.press('Escape');
  for(const language of ['python','cpp']){
-  await page.getByLabel('Language',{exact:true}).selectOption(language);await expect(page.locator('.semantic')).toContainText('Semantic completion connected',{timeout:120000});
+  await page.getByLabel('Language',{exact:true}).selectOption(language);await expect(page.locator('.semantic')).toHaveAttribute('aria-label','Semantic completion connected',{timeout:120000});
   const editor=page.locator('.monaco-editor').first();
   await editor.click();await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.insertText(language==='python'?'value = "hello"\nvalue.':'#include <vector>\nint main() { std::vector<int> values; values.');

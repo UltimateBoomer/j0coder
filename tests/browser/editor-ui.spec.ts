@@ -46,6 +46,9 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  await page.getByLabel('User menu').click();
 
  await expect(page.getByRole('button',{name:'Reset code'})).toBeEnabled({timeout:45000});
+ await expect(page.locator('.editor-toolbar .filename-status .cloud-status')).toHaveAttribute('aria-label','Saved to cloud');
+ await expect(page.locator('.editor-toolbar .filename-status .semantic')).toBeVisible();
+ await expect(page.locator('.code-pane > .semantic')).toHaveCount(0);
  const editorBackground=()=>page.locator('.monaco-editor').first().evaluate(node=>getComputedStyle(node).backgroundColor);
  const darkEditorBackground=await editorBackground();
  expect(await dropdownStyle('Language')).toEqual(darkDropdown);

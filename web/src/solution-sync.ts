@@ -1,19 +1,28 @@
 import {api,ApiError} from './api';
 
 export type SolutionLanguage='cpp'|'python';
+export type SaveStatus='loading'|'pending'|'saving'|'saved'|'retrying'|'unavailable';
 type SaveState={timer?:ReturnType<typeof setTimeout>;inFlight?:Promise<boolean>;retryMs:number};
 
 export class SolutionSync {
  private states:Record<SolutionLanguage,SaveState>={cpp:{retryMs:1000},python:{retryMs:1000}};
+ private statuses:Record<SolutionLanguage,SaveStatus>={cpp:'loading',python:'loading'};
  private disposed=false;
 
- constructor(private userId:string,private version:string,private starters:Record<SolutionLanguage,string>){}
+ constructor(private userId:string,private version:string,private starters:Record<SolutionLanguage,string>,private onStatus?:(language:SolutionLanguage,status:SaveStatus)=>void){}
+
+ private setStatus(language:SolutionLanguage,status:SaveStatus){
+  if(this.statuses[language]===status)return;
+  this.statuses[language]=status;
+  this.onStatus?.(language,status);
+ }
 
  private key(language:SolutionLanguage){return `practice:${this.userId}:${this.version}:${language}`}
  private pendingKey(language:SolutionLanguage){return `${this.key(language)}:unsent`}
  private path(language:SolutionLanguage){return `/solutions/${this.version}/${language}`}
 
  async load(language:SolutionLanguage):Promise<string>{
+  this.setStatus(language,'loading');
   // Finish older writes before comparing the browser cache with the server.
   await this.flush(language);
   try{
@@ -21,20 +30,24 @@ export class SolutionSync {
    const local=localStorage.getItem(this.key(language));
    const pending=localStorage.getItem(this.pendingKey(language))==='1';
    if(pending&&local!==null){
+    this.setStatus(language,'pending');
     this.schedule(language,0);
     return local;
    }
    localStorage.setItem(this.key(language),cloud.source);
    localStorage.removeItem(this.pendingKey(language));
+   this.setStatus(language,'saved');
    return cloud.source;
   }catch(error){
    const local=localStorage.getItem(this.key(language));
    const pending=localStorage.getItem(this.pendingKey(language))==='1';
    if(error instanceof ApiError&&error.status===404){
     if(local!==null&&local!==this.starters[language])this.markDirty(language,local,0);
+    else this.setStatus(language,'saved');
    }else if(pending&&local!==null){
+    this.setStatus(language,'retrying');
     this.schedule(language,this.states[language].retryMs);
-   }
+   }else this.setStatus(language,'unavailable');
    return local??this.starters[language];
   }
  }
@@ -42,6 +55,7 @@ export class SolutionSync {
  markDirty(language:SolutionLanguage,source:string,delay=800){
   localStorage.setItem(this.key(language),source);
   localStorage.setItem(this.pendingKey(language),'1');
+  this.setStatus(language,'pending');
   this.schedule(language,delay);
  }
 
@@ -70,6 +84,7 @@ export class SolutionSync {
   if(localStorage.getItem(this.pendingKey(language))!=='1')return;
   const source=localStorage.getItem(this.key(language));
   if(source===null)return;
+  this.setStatus(language,'saving');
   state.inFlight=(async()=>{
    try{
     await api(this.path(language),'PUT',{source});
@@ -84,9 +99,10 @@ export class SolutionSync {
   const succeeded=await state.inFlight;
   state.inFlight=undefined;
   if(localStorage.getItem(this.pendingKey(language))==='1'){
+   this.setStatus(language,succeeded?'pending':'retrying');
    if(this.disposed)return;
    this.schedule(language,succeeded?0:state.retryMs);
-  }
+  }else this.setStatus(language,'saved');
  }
 
  flushAll(){void this.flush('cpp');void this.flush('python')}

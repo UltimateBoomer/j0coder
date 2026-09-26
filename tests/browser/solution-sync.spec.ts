@@ -112,13 +112,18 @@ test('serializes writes while edits continue',async({page})=>{
   await route.fallback();
  });
  await openEditor(page);
+ const cloudStatus=page.locator('.cloud-status');
+ await expect(cloudStatus).toHaveAttribute('aria-label','Saved to cloud');
  await replaceCode(page,'int solve() { return 2; }');
  await firstStarted;
+ await expect(cloudStatus).toHaveAttribute('aria-label','Saving to cloud');
  await replaceCode(page,'int solve() { return 3; }');
+ await expect(cloudStatus).toHaveAttribute('aria-label','Changes waiting to save');
  await page.waitForTimeout(1000);
  expect(writes).toBe(1);
  releaseFirst();
  await expect.poll(()=>backend.drafts.get(`${firstVersion}:cpp`)).toBe('int solve() { return 3; }');
+ await expect(cloudStatus).toHaveAttribute('aria-label','Saved to cloud');
  expect(writes).toBe(2);
 });
 
