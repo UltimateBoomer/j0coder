@@ -42,7 +42,7 @@ fn function_interface_generates_top_level_code() {
     p.validate().unwrap();
     let cpp = Language::Cpp.starter_interface(&interface).unwrap();
     let py = Language::Python.starter_interface(&interface).unwrap();
-    assert!(cpp.contains("vector<int32_t> twoSum("));
+    assert!(cpp.contains("vector<int> twoSum("));
     assert!(!cpp.contains("class Solution"));
     assert!(py.starts_with("def twoSum("));
 }
@@ -212,13 +212,10 @@ fn cpp_wrappers_support_nullable_values_and_empty_constructors() {
         returns: Type::Int,
     };
     let wrapper = Language::Cpp
-        .wrapper_interface(
-            &function,
-            "int32_t height(vector<optional<int32_t>>) { return 0; }",
-        )
+        .wrapper_interface(&function, "int height(vector<optional<int>>) { return 0; }")
         .unwrap();
     assert!(wrapper.contains("adl_serializer<std::optional<T>>"));
-    assert!(wrapper.contains("get<vector<optional<int32_t>>>()"));
+    assert!(wrapper.contains("get<vector<optional<int>>>()"));
 
     let stateful = Interface::DataStructure {
         name: "Empty".into(),
@@ -232,7 +229,7 @@ fn cpp_wrappers_support_nullable_values_and_empty_constructors() {
     let wrapper = Language::Cpp
         .wrapper_interface(
             &stateful,
-            "class Empty { public: int32_t get() { return 0; } };",
+            "class Empty { public: int get() { return 0; } };",
         )
         .unwrap();
     assert!(wrapper.contains("Empty object;"));

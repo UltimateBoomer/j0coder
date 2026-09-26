@@ -1398,7 +1398,7 @@ mod kubernetes_tests {
             constructor_args: None,
             operations: None,
         }];
-        let outcome = judge(&job, "int32_t solve(int32_t x) { return x + 1; }", &cases).await?;
+        let outcome = judge(&job, "int solve(int x) { return x + 1; }", &cases).await?;
         anyhow::ensure!(
             outcome.verdict == Verdict::Accepted,
             "judge returned {outcome:?}"

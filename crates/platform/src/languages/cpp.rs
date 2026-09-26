@@ -11,8 +11,8 @@ impl LanguageImplementation for Cpp {
     fn type_spelling(&self, ty: &Type) -> String {
         match ty {
             Type::Void => "void".into(),
-            Type::Int => "int32_t".into(),
-            Type::Int64 => "int64_t".into(),
+            Type::Int => "int".into(),
+            Type::Int64 => "long long".into(),
             Type::Float => "double".into(),
             Type::Bool => "bool".into(),
             Type::String => "string".into(),

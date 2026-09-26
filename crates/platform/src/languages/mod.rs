@@ -250,7 +250,11 @@ mod tests {
             Language::Cpp
                 .implementation()
                 .type_spelling(&Type::Array(Box::new(Type::Int))),
-            "vector<int32_t>"
+            "vector<int>"
+        );
+        assert_eq!(
+            Language::Cpp.implementation().type_spelling(&Type::Int64),
+            "long long"
         );
         assert_eq!(
             Language::Python
