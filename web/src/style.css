@@ -26,3 +26,29 @@ select option:checked { color: var(--text); background-color: var(--selected); }
 .problem-scroll .problem-title small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .problem-scroll .badge{white-space:nowrap}
 @media(max-width:800px){.problems-page{padding:20px}.problem-scroll .problem-row{gap:13px;padding:12px}}
+
+/* Global problem search stays above the workspace and renders only visible rows. */
+header{position:relative;z-index:30}
+.header-search{position:relative;width:min(360px,38vw);min-width:170px;flex-shrink:1}
+.header-search input{width:100%;height:38px;padding:8px 16px;border-radius:999px;font-size:13px}
+.quick-dropdown{position:absolute;top:calc(100% + 8px);left:0;width:min(620px,calc(100vw - 32px));border:1px solid var(--border);border-radius:10px;background:var(--panel);box-shadow:0 18px 45px #0003;overflow:hidden;z-index:40}
+.quick-results{max-height:min(520px,calc(100dvh - 86px));overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.quick-option{display:flex;align-items:center;gap:16px;width:100%;height:72px;padding:10px 17px;text-align:left;border:0;border-top:1px solid var(--border-soft);border-radius:0}
+.quick-option:first-of-type{border-top:0}
+.quick-option[aria-selected=true]{background:var(--selected)}
+.quick-option-copy{display:block;min-width:0;flex:1}
+.quick-option-copy strong,.quick-option-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quick-option-copy strong{font-size:14px;font-weight:650}
+.quick-option-copy small{margin-top:5px;font-size:12px;color:var(--muted)}
+.quick-option .badge{white-space:nowrap}
+.quick-state{padding:24px;color:var(--muted);font-size:13px}
+.quick-state button{margin-left:8px;padding:5px 9px}
+@media(max-width:800px){
+ header{height:104px;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:40px 40px;column-gap:12px;row-gap:8px;padding:8px 20px}
+ header nav{grid-column:2;grid-row:1;justify-self:end;margin-left:0}
+ .header-search{grid-column:1 / -1;grid-row:2;width:100%;min-width:0}
+ .quick-dropdown{position:fixed;top:104px;left:12px;right:12px;width:auto}
+ .quick-results{max-height:calc(100dvh - 116px)}
+ .workspace,.problems-page{height:calc(100dvh - 104px)}
+}
+@media(max-width:600px){header nav > button:first-child{display:none}}
