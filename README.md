@@ -29,7 +29,14 @@ cargo build --locked --bin api
 tmux -L locoder-dev respawn-window -k -t locoder:api
 ```
 
-The full application image is still available through `make app-image`.
+To run all Locoder services with the full `compose.yaml` stack on one rootless host, use:
+
+```sh
+make images
+make dev-gvisor
+scripts/gvisor-controller.sh start
+make up
+```
 
 Create the first administrator after the services are ready:
 
@@ -120,7 +127,9 @@ Build and pin both local container images with:
 make images BUILD_JOBS=2
 ```
 
-CI may import and export layers with `CACHE_FROM_REPO` and `CACHE_TO_REPO`. Keep cache repositories private because intermediate layers can contain source files.
+Publishing a GitHub Release runs `.github/workflows/publish-images.yml`. It builds `deploy/App.Containerfile` and `deploy/Toolchain.Containerfile` for `linux/amd64`, then publishes `ghcr.io/ultimateboomer/locoder-app:<release-tag>` and `ghcr.io/ultimateboomer/locoder-toolchain:<release-tag>`. The workflow summary records both immutable digests for the Helm values file. It uses the repository's `GITHUB_TOKEN` with `packages: write`; no personal access token is needed for publishing.
+
+When updating the checked-in REST schema, run `python3 scripts/generate-openapi.py` before `npm run generate:api --prefix web`.
 
 Integration and browser tests require isolated PostgreSQL/Valkey services or a complete deployment. See [testing](docs/testing.md) and the current [verification record](docs/verification.md).
 
@@ -136,7 +145,10 @@ Restore only into a fresh checkout with no `.env` and no `locoder_*` volumes:
 
 ```sh
 scripts/restore.sh "$HOME/backups/locoder-2026-09-20"
-make dev-up
+make images
+make dev-gvisor
+scripts/gvisor-controller.sh start
+make up
 ```
 
 Protect backups as secrets. For staging and production, back up the external PostgreSQL and Valkey services according to their operators' procedures and retain the deployed image digests.

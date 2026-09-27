@@ -2,8 +2,8 @@ use crate::contract::*;
 use anyhow::{Result, ensure};
 use k8s_openapi::{
     api::core::v1::{
-        Container, EmptyDirVolumeSource, Pod, PodSpec, ResourceRequirements, SeccompProfile,
-        SecurityContext, Toleration, Volume, VolumeMount,
+        Container, EmptyDirVolumeSource, LocalObjectReference, Pod, PodSpec, ResourceRequirements,
+        SeccompProfile, SecurityContext, Toleration, Volume, VolumeMount,
     },
     apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::ObjectMeta},
 };
@@ -33,12 +33,13 @@ pub struct Kubernetes {
     start_timeout: Duration,
     node_selector: BTreeMap<String, String>,
     tolerations: Vec<Toleration>,
+    image_pull_secrets: Vec<LocalObjectReference>,
 }
 
 #[derive(Clone)]
 pub enum Backend {
     Podman(Podman),
-    Kubernetes(Kubernetes),
+    Kubernetes(Box<Kubernetes>),
 }
 
 fn backend_kind(value: &str) -> Result<&str> {
@@ -87,7 +88,7 @@ impl Backend {
     pub async fn from_env() -> Result<Self> {
         match backend_kind(&crate::env("SANDBOX_BACKEND", "podman"))? {
             "podman" => Ok(Self::Podman(Podman::new())),
-            "kubernetes" => Ok(Self::Kubernetes(Kubernetes::new().await?)),
+            "kubernetes" => Ok(Self::Kubernetes(Box::new(Kubernetes::new().await?))),
             _ => unreachable!(),
         }
     }
@@ -188,6 +189,10 @@ impl Kubernetes {
             ),
             node_selector: serde_json::from_str(&crate::env("SANDBOX_NODE_SELECTOR", "{}"))?,
             tolerations: serde_json::from_str(&crate::env("SANDBOX_TOLERATIONS", "[]"))?,
+            image_pull_secrets: serde_json::from_str(&crate::env(
+                "SANDBOX_IMAGE_PULL_SECRETS",
+                "[]",
+            ))?,
         })
     }
     fn pod(
@@ -297,6 +302,8 @@ impl Kubernetes {
                 enable_service_links: Some(false),
                 restart_policy: Some("Never".into()),
                 runtime_class_name: Some(self.runtime_class.clone()),
+                image_pull_secrets: (!self.image_pull_secrets.is_empty())
+                    .then(|| self.image_pull_secrets.clone()),
                 node_selector: (!self.node_selector.is_empty()).then(|| self.node_selector.clone()),
                 tolerations: (!self.tolerations.is_empty()).then(|| self.tolerations.clone()),
                 security_context: Some(k8s_openapi::api::core::v1::PodSecurityContext {
@@ -1424,11 +1431,15 @@ mod kubernetes_tests {
             start_timeout: Duration::from_secs(1),
             node_selector: BTreeMap::new(),
             tolerations: vec![],
+            image_pull_secrets: vec![LocalObjectReference {
+                name: "ghcr-pull".into(),
+            }],
         };
         let pod = backend.pod("locoder-test", "execute", vec!["true".into()], 256, 60);
         let spec = pod.spec.unwrap();
         assert_eq!(spec.runtime_class_name.as_deref(), Some("runsc"));
         assert_eq!(spec.automount_service_account_token, Some(false));
+        assert_eq!(spec.image_pull_secrets.unwrap()[0].name, "ghcr-pull");
         assert_eq!(spec.host_network, None);
         assert_eq!(spec.host_pid, None);
         assert_eq!(spec.host_ipc, None);

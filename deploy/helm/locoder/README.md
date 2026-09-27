@@ -1,6 +1,6 @@
 # Locoder on Kubernetes
 
-This is the staging and production deployment path. The Helm 3 chart installs the Locoder control plane and a dedicated namespace for short-lived gVisor sandbox Pods. It does not install PostgreSQL, Valkey, gVisor, an ingress controller, cert-manager, or an external-secrets operator. For the default local development path, use [Podman Compose](../../../README.md#develop-locally-with-podman-compose).
+This is the staging and production deployment path. The Helm 3 chart installs the Locoder control plane and a dedicated namespace for short-lived gVisor sandbox Pods. It does not install PostgreSQL, Valkey, gVisor, an ingress controller, cert-manager, or an external-secrets operator. For the default local development path, use [Podman Compose](../../../README.md#develop-locally).
 
 For a disposable Fedora development cluster using a Lima-managed QEMU VM, kubeadm, containerd, and gVisor, see [Local Kubernetes on Fedora](../../../docs/local-kubernetes-fedora.md). Podman is used only to build and export the local images.
 
@@ -9,9 +9,11 @@ For a disposable Fedora development cluster using a Lima-managed QEMU VM, kubead
 - Kubernetes 1.27 or newer and a CNI that enforces NetworkPolicy.
 - A working gVisor RuntimeClass. Set `sandbox.runtimeClass` to its exact name. Worker and editor preflight creates a probe Pod and requires `dmesg` to identify gVisor; there is no runtime fallback.
 - External PostgreSQL and Valkey endpoints in existing Secrets. The default keys are `DATABASE_URL` and `VALKEY_URL`.
-- Immutable application and toolchain image digests. Build the Kubernetes application image with `deploy/KubernetesApp.Containerfile`; it contains no Podman client.
+- Immutable application and toolchain image digests. The same `deploy/App.Containerfile` builds the application image for Podman and Kubernetes; Kubernetes selects its sandbox backend through `SANDBOX_BACKEND=kubernetes`.
 - Egress CIDRs for the Kubernetes API, DNS, PostgreSQL, Valkey, ingress path, and optional catalog SSH destination appropriate to the cluster.
 - A TLS ingress and public HTTPS origin for browser access.
+
+The published release workflow builds `ghcr.io/ultimateboomer/locoder-app` and `ghcr.io/ultimateboomer/locoder-toolchain` with the GitHub release tag, and reports the digests in the workflow summary. Set `images.app.digest` and `images.toolchain.digest` to those digests. GitHub initially makes new GHCR packages private. For private packages, create the application and sandbox namespaces before installing the chart, then create an image pull Secret in each namespace. Set `imagePullSecrets` for the app and `sandbox.imagePullSecrets` for dynamically created toolchain Pods. Both values contain Secret name references, for example `[{name: ghcr-pull}]`. Alternatively, make both packages public in GHCR before deploying without pull credentials.
 
 Create a staging or production values file from `values.yaml`. Set `publicOrigin`, `ingress.host`, `ingress.tlsSecret`, both image repositories and digests, `sandbox.runtimeClass`, the existing Secret references, and the network policy destinations for your cluster. Use separate values and credentials for each environment. Install after the external services, Secrets, RuntimeClass, and ingress are ready:
 

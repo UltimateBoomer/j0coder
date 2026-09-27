@@ -1,6 +1,6 @@
 # Ephemeral Kubernetes deployment test on Fedora
 
-Use this disposable cluster to test the staging and production Helm deployment locally. For ordinary development, start with [Podman Compose](../README.md#develop-locally-with-podman-compose). The Lima-managed QEMU VM contains a single-node Kubernetes 1.34 kubeadm cluster, system containerd, Flannel, and gVisor. The minor version is pinned in the repository overlay so Lima template updates cannot silently change it. QEMU runs as the developer and uses `/dev/kvm` for hardware acceleration. The workflow does not connect to system libvirt or require membership in the `libvirt` group. Podman is used only to build and export the local application and toolchain images.
+Use this disposable cluster to test the staging and production Helm deployment locally. For ordinary development, start with [Podman Compose](../README.md#develop-locally). The Lima-managed QEMU VM contains a single-node Kubernetes 1.34 kubeadm cluster, system containerd, Flannel, and gVisor. The minor version is pinned in the repository overlay so Lima template updates cannot silently change it. QEMU runs as the developer and uses `/dev/kvm` for hardware acceleration. The workflow does not connect to system libvirt or require membership in the `libvirt` group. Podman is used only to build and export the local application and toolchain images.
 
 ## One-time host setup
 
@@ -50,7 +50,7 @@ make kube-dev-up
 `kube-dev-up`:
 
 1. validates Lima, the repository template, QEMU, virtualization flags, and `/dev/kvm` access;
-2. builds the Podman-free application image and toolchain image with Podman;
+2. builds the shared application image and toolchain image with Podman;
 3. creates a Lima QEMU VM from the repository's kubeadm template overlay, with no host mounts;
 4. verifies the VM contains a ready Kubernetes node using system containerd;
 5. installs the checksummed gVisor archive, configures its containerd runtime handler, creates the RuntimeClass, and runs an identity probe;

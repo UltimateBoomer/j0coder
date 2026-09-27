@@ -1,0 +1,244 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      rust: ${{ steps.select.outputs.rust }}
+      web: ${{ steps.select.outputs.web }}
+      integration: ${{ steps.select.outputs.integration }}
+      helm: ${{ steps.select.outputs.helm }}
+      config: ${{ steps.select.outputs.config }}
+      app_image: ${{ steps.select.outputs.app_image }}
+      toolchain_image: ${{ steps.select.outputs.toolchain_image }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select checks
+        id: select
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+          python3 .github/scripts/ci_changes.py
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: |
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+          rustup default stable
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --prefix web
+      - run: npm run check --prefix web
+      - run: npm run build --prefix web
+      - name: Verify generated API types
+        run: |
+          python3 scripts/generate-openapi.py
+          git diff --exit-code -- openapi.json
+          npm run generate:api --prefix web
+          git diff --exit-code -- web/src/api.generated.ts
+      - run: cd web && npx playwright install --with-deps chromium
+      - name: Run browser tests with mocked API
+        env:
+          TEST_ORIGIN: http://127.0.0.1:8080
+        run: |
+          npm run dev --prefix web > /tmp/locoder-vite.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true; cat /tmp/locoder-vite.log' EXIT
+          for attempt in {1..60}; do
+            if curl --fail --silent --output /dev/null "$TEST_ORIGIN"; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --output /dev/null "$TEST_ORIGIN"
+          npm test --prefix web -- editor-ui.spec.ts header-search.spec.ts problem-list.spec.ts solution-sync.spec.ts
+
+  integration:
+    needs: changes
+    if: needs.changes.outputs.integration == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      DATABASE_URL: postgres://postgres:integration-only@127.0.0.1:15432/practice
+      VALKEY_URL: redis://127.0.0.1:16379
+      PUBLIC_ORIGIN: http://127.0.0.1:18080
+      API_BIND: 127.0.0.1:18080
+      COOKIE_SECURE: 'false'
+      TEST_ORIGIN: http://127.0.0.1:18080
+    services:
+      postgres:
+        image: postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
+        env:
+          POSTGRES_DB: practice
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: integration-only
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d practice"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      valkey:
+        image: valkey/valkey@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+        ports:
+          - 16379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cargo build --locked --bin api
+      - run: printf '%s\n' 'Integration-password-123' | target/debug/api bootstrap-admin admin
+      - run: cargo test --locked --lib queue::integration -- --ignored --test-threads=1
+      - run: npm ci --prefix web
+      - run: npm run build --prefix web
+      - run: cd web && npx playwright install --with-deps chromium
+      - name: Run API and live browser acceptance tests
+        run: |
+          target/debug/api > /tmp/locoder-api.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true; cat /tmp/locoder-api.log' EXIT
+          for attempt in {1..60}; do
+            if curl --fail --silent --output /dev/null "$TEST_ORIGIN/healthz"; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --output /dev/null "$TEST_ORIGIN/readyz"
+          python3 tests/api_acceptance.py
+          npm test --prefix web -- practice.spec.ts routing.spec.ts
+
+  helm:
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: make helm-check
+      - run: helm template locoder deploy/helm/locoder -f deploy/local-kubernetes/values.yaml > /dev/null
+      - name: Render private image pull settings
+        run: |
+          helm template locoder deploy/helm/locoder \
+            --set 'imagePullSecrets[0].name=ghcr-pull' \
+            --set 'sandbox.imagePullSecrets[0].name=ghcr-pull' > /tmp/locoder-private.yaml
+          grep -q 'name: ghcr-pull' /tmp/locoder-private.yaml
+
+  config:
+    needs: changes
+    if: needs.changes.outputs.config == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      POSTGRES_PASSWORD: integration-only
+      VALKEY_PASSWORD: integration-only
+      CATALOG_SSH_KEY_PATH: /tmp/catalog-key
+      CATALOG_KNOWN_HOSTS_PATH: /tmp/known-hosts
+      SANDBOX_RUNTIME: runsc
+      PODMAN_SOCKET: /tmp/podman.sock
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - run: bash -n scripts/*.sh
+      - run: python3 -m compileall -q scripts tests
+      - run: docker compose -f compose.dev.yaml config -q
+      - run: docker compose -f compose.yaml config -q
+
+  app_image:
+    needs: changes
+    if: needs.changes.outputs.app_image == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/App.Containerfile
+          push: false
+          cache-from: type=gha,scope=locoder-app
+          cache-to: type=gha,scope=locoder-app,mode=max,ignore-error=true
+
+  toolchain_image:
+    needs: changes
+    if: needs.changes.outputs.toolchain_image == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Toolchain.Containerfile
+          push: false
+          cache-from: type=gha,scope=locoder-toolchain
+          cache-to: type=gha,scope=locoder-toolchain,mode=max,ignore-error=true
+
+  result:
+    name: CI result
+    if: always()
+    needs: [changes, rust, web, integration, helm, config, app_image, toolchain_image]
+    runs-on: ubuntu-24.04
+    env:
+      RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require every selected check to pass
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          jobs = json.loads(os.environ['RESULTS'])
+          bad = {name: job['result'] for name, job in jobs.items()
+                 if job['result'] not in ('success', 'skipped')}
+          if jobs['changes']['result'] != 'success':
+              bad['changes'] = jobs['changes']['result']
+          else:
+              selected = jobs['changes']['outputs']
+              for name, enabled in selected.items():
+                  if enabled == 'true' and jobs[name]['result'] != 'success':
+                      bad[name] = jobs[name]['result']
+          if bad:
+              print('CI failed:', bad, file=sys.stderr)
+              sys.exit(1)
+          print('All selected checks passed.')
+          PY

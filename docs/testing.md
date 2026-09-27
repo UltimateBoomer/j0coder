@@ -1,5 +1,13 @@
 # Disposable integration environment
 
+GitHub Actions CI runs on pull requests and pushes to `main`. It selects Rust
+checks, frontend checks with mocked browser tests, PostgreSQL/Valkey API and
+live browser acceptance tests, Helm checks, Compose/script checks, and the two
+container builds from the changed files. Documentation-only changes report a
+passing `CI result` without starting test jobs. A manual run executes all
+checks. The browser test that executes user code under gVisor still requires
+the complete rootless development environment described below.
+
 Use a Podman engine separate from production. These credentials are intentionally public test fixtures. The script refuses pre-existing named containers rather than deleting them.
 
 Stop the native development stack with `make dev-down` before starting these disposable dependencies; they use the same host ports.

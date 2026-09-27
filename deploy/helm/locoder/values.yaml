@@ -2,10 +2,10 @@ publicOrigin: https://locoder.example.com
 cookieSecure: true
 images:
   app:
-    repository: registry.example.com/locoder/app-kubernetes
+    repository: ghcr.io/ultimateboomer/locoder-app
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
   toolchain:
-    repository: registry.example.com/locoder/toolchain
+    repository: ghcr.io/ultimateboomer/locoder-toolchain
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 imagePullSecrets: []
 existingSecrets:
@@ -15,6 +15,7 @@ existingSecrets:
 sandbox:
   namespace: ""
   runtimeClass: runsc
+  imagePullSecrets: []
   podStartTimeoutSeconds: 30
   cleanupIntervalSeconds: 30
   ttlSeconds: 300

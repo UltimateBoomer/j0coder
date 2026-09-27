@@ -5,17 +5,11 @@ LIMA_CPUS ?= 6
 LIMA_MEMORY ?= 12
 LIMA_DISK_SIZE ?= 40
 APP_IMAGE ?= localhost/locoder-app:1
-KUBERNETES_APP_IMAGE ?= localhost/locoder-app-kubernetes:1
 TOOLCHAIN_IMAGE ?= localhost/locoder-toolchain:1
-CACHE_FROM_REPO ?=
-CACHE_TO_REPO ?=
-
-APP_CACHE_FLAGS = $(if $(CACHE_FROM_REPO),--cache-from=$(CACHE_FROM_REPO)/app) $(if $(CACHE_TO_REPO),--cache-to=$(CACHE_TO_REPO)/app)
-TOOLCHAIN_CACHE_FLAGS = $(if $(CACHE_FROM_REPO),--cache-from=$(CACHE_FROM_REPO)/toolchain) $(if $(CACHE_TO_REPO),--cache-to=$(CACHE_TO_REPO)/toolchain)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help configure check build test app-image kubernetes-app-image toolchain-image images pin-images helm-check
+.PHONY: help configure check build test app-image toolchain-image images pin-images helm-check
 .PHONY: preflight up dev-gvisor dev-up dev-attach dev-down kube-dev-up kube-dev-down
 
 # Repository setup
@@ -32,7 +26,6 @@ help:
 	  '' \
 	  'Images:' \
 	  '  app-image       Build the application image' \
-	  '  kubernetes-app-image Build the Podman-free application image' \
 	  '  toolchain-image Build the sandbox toolchain image' \
 	  '  helm-check      Lint and render the Kubernetes chart' \
 	  '  images          Configure, build both images, and pin their IDs' \
@@ -67,17 +60,14 @@ test:
 
 # Container images
 app-image:
-	$(PODMAN) build --layers --jobs=$(BUILD_JOBS) $(APP_CACHE_FLAGS) -t $(APP_IMAGE) -f deploy/App.Containerfile .
-
-kubernetes-app-image: app-image
-	$(PODMAN) build --layers --jobs=$(BUILD_JOBS) --build-arg APP_IMAGE=$(APP_IMAGE) -t $(KUBERNETES_APP_IMAGE) -f deploy/KubernetesApp.Containerfile .
+	$(PODMAN) build --layers --jobs=$(BUILD_JOBS) -t $(APP_IMAGE) -f deploy/App.Containerfile .
 
 helm-check:
 	helm lint deploy/helm/locoder
 	helm template locoder deploy/helm/locoder >/dev/null
 
 toolchain-image:
-	$(PODMAN) build --layers --jobs=$(BUILD_JOBS) $(TOOLCHAIN_CACHE_FLAGS) -t $(TOOLCHAIN_IMAGE) -f deploy/Toolchain.Containerfile .
+	$(PODMAN) build --layers --jobs=$(BUILD_JOBS) -t $(TOOLCHAIN_IMAGE) -f deploy/Toolchain.Containerfile .
 
 images: pin-images
 
@@ -108,12 +98,12 @@ dev-down:
 
 # PostgreSQL and Valkey use emptyDir storage. Teardown deletes the complete
 # Lima VM and all of its data.
-kube-dev-up: configure helm-check toolchain-image kubernetes-app-image
+kube-dev-up: configure helm-check toolchain-image app-image
 	LIMA_INSTANCE='$(LIMA_INSTANCE)' \
 	LIMA_CPUS='$(LIMA_CPUS)' \
 	LIMA_MEMORY='$(LIMA_MEMORY)' \
 	LIMA_DISK_SIZE='$(LIMA_DISK_SIZE)' \
-	KUBERNETES_APP_IMAGE='$(KUBERNETES_APP_IMAGE)' \
+	APP_IMAGE='$(APP_IMAGE)' \
 	TOOLCHAIN_IMAGE='$(TOOLCHAIN_IMAGE)' \
 	./scripts/kube-dev-up.sh
 

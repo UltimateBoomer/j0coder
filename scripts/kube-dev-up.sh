@@ -6,7 +6,7 @@ profile=${LIMA_INSTANCE:-locoder}
 cpus=${LIMA_CPUS:-6}
 memory=${LIMA_MEMORY:-12}
 disk=${LIMA_DISK_SIZE:-40}
-app_image=${KUBERNETES_APP_IMAGE:-localhost/locoder-app-kubernetes:1}
+app_image=${APP_IMAGE:-localhost/locoder-app:1}
 toolchain_image=${TOOLCHAIN_IMAGE:-localhost/locoder-toolchain:1}
 
 case "$(uname -m)" in

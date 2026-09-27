@@ -16,4 +16,4 @@ for volume in postgres valkey; do
  podman volume create "locoder_${volume}"
  podman volume import "locoder_${volume}" "$backup_dir/${volume}.tar"
 done
-printf 'Restore complete. Review .env socket/origin, run preflight, then podman compose up -d.\n'
+printf 'Restore complete. Review .env socket/origin, then build the images, install and start gVisor, and run make up.\n'

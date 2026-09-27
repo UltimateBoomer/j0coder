@@ -56,6 +56,9 @@ spec:
             - {name: KUBERNETES_SANDBOX_TTL, value: {{ $root.Values.sandbox.ttlSeconds | quote }}}
             - {name: SANDBOX_NODE_SELECTOR, value: {{ toJson $root.Values.sandbox.nodeSelector | quote }}}
             - {name: SANDBOX_TOLERATIONS, value: {{ toJson $root.Values.sandbox.tolerations | quote }}}
+            {{- if or (eq $component "worker") (eq $component "editor") }}
+            - {name: SANDBOX_IMAGE_PULL_SECRETS, value: {{ toJson $root.Values.sandbox.imagePullSecrets | quote }}}
+            {{- end }}
             - {name: WORKER_CONCURRENCY, value: {{ $root.Values.workerConcurrency | quote }}}
             - name: DATABASE_URL
               valueFrom: {secretKeyRef: {name: {{ $root.Values.existingSecrets.database.name }}, key: {{ $root.Values.existingSecrets.database.key }}}}
@@ -79,6 +82,7 @@ spec:
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
+      imagePullSecrets: {{ toYaml .Values.imagePullSecrets | nindent 8 }}
       securityContext: {{- include "locoder.podSecurity" . | nindent 8 }}
       volumes: [{name: tmp, emptyDir: {sizeLimit: 32Mi}}]
       containers:
