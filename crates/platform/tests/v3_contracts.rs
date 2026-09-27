@@ -7,6 +7,7 @@ fn base(interface: Interface, tests: Vec<Case>) -> Problem {
         title: "Schema three".into(),
         summary: String::new(),
         statement: "Implement it.".into(),
+        hints: vec![],
         difficulty: "easy".into(),
         difficulty_score: Some(2),
         tags: vec!["design".into()],
@@ -243,35 +244,28 @@ fn sibling_catalog_validates_all_problems_when_present() {
     if !root.exists() {
         return;
     }
-    let checkout = std::env::temp_dir().join(format!("locoder-catalog-{}", std::process::id()));
-    std::fs::create_dir_all(checkout.join("problems")).unwrap();
-    std::fs::copy(root.join("catalog.json"), checkout.join("catalog.json")).unwrap();
-    for entry in std::fs::read_dir(root.join("problems")).unwrap() {
-        let entry = entry.unwrap();
-        std::fs::copy(
-            entry.path(),
-            checkout.join("problems").join(entry.file_name()),
-        )
-        .unwrap();
-    }
-    let release = locoder::catalog::validate_release(&checkout).unwrap();
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join("catalog.json")).unwrap()).unwrap();
+    let release = locoder::catalog::validate_release(&root).unwrap();
+    assert_eq!(release.problems.len(), 125);
+    assert!(
+        release
+            .problems
+            .iter()
+            .all(|entry| entry.problem.schema == 3)
+    );
     assert_eq!(
-        release.problems.len(),
-        manifest["problems"].as_array().unwrap().len()
+        release
+            .problems
+            .iter()
+            .filter(|entry| entry.reference.is_some())
+            .count(),
+        2
     );
     assert!(
         release
             .problems
             .iter()
-            .all(|entry| entry.problem.schema == 3
-                && entry.hash
-                    == locoder::catalog::sha256(
-                        &std::fs::read(checkout.join(&entry.path)).unwrap()
-                    ))
+            .all(|entry| entry.key != "example/add-one")
     );
-    std::fs::remove_dir_all(checkout).unwrap();
 }
 
 #[test]
@@ -294,13 +288,18 @@ fn write_trusted_data_structure_fixtures() {
         Language::Python.wrapper_interface(&interface, py).unwrap(),
     )
     .unwrap();
-    let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../code-practice-problems/problems/lru-cache.json");
-    let cases: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(catalog).unwrap()).unwrap();
-    std::fs::write(
-        root.join("lru.json"),
-        serde_json::to_vec(&cases["tests"]).unwrap(),
+    let catalog =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../code-practice-problems");
+    let release = locoder::catalog::validate_release(&catalog).unwrap();
+    let cases = serde_json::to_value(
+        &release
+            .problems
+            .iter()
+            .find(|p| p.key == "design/lru-cache")
+            .unwrap()
+            .problem
+            .tests,
     )
     .unwrap();
+    std::fs::write(root.join("lru.json"), serde_json::to_vec(&cases).unwrap()).unwrap();
 }

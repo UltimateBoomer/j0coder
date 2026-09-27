@@ -278,6 +278,7 @@ export interface components {
             schema: 3;
             title: string;
             statement: string;
+            hints?: string[];
             /** @enum {string} */
             difficulty: "easy" | "medium" | "hard";
             tags: string[];

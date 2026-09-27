@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, ensure};
 use locoder::catalog::{self, ValidatedRelease};
+use locoder::contract::Problem;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
@@ -169,10 +170,11 @@ async fn apply(
 ) -> Result<(String, i32, i32, i32, i32)> {
     let mut tx = db.begin().await?;
     let keys: Vec<&str> = release.problems.iter().map(|p| p.key.as_str()).collect();
-    let existing=sqlx::query("SELECT i.catalog_key,i.problem_id,i.artifact_hash,p.current_version FROM problem_imports i JOIN problems p ON p.id=i.problem_id FOR UPDATE OF i,p").fetch_all(&mut *tx).await?;
+    let existing=sqlx::query("SELECT i.catalog_key,i.problem_id,i.artifact_hash,p.current_version,p.draft FROM problem_imports i JOIN problems p ON p.id=i.problem_id FOR UPDATE OF i,p").fetch_all(&mut *tx).await?;
     let mut created = 0;
     let mut changed = 0;
     let mut unchanged = 0;
+    let mut reference_changes = 0;
     for item in &release.problems {
         let old = existing
             .iter()
@@ -180,10 +182,15 @@ async fn apply(
         let problem_id = old
             .map(|r| r.get::<Uuid, _>("problem_id"))
             .unwrap_or_else(Uuid::new_v4);
+        let semantic_hash = catalog::problem_hash(&item.problem)?;
         let same = old.is_some_and(|r| {
-            r.get::<String, _>("artifact_hash") == item.hash
-                && r.get::<Option<Uuid>, _>("current_version").is_some()
+            r.get::<Option<Uuid>, _>("current_version").is_some()
+                && serde_json::from_value::<Problem>(r.get("draft"))
+                    .ok()
+                    .and_then(|p| catalog::problem_hash(&p).ok())
+                    .is_some_and(|hash| hash == semantic_hash)
         });
+        let mut version_id = old.and_then(|r| r.get::<Option<Uuid>, _>("current_version"));
         if same {
             unchanged += 1;
         } else {
@@ -203,10 +210,11 @@ async fn apply(
                     .await?;
             }
             let version = Uuid::new_v4();
+            version_id = Some(version);
             let mut public = item.problem.clone();
             let tests = json!(public.tests);
             public.tests.retain(|t| !t.hidden);
-            let provenance = json!({"catalog_key":item.key,"repository_url":s.repository_url,"resolved_commit":commit,"manifest_checksum":release.manifest_checksum,"artifact_hash":item.hash});
+            let provenance = json!({"catalog_key":item.key,"repository_url":s.repository_url,"resolved_commit":commit,"source_checksum":release.source_checksum,"artifact_hash":item.hash});
             sqlx::query("INSERT INTO versions(id,problem_id,public,tests,catalog_provenance) VALUES($1,$2,$3,$4,$5)").bind(version).bind(problem_id).bind(json!(public)).bind(tests).bind(provenance).execute(&mut *tx).await?;
             sqlx::query("UPDATE problems SET current_version=$2 WHERE id=$1")
                 .bind(problem_id)
@@ -214,10 +222,41 @@ async fn apply(
                 .execute(&mut *tx)
                 .await?;
         }
-        sqlx::query("INSERT INTO problem_imports(catalog_key,problem_id,artifact_path,artifact_hash,repository_url,resolved_commit,manifest_checksum) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(catalog_key) DO UPDATE SET artifact_path=excluded.artifact_path,artifact_hash=excluded.artifact_hash,repository_url=excluded.repository_url,resolved_commit=excluded.resolved_commit,manifest_checksum=excluded.manifest_checksum,updated_at=now()").bind(&item.key).bind(problem_id).bind(&item.path).bind(&item.hash).bind(&s.repository_url).bind(commit).bind(&release.manifest_checksum).execute(&mut *tx).await?;
+        if let Some(version_id) = version_id {
+            let previous: Option<Uuid> = sqlx::query_scalar(
+                "SELECT revision_id FROM catalog_reference_bindings WHERE version_id=$1",
+            )
+            .bind(version_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(reference) = &item.reference {
+                let language = match reference.language {
+                    locoder::contract::Language::Python => "python",
+                    locoder::contract::Language::Cpp => "cpp",
+                };
+                sqlx::query("INSERT INTO catalog_reference_revisions(id,problem_id,language,source,source_hash,repository_url,resolved_commit) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(problem_id,language,source_hash) DO NOTHING")
+                    .bind(Uuid::new_v4()).bind(problem_id).bind(language).bind(&reference.source).bind(&reference.hash).bind(&s.repository_url).bind(commit).execute(&mut *tx).await?;
+                let revision_id: Uuid = sqlx::query_scalar("SELECT id FROM catalog_reference_revisions WHERE problem_id=$1 AND language=$2 AND source_hash=$3")
+                    .bind(problem_id).bind(language).bind(&reference.hash).fetch_one(&mut *tx).await?;
+                if previous != Some(revision_id) {
+                    reference_changes += 1;
+                }
+                sqlx::query("INSERT INTO catalog_reference_bindings(version_id,revision_id) VALUES($1,$2) ON CONFLICT(version_id) DO UPDATE SET revision_id=excluded.revision_id,updated_at=now()")
+                    .bind(version_id).bind(revision_id).execute(&mut *tx).await?;
+            } else {
+                if previous.is_some() {
+                    reference_changes += 1;
+                }
+                sqlx::query("DELETE FROM catalog_reference_bindings WHERE version_id=$1")
+                    .bind(version_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        sqlx::query("INSERT INTO problem_imports(catalog_key,problem_id,artifact_path,artifact_hash,repository_url,resolved_commit,source_checksum) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(catalog_key) DO UPDATE SET artifact_path=excluded.artifact_path,artifact_hash=excluded.artifact_hash,repository_url=excluded.repository_url,resolved_commit=excluded.resolved_commit,source_checksum=excluded.source_checksum,updated_at=now()").bind(&item.key).bind(problem_id).bind(&item.path).bind(&item.hash).bind(&s.repository_url).bind(commit).bind(&release.source_checksum).execute(&mut *tx).await?;
     }
     let removed=sqlx::query("UPDATE problems SET current_version=NULL WHERE id IN (SELECT problem_id FROM problem_imports WHERE NOT(catalog_key=ANY($1))) AND current_version IS NOT NULL").bind(&keys).execute(&mut *tx).await?.rows_affected() as i32;
-    let result = if created + changed + removed == 0 {
+    let result = if created + changed + removed + reference_changes == 0 {
         "unchanged"
     } else {
         "applied"
@@ -243,12 +282,12 @@ async fn reconcile(db: &PgPool, s: &Settings, key: &Path, hosts: &Path) -> Resul
         let (commit, temp, release) = fetch(s, key, hosts).await?;
         let applied = apply(db, s, &commit, &release).await?;
         let _ = tokio::fs::remove_dir_all(temp).await;
-        Ok::<_, anyhow::Error>((commit, release.manifest_checksum, applied))
+        Ok::<_, anyhow::Error>((commit, release.source_checksum, applied))
     }
     .await;
     match outcome {
         Ok((commit, sum, (result, a, b, c, d))) => {
-            sqlx::query("UPDATE catalog_runs SET resolved_commit=$2,manifest_checksum=$3,result=$4,created_count=$5,changed_count=$6,unchanged_count=$7,removed_count=$8,finished_at=now() WHERE id=$1").bind(run).bind(commit).bind(sum).bind(result).bind(a).bind(b).bind(c).bind(d).execute(&mut *lock).await?;
+            sqlx::query("UPDATE catalog_runs SET resolved_commit=$2,source_checksum=$3,result=$4,created_count=$5,changed_count=$6,unchanged_count=$7,removed_count=$8,finished_at=now() WHERE id=$1").bind(run).bind(commit).bind(sum).bind(result).bind(a).bind(b).bind(c).bind(d).execute(&mut *lock).await?;
         }
         Err(e) => {
             let diagnostic = format!("{e:#}");

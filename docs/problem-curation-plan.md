@@ -209,19 +209,17 @@ These 20 hard and 5 extra-hard problems extend the tracks above. Keep their prim
 
 ## Authoring and review workflow
 
-1. **Prepare the pipeline.** Replace the app test's hard-coded four-problem assertion with a manifest-derived count. Add a catalog validation command that checks schema 3, keys, paths, exact-byte SHA-256 values, duplicate titles, and the planned topic/difficulty totals. Keep plans, reference solutions, and generator code in this app repository: the catalog release accepts only `catalog.json` and listed problem artifacts.
-2. **Write a one-page spec for each problem.** Fix the signature, constraints, return ordering, tie rules, empty inputs, overflow behavior, intended complexity, and primary pattern before writing tests. Use `int64` for counts or sums that can exceed signed 32-bit range. Pick either `function` or `data_structure`; use declared linked-list, tree, and graph codecs where the interface benefits from them.
-3. **Author in five waves of 25 catalog entries, counting the four existing entries in wave one.** Select the first four waves round-robin across tracks so each covers at least eight tracks and includes easy, medium, and hard items. The fifth wave contains the 25 advanced entries. Review and merge in small sets of roughly 5–10 artifacts; regenerate the manifest checksums only after artifact bytes are final.
-4. **Verify behavior.** Give each problem at least two visible examples plus hidden boundary, degenerate, duplicate/tie, and scale cases where applicable. Run an independent reference solution in both C++ and Python against the same cases. For algorithmically tricky items, compare with a brute-force oracle on small randomized inputs. Confirm the intended solution fits the time and memory limits and a clearly slower baseline fails at least one scale case when the complexity target matters.
-5. **Review editorial quality.** A second reviewer checks that the statement alone determines one result, examples match the contract, outputs are deterministic, tags describe the primary pattern, and difficulty reflects the actual implementation. Avoid copied interview-site wording. Publish only after the complete catalog validates and the app's practice flow accepts submissions in both supported languages.
+The initial 125-problem curation is complete. For new or revised entries, copy the sibling repository's `example-problem/` into `problems/<slug>/`, then edit `problem.yaml`, `statement.md`, ordered hint files, and one case per YAML or JSON file. The catalog discovers these files without a manifest. See [Git-native problem authoring](git-problem-authoring-plan.md).
+
+Fix the interface, constraints, return ordering, tie rules, empty inputs, overflow behavior, and intended complexity before writing cases. Give each new problem at least two visible examples and hidden boundary, degenerate, tie, and scale cases where applicable. A reviewer checks that the statement determines one result, examples match the contract, and tags and difficulty are appropriate. Run `catalog-validate` and the quality and oracle checks before merge; run every present reference against all cases in the gVisor sandbox.
 
 ## Completion criteria
 
-- Exactly 125 unique manifest keys and 125 valid schema-3 artifacts, including the four current entries.
-- All 13 core tracks represented with the counts above, plus the 25 advanced entries: 24 easy, 61 medium, 35 hard at score 4, and 5 extra-hard at score 5. The catalog schema represents the last two groups as 40 `hard` problems.
-- No unlisted files in the catalog release; all checksums match the exact artifact bytes.
-- Every new problem has reviewed constraints, visible and hidden tests, and passing C++ and Python reference submissions.
+- Exactly 125 unique catalog keys and valid assembled schema-3 problems, including the four original entries.
+- All 13 core tracks and the 25 advanced entries retain the planned mix: 24 easy, 61 medium, 35 hard at score 4, and 5 extra-hard at score 5.
+- Visible and hidden cases, their order, and expected outputs remain unchanged after source-format migration.
+- Present reference solutions pass all cases; references remain optional for the migrated catalog.
 
 ## Current implementation status
 
-All 125 artifacts and the checksum manifest are present. The release passes schema validation, the target difficulty and test-count checks, and Python fixture oracles for all 121 new problems. A live Podman/gVisor stack accepted both C++ and Python reference submissions for Pair Sum Indices, Tree Height, Minimum Stack, and City Skyline. Individual sandbox submissions for every remaining problem are still outstanding.
+All 125 problems have been converted to directory sources. Their assembled metadata, statements, and ordered cases match the original JSON artifacts. The quality gate and independent fixture oracles remain in place. Reference coverage can grow over time.

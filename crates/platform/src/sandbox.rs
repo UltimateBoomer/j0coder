@@ -1139,6 +1139,75 @@ pub async fn judge_with_shutdown(
     tests: &[Case],
     shutdown: &crate::shutdown::Shutdown,
 ) -> Result<Outcome> {
+    run_cases(job, source, tests, shutdown, true).await
+}
+
+/// Execute a private reference with the same wrapper and limits as a submission.
+/// Returned values are typed and ordered by case; callers decide whether to expose them.
+pub async fn reference_outputs(job: &Job, source: &str, tests: &[Case]) -> Result<Vec<Value>> {
+    reference_values(job, source, tests, true).await
+}
+
+/// Produce typed expected values for input-only cases. Stateful callers may use
+/// placeholder operation expectations; they are not compared in this mode.
+pub async fn reference_expected_outputs(
+    job: &Job,
+    source: &str,
+    inputs: &[Case],
+) -> Result<Vec<Value>> {
+    reference_values(job, source, inputs, false).await
+}
+
+async fn reference_values(
+    job: &Job,
+    source: &str,
+    tests: &[Case],
+    compare_expected: bool,
+) -> Result<Vec<Value>> {
+    let (_trigger, shutdown) = crate::shutdown::channel();
+    let visible = tests
+        .iter()
+        .cloned()
+        .map(|mut case| {
+            case.hidden = false;
+            case
+        })
+        .collect::<Vec<_>>();
+    let outcome = run_cases(job, source, &visible, &shutdown, compare_expected).await?;
+    if outcome.verdict != Verdict::Accepted {
+        let detail = outcome
+            .cases
+            .iter()
+            .enumerate()
+            .find(|(_, c)| c.verdict.as_ref().is_some_and(|v| *v != Verdict::Accepted))
+            .map(|(i, c)| format!("case {}: {}", i + 1, c.log))
+            .unwrap_or_default();
+        anyhow::bail!(
+            "{:?}: {} {}",
+            outcome.verdict,
+            outcome.diagnostic.unwrap_or_default(),
+            detail
+        );
+    }
+    outcome
+        .cases
+        .into_iter()
+        .enumerate()
+        .map(|(index, case)| {
+            case.output.ok_or_else(|| {
+                anyhow::anyhow!("case {}: {:?}: {}", index + 1, case.verdict, case.log)
+            })
+        })
+        .collect()
+}
+
+async fn run_cases(
+    job: &Job,
+    source: &str,
+    tests: &[Case],
+    shutdown: &crate::shutdown::Shutdown,
+    compare_expected: bool,
+) -> Result<Outcome> {
     let b = Backend::from_env().await?;
     let wrapped = job.language.wrapper_interface(&job.interface, source)?;
     let execution = job.language.execution();
@@ -1206,7 +1275,8 @@ pub async fn judge_with_shutdown(
             Err(v) => (Some(v), None, String::new()),
             Ok(c) if c.exit != 0 => (Some(Verdict::RuntimeError), None, c.log),
             Ok(c) => {
-                let (verdict, detail) = compare_case(job, case, c.output.as_ref());
+                let (verdict, detail) =
+                    compare_case(job, case, c.output.as_ref(), compare_expected);
                 let log = match detail {
                     Some(d) if c.log.is_empty() => d,
                     Some(d) => format!("{}\n{}", c.log, d),
@@ -1244,6 +1314,7 @@ fn compare_case(
     job: &Job,
     case: &Case,
     output: Option<&Value>,
+    compare_expected: bool,
 ) -> (Option<Verdict>, Option<String>) {
     match &job.interface {
         crate::contract::Interface::Function { returns, .. } => {
@@ -1254,13 +1325,16 @@ fn compare_case(
                 (Some(Verdict::RuntimeError), None)
             } else {
                 (
-                    case.expected.as_ref().map(|e| {
-                        if job.comparison.matches(returns, e, actual) {
-                            Verdict::Accepted
-                        } else {
-                            Verdict::WrongAnswer
-                        }
-                    }),
+                    case.expected
+                        .as_ref()
+                        .filter(|_| compare_expected)
+                        .map(|e| {
+                            if job.comparison.matches(returns, e, actual) {
+                                Verdict::Accepted
+                            } else {
+                                Verdict::WrongAnswer
+                            }
+                        }),
                     None,
                 )
             }
@@ -1296,7 +1370,8 @@ fn compare_case(
                         )),
                     );
                 }
-                if !job.comparison.matches(&method.returns, &op.expected, value) {
+                if compare_expected && !job.comparison.matches(&method.returns, &op.expected, value)
+                {
                     return (
                         Some(Verdict::WrongAnswer),
                         Some(format!(
@@ -1326,6 +1401,85 @@ pub fn not_run(tests: &[Case]) -> Vec<CaseResult> {
 #[cfg(test)]
 mod kubernetes_tests {
     use super::*;
+
+    #[test]
+    fn reference_comparison_can_check_or_ignore_recorded_expectations() {
+        let job = Job {
+            attempt_base: 0,
+            generation: uuid::Uuid::new_v4(),
+            schema: 3,
+            id: uuid::Uuid::new_v4(),
+            language: Language::Python,
+            version: uuid::Uuid::new_v4(),
+            interface: Interface::Function {
+                name: "solve".into(),
+                params: vec![],
+                returns: Type::Int,
+            },
+            limits: Limits::default(),
+            mode: "run".into(),
+            type_definitions: vec![],
+            comparison: Comparison::default(),
+        };
+        let case = Case {
+            args: Some(serde_json::json!([])),
+            expected: Some(serde_json::json!(2)),
+            hidden: false,
+            constructor_args: None,
+            operations: None,
+        };
+        assert_eq!(
+            compare_case(&job, &case, Some(&serde_json::json!(3)), true).0,
+            Some(Verdict::WrongAnswer)
+        );
+        assert_eq!(
+            compare_case(&job, &case, Some(&serde_json::json!(3)), false).0,
+            None
+        );
+        assert_eq!(
+            compare_case(&job, &case, Some(&serde_json::json!("invalid")), false).0,
+            Some(Verdict::RuntimeError)
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a configured gVisor sandbox"]
+    async fn reference_reports_success_and_wrong_answers() -> Result<()> {
+        let job = Job {
+            attempt_base: 0,
+            generation: uuid::Uuid::new_v4(),
+            schema: 3,
+            id: uuid::Uuid::new_v4(),
+            language: Language::Python,
+            version: uuid::Uuid::new_v4(),
+            interface: Interface::Function {
+                name: "solve".into(),
+                params: vec![],
+                returns: Type::Int,
+            },
+            limits: Limits::default(),
+            mode: "run".into(),
+            type_definitions: vec![],
+            comparison: Comparison::default(),
+        };
+        let case = Case {
+            args: Some(serde_json::json!([])),
+            expected: Some(serde_json::json!(2)),
+            hidden: true,
+            constructor_args: None,
+            operations: None,
+        };
+        assert_eq!(
+            reference_outputs(&job, "def solve(): return 2", std::slice::from_ref(&case)).await?,
+            vec![serde_json::json!(2)]
+        );
+        anyhow::ensure!(
+            reference_outputs(&job, "def solve(): return 3", &[case])
+                .await
+                .is_err()
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     #[ignore = "requires a configured Kubernetes sandbox cluster"]

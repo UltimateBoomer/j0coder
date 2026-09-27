@@ -3,6 +3,8 @@
 import json, os, statistics, collections, heapq, itertools, glob, sys
 from pathlib import Path
 P=str(Path(sys.argv[1] if len(sys.argv)>1 else '../code-practice-problems')/'problems')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from catalog_source import load_problem
 S='balanced-delimiters postfix-expression minimum-stack next-warmer-day maximum-in-every-window largest-histogram-rectangle first-position-at-least-target find-in-rotated-order minimum-in-rotated-order median-of-two-sorted-sequences smallest-feasible-capacity kth-pair-distance tree-height mirror-binary-tree values-by-level valid-search-tree lowest-shared-ancestor kth-search-tree-value build-tree-from-traversals longest-tree-path height-balanced-tree maximum-tree-path-sum reverse-a-list merge-sorted-lists remove-nth-node-from-the-end reorder-list-ends add-list-encoded-integers merge-k-sorted-lists most-frequent-k-values k-largest-values running-median minimum-concurrent-rooms insert-an-interval fewest-arrows-for-intervals merge-k-sorted-arrays largest-all-one-rectangle all-valid-word-breaks place-the-fewest-tree-cameras repair-a-swapped-search-tree kth-value-in-a-sorted-matrix infer-an-alien-alphabet critical-network-connections cheapest-route-with-stop-limit sliding-window-median three-nonoverlapping-maximum-sum-windows'.split()
 def parse(vals):
  if not vals:return None
@@ -266,7 +268,7 @@ def components(n,edges):
      if v not in seen:seen.add(v);st.append(v)
  return k
 for slug in S:
- d=json.load(open(os.path.join(P,slug+'.json')))
+ d=load_problem(Path(P)/slug)
  if slug in ('minimum-stack','running-median'):
   for ci,t in enumerate(d['tests']):
    stack=[]

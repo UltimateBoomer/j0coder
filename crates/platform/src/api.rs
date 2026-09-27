@@ -386,9 +386,9 @@ fn validate_catalog_settings(r: &CatalogSettingsUpdate) -> std::result::Result<(
 async fn catalog_status(State(a): State<App>, h: HeaderMap) -> Result<Json<Value>> {
     admin(&a, &h, false).await?;
     let setting=sqlx::query("SELECT repository_url,strategy::text,revision,poll_interval_seconds,enabled,generation,updated_at FROM catalog_settings WHERE singleton").fetch_optional(&a.db).await?;
-    let runs=sqlx::query("SELECT id,settings_generation,requested_revision,resolved_commit,manifest_checksum,result,created_count,changed_count,unchanged_count,removed_count,diagnostics,started_at,finished_at FROM catalog_runs ORDER BY started_at DESC LIMIT 20").fetch_all(&a.db).await?;
+    let runs=sqlx::query("SELECT id,settings_generation,requested_revision,resolved_commit,source_checksum,result,created_count,changed_count,unchanged_count,removed_count,diagnostics,started_at,finished_at FROM catalog_runs ORDER BY started_at DESC LIMIT 20").fetch_all(&a.db).await?;
     let settings=setting.map(|r|json!({"repository_url":r.get::<String,_>("repository_url"),"strategy":r.get::<String,_>("strategy"),"revision":r.get::<String,_>("revision"),"poll_interval_seconds":r.get::<i32,_>("poll_interval_seconds"),"enabled":r.get::<bool,_>("enabled"),"generation":r.get::<i64,_>("generation"),"updated_at":r.get::<chrono::DateTime<chrono::Utc>,_>("updated_at")}));
-    let recent:Vec<Value>=runs.iter().map(|r|json!({"id":r.get::<Uuid,_>("id"),"settings_generation":r.get::<i64,_>("settings_generation"),"requested_revision":r.get::<String,_>("requested_revision"),"resolved_commit":r.get::<Option<String>,_>("resolved_commit"),"manifest_checksum":r.get::<Option<String>,_>("manifest_checksum"),"result":r.get::<String,_>("result"),"counts":{"created":r.get::<i32,_>("created_count"),"changed":r.get::<i32,_>("changed_count"),"unchanged":r.get::<i32,_>("unchanged_count"),"removed":r.get::<i32,_>("removed_count")},"diagnostics":r.get::<Option<String>,_>("diagnostics"),"started_at":r.get::<chrono::DateTime<chrono::Utc>,_>("started_at"),"finished_at":r.get::<Option<chrono::DateTime<chrono::Utc>>,_>("finished_at")})).collect();
+    let recent:Vec<Value>=runs.iter().map(|r|json!({"id":r.get::<Uuid,_>("id"),"settings_generation":r.get::<i64,_>("settings_generation"),"requested_revision":r.get::<String,_>("requested_revision"),"resolved_commit":r.get::<Option<String>,_>("resolved_commit"),"source_checksum":r.get::<Option<String>,_>("source_checksum"),"result":r.get::<String,_>("result"),"counts":{"created":r.get::<i32,_>("created_count"),"changed":r.get::<i32,_>("changed_count"),"unchanged":r.get::<i32,_>("unchanged_count"),"removed":r.get::<i32,_>("removed_count")},"diagnostics":r.get::<Option<String>,_>("diagnostics"),"started_at":r.get::<chrono::DateTime<chrono::Utc>,_>("started_at"),"finished_at":r.get::<Option<chrono::DateTime<chrono::Utc>>,_>("finished_at")})).collect();
     let discovered = recent.iter().find_map(|r| r["resolved_commit"].as_str());
     let applied = recent
         .iter()
@@ -453,7 +453,7 @@ async fn publish(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Re
     let version = Uuid::new_v4();
     let tests = json!(p.tests);
     p.tests.retain(|t| !t.hidden);
-    let provenance:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('catalog_key',catalog_key,'repository_url',repository_url,'resolved_commit',resolved_commit,'manifest_checksum',manifest_checksum,'artifact_hash',artifact_hash) FROM problem_imports WHERE problem_id=$1").bind(id).fetch_optional(&mut *tx).await?;
+    let provenance:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('catalog_key',catalog_key,'repository_url',repository_url,'resolved_commit',resolved_commit,'source_checksum',source_checksum,'artifact_hash',artifact_hash) FROM problem_imports WHERE problem_id=$1").bind(id).fetch_optional(&mut *tx).await?;
     sqlx::query("INSERT INTO versions(id,problem_id,public,tests,catalog_provenance) VALUES($1,$2,$3,$4,$5)")
         .bind(version)
         .bind(id)

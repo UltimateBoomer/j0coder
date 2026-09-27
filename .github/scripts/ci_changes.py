@@ -45,7 +45,7 @@ def checks_for(path):
     if path in {"compose.yaml", "compose.dev.yaml", ".env.example"}:
         return {"config"}
     if path.startswith("scripts/"):
-        if path.startswith(("scripts/kube-", "scripts/lima-", "scripts/build-catalog-")):
+        if path.startswith(("scripts/kube-", "scripts/lima-")):
             return {"helm", "config"}
         return {"config"}
     if path.startswith("tests/"):

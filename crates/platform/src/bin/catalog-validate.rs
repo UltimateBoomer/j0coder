@@ -1,6 +1,8 @@
 use anyhow::{Result, ensure};
-use locoder::catalog::{validate_problem, validate_release};
+use locoder::catalog::validate_release;
+use locoder::contract::Job;
 use std::{collections::HashSet, env, fs, path::Path};
+use uuid::Uuid;
 
 struct Scratch(std::path::PathBuf);
 
@@ -37,18 +39,6 @@ fn main() -> Result<()> {
     let scratch =
         Scratch(env::temp_dir().join(format!("locoder-catalog-check-{}", uuid::Uuid::new_v4())));
     copy_release(Path::new(&root), &scratch.0, true)?;
-    let mut problems = fs::read_dir(scratch.0.join("problems"))?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<std::io::Result<Vec<_>>>()?;
-    problems.sort();
-    let mut errors = Vec::new();
-    for path in problems {
-        let bytes = fs::read(&path)?;
-        if let Err(error) = validate_problem(&bytes) {
-            errors.push(format!("{}: {error:#}", path.display()));
-        }
-    }
-    ensure!(errors.is_empty(), "{}", errors.join("\n"));
     let release = validate_release(&scratch.0)?;
     let mut titles = HashSet::new();
     let mut bands = [0usize; 3];
@@ -80,5 +70,39 @@ fn main() -> Result<()> {
         bands[1],
         bands[2]
     );
+    if env::args().any(|arg| arg == "--check-references") {
+        let count = release
+            .problems
+            .iter()
+            .filter(|item| item.reference.is_some())
+            .count();
+        let runtime = tokio::runtime::Runtime::new()?;
+        runtime.block_on(async {
+            for item in &release.problems {
+                let Some(reference) = &item.reference else {
+                    continue;
+                };
+                let p = &item.problem;
+                let job = Job {
+                    attempt_base: 0,
+                    generation: Uuid::new_v4(),
+                    schema: p.schema,
+                    id: Uuid::new_v4(),
+                    language: reference.language,
+                    version: Uuid::new_v4(),
+                    interface: p.interface.clone(),
+                    limits: p.limits.clone(),
+                    mode: "run".into(),
+                    type_definitions: p.type_definitions.clone(),
+                    comparison: p.comparison.clone(),
+                };
+                locoder::sandbox::reference_outputs(&job, &reference.source, &p.tests)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{}: reference failed: {e:#}", item.path))?;
+            }
+            Ok::<_, anyhow::Error>(())
+        })?;
+        println!("validated {count} reference solutions against their catalog cases");
+    }
     Ok(())
 }

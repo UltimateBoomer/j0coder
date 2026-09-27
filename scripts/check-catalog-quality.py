@@ -6,6 +6,7 @@ from collections import Counter
 import json
 from pathlib import Path
 import sys
+from catalog_source import load_problem, problem_paths
 
 
 ORIGINAL_PATHS = {
@@ -18,16 +19,15 @@ TARGET_GROUPS = {"easy": 24, "medium": 61, "hard": 35, "extra-hard": 5}
 
 
 def check(root: Path) -> list[str]:
-    manifest = json.loads((root / "catalog.json").read_text())
+    paths = problem_paths(root)
     errors = []
-    if len(manifest["problems"]) != 125:
-        errors.append(f"expected 125 entries, found {len(manifest['problems'])}")
+    if len(paths) != 125:
+        errors.append(f"expected 125 entries, found {len(paths)}")
     scores = Counter()
     titles = set()
-    for entry in manifest["problems"]:
-        path = entry["path"]
-        artifact = root / path
-        problem = json.loads(artifact.read_text())
+    for artifact in paths:
+        path = artifact.relative_to(root).as_posix()
+        problem = load_problem(artifact)
         title = problem["title"].strip().casefold()
         if title in titles:
             errors.append(f"{path}: duplicate title")
@@ -37,9 +37,9 @@ def check(root: Path) -> list[str]:
         scores[score] += 1
         if band != ("easy" if score <= 2 else "medium" if score == 3 else "hard"):
             errors.append(f"{path}: difficulty and score disagree")
-        if path in ORIGINAL_PATHS:
+        if artifact.stem in {Path(p).stem for p in ORIGINAL_PATHS}:
             continue
-        if artifact.stat().st_size > 1_000_000:
+        if artifact.is_file() and artifact.stat().st_size > 1_000_000:
             errors.append(f"{path}: artifact exceeds 1 MB")
         tests = problem["tests"]
         visible = sum(not case.get("hidden", False) for case in tests)

@@ -405,6 +405,7 @@ impl Default for Limits {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Case {
     #[serde(default)]
     pub args: Option<Value>,
@@ -418,6 +419,7 @@ pub struct Case {
     pub operations: Option<Vec<Operation>>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Operation {
     pub method: String,
     pub args: Value,
@@ -529,6 +531,8 @@ pub struct Problem {
     #[serde(default)]
     pub summary: String,
     pub statement: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hints: Vec<String>,
     pub difficulty: String,
     #[serde(default)]
     pub difficulty_score: Option<u8>,
@@ -600,6 +604,14 @@ impl Problem {
             "invalid title or statement"
         );
         ensure!(self.summary.chars().count() <= 300, "summary too long");
+        ensure!(
+            self.hints.len() <= 20
+                && self
+                    .hints
+                    .iter()
+                    .all(|h| !h.trim().is_empty() && h.len() <= 10000),
+            "invalid hints"
+        );
         ensure!(
             ["easy", "medium", "hard"].contains(&self.difficulty.as_str()),
             "invalid difficulty"

@@ -2392,6 +2392,12 @@
           "statement": {
             "type": "string"
           },
+          "hints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "difficulty": {
             "type": "string",
             "enum": [

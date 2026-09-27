@@ -1,7 +1,9 @@
 import json,glob,os,re,collections,itertools,math,sys
 from pathlib import Path
 P=str(Path(sys.argv[1] if len(sys.argv)>1 else '../code-practice-problems')/'problems')
-files=glob.glob(P+'/*.json')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from catalog_source import load_problem, problem_paths
+files=problem_paths(Path(P).parent)
 # Independent straightforward reference implementations, intentionally simple for test-sized inputs.
 def solve(title,a):
  if title=='Stable Sign Partition': return [x for x in a[0] if x<0]+[x for x in a[0] if x>=0]
@@ -174,7 +176,7 @@ def solve(title,a):
  raise Exception(title)
 new=0
 for f in files:
- d=json.load(open(f))
+ d=load_problem(f)
  if d['title'] not in {'Stable Sign Partition','Rotate a Sequence','Product Except Position','Merge Ordered Runs','Spiral Matrix Readout','Clear Marked Rows and Columns','First Missing Positive','Rainwater Between Bars','Maximum Contiguous Sum','Pair Sum Indices','First Unique Value','Group Rearrangements','Longest Consecutive Span','Target Sum Subarrays','Equal Binary Span','Distinct Values per Window','Four-List Sum Count','Alphanumeric Palindrome','Longest Unique Substring','Smallest Covering Substring','Permutation Windows','Longest Uniform Replacement','Reverse Word Order','Compress Consecutive Characters','Expand Nested Repeats','Shared Prefix','Sorted Pair Sum','Three Values to Target','Maximum Water Container','Squares in Sorted Order','Three-Color Partition','Inversion Count','Smallest Unsorted Span','Count Smaller Values to the Right','Minimum Candy Allocation','Longest Valid Parenthesis Span','Remove the Fewest Invalid Parentheses','Regular Expression Matching','Wildcard Pattern Matching','Minimum Palindrome Cuts','Shortest Prefix Palindrome','Split an Array by Largest Segment Sum','Count Sums in an Inclusive Range'}:continue
  new+=1
  assert len(d['statement'])>=150,(d['title'],'statement')

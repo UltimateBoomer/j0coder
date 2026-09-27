@@ -4,7 +4,7 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  test.setTimeout(90000);
  const id='00000000-0000-4000-8000-000000000001';
  const version='00000000-0000-4000-8000-000000000002';
- const problem={id,version,problem:{title:'UI sample',statement:'Return the value.',difficulty:'medium',tags:['arrays'],interface:{kind:'function',name:'solve',params:[],returns:'int'},limits:{time_ms:2000,memory_mib:256},tests:[{args:[1],expected:1,hidden:false}]},starters:{cpp:'int solve() { return 1; }',python:'def solve():\n    return 1'}};
+ const problem={id,version,problem:{title:'UI sample',statement:'Return the value.',hints:['Use **addition**. <script>alert(1)</script>','Return the result.'],difficulty:'medium',tags:['arrays'],interface:{kind:'function',name:'solve',params:[],returns:'int'},limits:{time_ms:2000,memory_mib:256},tests:[{args:[1],expected:1,hidden:false}]},starters:{cpp:'int solve() { return 1; }',python:'def solve():\n    return 1'}};
  const dropdownStyle=(label:string)=>page.getByLabel(label,{exact:true}).evaluate(select=>{
   const control=getComputedStyle(select);
   const option=getComputedStyle(select.querySelector('option:not(:checked)')!);
@@ -19,6 +19,13 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  await page.emulateMedia({colorScheme:'dark'});
  await page.goto(`/problems/${id}`);
  await expect(page.getByRole('heading',{name:'UI sample'})).toBeVisible();
+ await expect(page.getByText('Use addition.')).toHaveCount(0);
+ await page.getByRole('button',{name:'Reveal hint 1'}).click();
+ await expect(page.getByText('Use addition.')).toBeVisible();
+ await expect(page.locator('.hint-list script')).toHaveCount(0);
+ await expect(page.getByText('Return the result.')).toHaveCount(0);
+ await page.getByRole('button',{name:'Reveal hint 2'}).click();
+ await expect(page.getByText('Return the result.')).toBeVisible();
  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await page.emulateMedia({colorScheme:'light'});
  await expect(page.locator('html')).toHaveAttribute('data-theme','light');

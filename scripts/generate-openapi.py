@@ -18,7 +18,7 @@ schemas={
 'Operation':obj({'method':string,'args':array({}),'expected':{}},['method','args','expected']),
 'StatefulCase':obj({'constructor_args':array({}),'operations':array(ref('Operation')),'hidden':boolean},['constructor_args','operations']),
 'Case':{'oneOf':[ref('FunctionCase'),ref('StatefulCase')]},
-'Problem':obj({'schema':{'type':'integer','enum':[3]},'title':string,'statement':string,'difficulty':{'type':'string','enum':['easy','medium','hard']},'tags':array(string),'interface':ref('Interface'),'limits':ref('Limits'),'tests':array(ref('Case'))},['schema','title','statement','difficulty','tags','interface','limits','tests']),
+'Problem':obj({'schema':{'type':'integer','enum':[3]},'title':string,'statement':string,'hints':array(string),'difficulty':{'type':'string','enum':['easy','medium','hard']},'tags':array(string),'interface':ref('Interface'),'limits':ref('Limits'),'tests':array(ref('Case'))},['schema','title','statement','difficulty','tags','interface','limits','tests']),
 'User':obj({'id':uuid,'username':string,'admin':boolean,'csrf':string}),
 'Credentials':obj({'username':string,'password':{'type':'string','minLength':12,'maxLength':256}}),
 'Language':{'type':'string','enum':['cpp','python']},
