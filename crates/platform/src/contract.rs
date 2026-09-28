@@ -246,6 +246,8 @@ fn check_graph(
 pub struct Parameter {
     pub name: String,
     pub ty: Type,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraints: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Constructor {
@@ -361,6 +363,13 @@ fn validate_params(params: &[Parameter], defs: &[TypeDefinition]) -> Result<()> 
             "invalid parameter"
         );
         type_refs(&p.ty, &known)?;
+        if let Some(constraints) = &p.constraints {
+            ensure!(
+                !constraints.trim().is_empty() && constraints.len() <= 1000,
+                "invalid constraints for parameter {}",
+                p.name
+            );
+        }
     }
     Ok(())
 }

@@ -17,6 +17,7 @@ fn job(language: Language) -> Job {
             params: vec![Parameter {
                 name: "value".into(),
                 ty: Type::Int,
+                constraints: None,
             }],
             returns: Type::Int,
         },

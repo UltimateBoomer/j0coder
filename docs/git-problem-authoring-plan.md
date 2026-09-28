@@ -1,6 +1,6 @@
 # Git-native problem authoring
 
-The catalog is edited as ordinary files in `code-practice-problems`. There is no authoring CLI or application-held Git credential. A copyable, unpublished `example-problem/` directory shows the full format.
+The catalog is edited as ordinary files in `locoder-problems`. There is no authoring CLI or application-held Git credential. A copyable, unpublished `example-problem/` directory shows the full format.
 
 ## Layout
 
@@ -15,6 +15,8 @@ problems/between-the-markers/
 ```
 
 `problem.yaml` has source `schema: 1`, a stable `key`, and the schema-3 problem's metadata, interface, and limits. The loader finds one directory per problem directly under `problems/`; it discovers other files by path and sorts hints and cases lexicographically. Tests contain the existing case shape without `hidden`; their directory supplies visibility. YAML and JSON cases have identical typed validation. A problem may have zero hints and at most one reference source. `example-problem/` is outside `problems/` and never published.
+
+Each interface parameter can have an optional `constraints` Markdown string. The learner UI and admin preview display these strings in a separate Constraints section, ordered by the function, constructor, or method interface. A present string must be nonblank and at most 1,000 UTF-8 bytes. These constraints describe valid inputs; they do not add machine-enforced checks to cases or submissions.
 
 YAML is restricted to JSON-compatible values. Duplicate keys, custom tags, aliases, multiple documents, non-string map keys, and values outside JSON's number range are invalid. The Rust catalog validator also rejects unknown files, symlinks, duplicate keys and titles, invalid paths, and invalid typed cases.
 
@@ -31,9 +33,9 @@ Hints are published in filename order and revealed one at a time in the practice
 Copy `example-problem/` to `problems/<slug>/`, edit its key, metadata, statement, cases, and optional reference, then run:
 
 ```sh
-RUSTC_WRAPPER= cargo run --locked -p locoder --bin catalog-validate -- ../code-practice-problems
-RUSTC_WRAPPER= cargo run --locked -p locoder --bin catalog-validate -- ../code-practice-problems --check-references
-python3 scripts/check-catalog-quality.py ../code-practice-problems
+RUSTC_WRAPPER= cargo run --locked -p locoder --bin catalog-validate -- ../locoder-problems
+RUSTC_WRAPPER= cargo run --locked -p locoder --bin catalog-validate -- ../locoder-problems --check-references
+python3 scripts/check-catalog-quality.py ../locoder-problems
 ```
 
 The second command needs the configured gVisor sandbox and toolchain image. Author changes through a normal Git branch and pull request. Catalog CI must pass before merge.

@@ -2186,6 +2186,10 @@
           },
           "ty": {
             "$ref": "#/components/schemas/Type"
+          },
+          "constraints": {
+            "type": "string",
+            "description": "Optional display-only Markdown; at most 1000 UTF-8 bytes"
           }
         },
         "required": [

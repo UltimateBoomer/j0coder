@@ -27,6 +27,7 @@ fn function_interface_generates_top_level_code() {
         params: vec![Parameter {
             name: "values".into(),
             ty: Type::Array(Box::new(Type::Int)),
+            constraints: None,
         }],
         returns: Type::Array(Box::new(Type::Int)),
     };
@@ -55,6 +56,7 @@ fn lru_interface() -> Interface {
             params: vec![Parameter {
                 name: "capacity".into(),
                 ty: Type::Int,
+                constraints: None,
             }],
         },
         methods: vec![
@@ -63,6 +65,7 @@ fn lru_interface() -> Interface {
                 params: vec![Parameter {
                     name: "key".into(),
                     ty: Type::Int,
+                    constraints: None,
                 }],
                 returns: Type::Int,
             },
@@ -72,10 +75,12 @@ fn lru_interface() -> Interface {
                     Parameter {
                         name: "key".into(),
                         ty: Type::Int,
+                        constraints: None,
                     },
                     Parameter {
                         name: "value".into(),
                         ty: Type::Int,
+                        constraints: None,
                     },
                 ],
                 returns: Type::Void,
@@ -209,6 +214,7 @@ fn cpp_wrappers_support_nullable_values_and_empty_constructors() {
         params: vec![Parameter {
             name: "tree".into(),
             ty: Type::Array(Box::new(Type::Nullable(Box::new(Type::Int)))),
+            constraints: None,
         }],
         returns: Type::Int,
     };

@@ -1544,6 +1544,7 @@ mod kubernetes_tests {
                 params: vec![Parameter {
                     name: "x".into(),
                     ty: Type::Int,
+                    constraints: None,
                 }],
                 returns: Type::Int,
             },

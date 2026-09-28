@@ -7,7 +7,7 @@ string={'type':'string'};uuid={'type':'string','format':'uuid'};boolean={'type':
 array=lambda x:{'type':'array','items':x}
 schemas={
 'Type':{'oneOf':[{'type':'string','enum':['void','int','int64','float','bool','string']},obj({'array':ref('Type')}),obj({'nullable':ref('Type')}),obj({'named':string})]},
-'Parameter':obj({'name':string,'ty':ref('Type')}),
+'Parameter':obj({'name':string,'ty':ref('Type'),'constraints':{'type':'string','description':'Optional display-only Markdown; at most 1000 UTF-8 bytes'}},['name','ty']),
 'Limits':obj({'time_ms':{'type':'integer'},'memory_mib':{'type':'integer'},'output_bytes':{'type':'integer'}}),
 'FunctionInterface':obj({'kind':{'const':'function'},'name':string,'params':array(ref('Parameter')),'returns':ref('Type')}),
 'Constructor':obj({'params':array(ref('Parameter'))}),

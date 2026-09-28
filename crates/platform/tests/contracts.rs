@@ -6,6 +6,48 @@ fn sample() -> Problem {
 }
 
 #[test]
+fn parameter_constraints_are_optional_validated_and_versioned() {
+    let original = sample();
+    let original_hash = catalog::problem_hash(&original).unwrap();
+    let original_value = serde_json::to_value(&original).unwrap();
+    assert!(
+        original_value["interface"]["params"][0]
+            .as_object()
+            .unwrap()
+            .get("constraints")
+            .is_none()
+    );
+
+    let mut explicit_null = original_value.clone();
+    explicit_null["interface"]["params"][0]["constraints"] = Value::Null;
+    let explicit_null: Problem = serde_json::from_value(explicit_null).unwrap();
+    assert_eq!(
+        catalog::problem_hash(&explicit_null).unwrap(),
+        original_hash
+    );
+
+    let mut constrained = original_value;
+    constrained["interface"]["params"][0]["constraints"] = json!("1 ≤ value ≤ 100");
+    let constrained: Problem = serde_json::from_value(constrained).unwrap();
+    constrained.validate().unwrap();
+    assert_ne!(catalog::problem_hash(&constrained).unwrap(), original_hash);
+
+    for invalid in ["  \n".to_string(), "é".repeat(501)] {
+        let mut bad = constrained.clone();
+        if let Interface::Function { params, .. } = &mut bad.interface {
+            params[0].constraints = Some(invalid);
+        }
+        assert!(bad.validate().is_err());
+    }
+
+    let mut boundary = constrained;
+    if let Interface::Function { params, .. } = &mut boundary.interface {
+        params[0].constraints = Some("x".repeat(1000));
+    }
+    boundary.validate().unwrap();
+}
+
+#[test]
 fn published_samples_validate_and_reject_legacy_contracts() {
     for text in [
         include_str!("../../../samples/1.json"),

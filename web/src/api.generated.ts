@@ -226,6 +226,8 @@ export interface components {
         Parameter: {
             name: string;
             ty: components["schemas"]["Type"];
+            /** @description Optional display-only Markdown; at most 1000 UTF-8 bytes */
+            constraints?: string;
         };
         Limits: {
             time_ms: number;
