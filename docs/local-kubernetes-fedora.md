@@ -84,9 +84,15 @@ Expose Locoder through the Kubernetes API connection:
 kubectl -n locoder port-forward service/locoder-api 8080:8080
 ```
 
-The API forwards `/editor/ws` to the editor service, so this single port-forward also supports semantic completion.
+Open `http://localhost:8080`. This API-only port-forward does not provide semantic completion. To use it, run these in separate terminals instead:
 
-Open `http://localhost:8080`.
+```bash
+kubectl -n locoder port-forward service/locoder-api 18080:8080
+kubectl -n locoder port-forward service/locoder-editor 8081:8081
+npm run dev --prefix web
+```
+
+Open `http://localhost:8080` through Vite, which sends `/api` to the API forward and `/editor` to the editor forward. Both routes must share the browser origin; two independent port-forwards without this routing will not connect the editor WebSocket.
 
 For a new cluster, create its first administrator in another terminal using the same `KUBECONFIG`:
 

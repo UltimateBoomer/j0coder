@@ -2,7 +2,6 @@ pub mod api;
 pub mod catalog;
 pub mod contract;
 pub mod editor;
-pub mod editor_proxy;
 mod languages;
 pub mod queue;
 pub mod sandbox;
