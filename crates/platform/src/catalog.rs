@@ -197,7 +197,15 @@ fn yaml_json(bytes: &[u8], path: &Path) -> Result<Value> {
         std::str::from_utf8(bytes).with_context(|| format!("{}: UTF-8", path.display()))?;
     // YAML aliases and custom tags hide the values that an author reviews in a case file.
     // Reject their syntax before serde_yaml resolves it.
+    let mut block_indent = None;
     for line in source.lines() {
+        let indent = line.bytes().take_while(|c| *c == b' ').count();
+        if let Some(base) = block_indent {
+            if line.trim().is_empty() || indent > base {
+                continue;
+            }
+            block_indent = None;
+        }
         let mut quote = None;
         let mut escaped = false;
         let mut prefix = true;
@@ -225,6 +233,14 @@ fn yaml_json(bytes: &[u8], path: &Path) -> Result<Value> {
                 anyhow::bail!("{}: YAML tags and aliases are unsupported", path.display());
             }
             prefix = c.is_whitespace() || matches!(c, ':' | '-' | ',' | '[' | '{');
+        }
+        let declaration = line.trim_end();
+        if (declaration.contains(':') || declaration.trim_start().starts_with("- "))
+            && ["|", "|-", "|+", ">", ">-", ">+"]
+                .iter()
+                .any(|marker| declaration.ends_with(marker))
+        {
+            block_indent = Some(indent);
         }
     }
     let parsed: serde_yaml::Value =
@@ -414,44 +430,128 @@ fn validate_directory_release(root: &Path) -> Result<ValidatedRelease> {
             "invalid catalog key {key}"
         );
         ensure!(keys.insert(key.clone()), "duplicate catalog key {key}");
-        let statement_path = dir.join("statement.md");
         object.insert("schema".into(), json!(3));
-        object.insert(
-            "statement".into(),
-            json!(read_text(&statement_path, 100_000)?),
-        );
-        let mut expected =
-            HashSet::from([PathBuf::from("problem.yaml"), PathBuf::from("statement.md")]);
-        let hint_dir = dir.join("hints");
-        let mut hints = Vec::new();
-        if hint_dir.exists() {
-            for path in sorted_files(&hint_dir, "md")? {
-                expected.insert(path.strip_prefix(&dir)?.to_owned());
-                hints.push(read_text(&path, 10_000)?);
+        if let Some(difficulty) = object.get("difficulty") {
+            if difficulty.is_number() {
+                ensure!(
+                    !object.contains_key("difficulty_score"),
+                    "{}: integer difficulty cannot have difficulty_score",
+                    metadata.display()
+                );
+                let score = difficulty
+                    .as_u64()
+                    .filter(|score| (1..=5).contains(score))
+                    .with_context(|| {
+                        format!(
+                            "{}: difficulty must be an integer from 1 to 5",
+                            metadata.display()
+                        )
+                    })?;
+                object.insert(
+                    "difficulty".into(),
+                    json!(Problem::difficulty_band(score as u8)),
+                );
+                object.insert("difficulty_score".into(), json!(score));
             }
         }
-        object.insert("hints".into(), json!(hints));
+        let mut expected = HashSet::from([PathBuf::from("problem.yaml")]);
+        let statement_path = dir.join("statement.md");
+        if object.contains_key("statement") {
+            ensure!(
+                !statement_path.exists(),
+                "{}: statement is defined in both problem.yaml and statement.md",
+                dir.display()
+            );
+        } else {
+            object.insert(
+                "statement".into(),
+                json!(read_text(&statement_path, 100_000)?),
+            );
+            expected.insert(PathBuf::from("statement.md"));
+        }
+        let hint_dir = dir.join("hints");
+        if object.contains_key("hints") {
+            ensure!(
+                !hint_dir.exists(),
+                "{}: hints are defined in both problem.yaml and hints/",
+                dir.display()
+            );
+        } else {
+            let mut hints = Vec::new();
+            if hint_dir.exists() {
+                for path in sorted_files(&hint_dir, "md")? {
+                    expected.insert(path.strip_prefix(&dir)?.to_owned());
+                    hints.push(read_text(&path, 10_000)?);
+                }
+            }
+            object.insert("hints".into(), json!(hints));
+        }
         let mut cases = Vec::new();
         let mut case_paths = Vec::new();
-        for (visibility, hidden) in [("visible", false), ("hidden", true)] {
-            let test_dir = dir.join("tests").join(visibility);
-            if !test_dir.exists() {
-                continue;
+        if let Some(inline) = object.remove("tests") {
+            ensure!(
+                !dir.join("tests").exists(),
+                "{}: tests are defined in both problem.yaml and tests/",
+                dir.display()
+            );
+            let groups = inline.as_object().with_context(|| {
+                format!(
+                    "{}: tests must have visible and hidden lists",
+                    metadata.display()
+                )
+            })?;
+            ensure!(
+                groups.keys().all(|key| key == "visible" || key == "hidden"),
+                "{}: unknown tests group",
+                metadata.display()
+            );
+            for (visibility, hidden) in [("visible", false), ("hidden", true)] {
+                let Some(group) = groups.get(visibility) else {
+                    continue;
+                };
+                let entries = group.as_array().with_context(|| {
+                    format!("{}: tests.{visibility} must be a list", metadata.display())
+                })?;
+                for (index, source_case) in entries.iter().enumerate() {
+                    let path = PathBuf::from(format!(
+                        "{}:tests.{visibility}[{index}]",
+                        metadata.display()
+                    ));
+                    let mut case = source_case.clone();
+                    let map = case
+                        .as_object_mut()
+                        .with_context(|| format!("{}: case must be mapping", path.display()))?;
+                    ensure!(
+                        !map.contains_key("hidden"),
+                        "{}: visibility comes from tests group",
+                        path.display()
+                    );
+                    map.insert("hidden".into(), json!(hidden));
+                    cases.push(case);
+                    case_paths.push(path);
+                }
             }
-            for path in sorted_data_files(&test_dir)? {
-                expected.insert(path.strip_prefix(&dir)?.to_owned());
-                let mut case = read_data(&path)?;
-                let map = case
-                    .as_object_mut()
-                    .with_context(|| format!("{}: case must be mapping", path.display()))?;
-                ensure!(
-                    !map.contains_key("hidden"),
-                    "{}: visibility comes from directory",
-                    path.display()
-                );
-                map.insert("hidden".into(), json!(hidden));
-                cases.push(case);
-                case_paths.push(path);
+        } else {
+            for (visibility, hidden) in [("visible", false), ("hidden", true)] {
+                let test_dir = dir.join("tests").join(visibility);
+                if !test_dir.exists() {
+                    continue;
+                }
+                for path in sorted_data_files(&test_dir)? {
+                    expected.insert(path.strip_prefix(&dir)?.to_owned());
+                    let mut case = read_data(&path)?;
+                    let map = case
+                        .as_object_mut()
+                        .with_context(|| format!("{}: case must be mapping", path.display()))?;
+                    ensure!(
+                        !map.contains_key("hidden"),
+                        "{}: visibility comes from directory",
+                        path.display()
+                    );
+                    map.insert("hidden".into(), json!(hidden));
+                    cases.push(case);
+                    case_paths.push(path);
+                }
             }
         }
         object.insert("tests".into(), json!(cases));
@@ -645,6 +745,78 @@ mod tests {
         fs::write(p.join("tests/visible/01.yaml"), "args: [4]\nexpected: 5\n").unwrap();
         let changed_case = validate_release(&root).unwrap().problems[0].hash.clone();
         assert_ne!(hinted, changed_case);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn directory_supports_inline_paragraphs_multiple_hints_and_integer_difficulty() {
+        let root = fixture();
+        let p = root.join("problems/example");
+        fs::remove_file(p.join("statement.md")).unwrap();
+        fs::write(
+            p.join("problem.yaml"),
+            "schema: 1\nkey: example/add-one\ntitle: Add One\ndifficulty: 2\nstatement: |\n  First paragraph.\n\n  Second paragraph.\n\n  * A Markdown list item.\nhints:\n  - |\n    First hint.\n  - |\n    Second hint.\ntags: [example]\ninterface:\n  kind: function\n  name: addOne\n  params: [{name: value, ty: int}]\n  returns: int\n",
+        )
+        .unwrap();
+        let release = validate_release(&root).unwrap();
+        let problem = &release.problems[0].problem;
+        assert_eq!(
+            problem.statement,
+            "First paragraph.\n\nSecond paragraph.\n\n* A Markdown list item.\n"
+        );
+        assert_eq!(problem.hints, ["First hint.\n", "Second hint.\n"]);
+        assert_eq!(problem.difficulty, "easy");
+        assert_eq!(problem.difficulty_score, Some(2));
+
+        fs::write(p.join("statement.md"), "Conflicting statement.\n").unwrap();
+        assert!(validate_release(&root).is_err());
+        fs::remove_file(p.join("statement.md")).unwrap();
+        fs::create_dir(p.join("hints")).unwrap();
+        fs::write(p.join("hints/01.md"), "Conflicting hint.\n").unwrap();
+        assert!(validate_release(&root).is_err());
+        fs::remove_dir_all(p.join("hints")).unwrap();
+        let source = fs::read_to_string(p.join("problem.yaml")).unwrap();
+        fs::write(
+            p.join("problem.yaml"),
+            source.replace("difficulty: 2\n", "difficulty: 2\ndifficulty_score: 2\n"),
+        )
+        .unwrap();
+        let error = validate_release(&root).unwrap_err();
+        assert!(format!("{error:#}").contains("integer difficulty cannot have difficulty_score"));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn directory_supports_inline_visible_and_hidden_cases() {
+        let root = fixture();
+        let p = root.join("problems/example");
+        fs::create_dir_all(p.join("tests/hidden")).unwrap();
+        fs::write(p.join("tests/hidden/01.yaml"), "args: [4]\nexpected: 5\n").unwrap();
+        let original_hash = validate_release(&root).unwrap().problems[0].hash.clone();
+        fs::remove_dir_all(p.join("tests")).unwrap();
+        let source = fs::read_to_string(p.join("problem.yaml")).unwrap();
+        let source = format!(
+            "{source}tests:\n  visible:\n    - args: [2]\n      expected: 3\n  hidden:\n    - args: [4]\n      expected: 5\n"
+        );
+        fs::write(p.join("problem.yaml"), &source).unwrap();
+        let release = validate_release(&root).unwrap();
+        assert_eq!(release.problems[0].hash, original_hash);
+        let cases = &release.problems[0].problem.tests;
+        assert_eq!(cases.len(), 2);
+        assert!(!cases[0].hidden);
+        assert!(cases[1].hidden);
+        assert_eq!(cases[0].expected, Some(json!(3)));
+        assert_eq!(cases[1].expected, Some(json!(5)));
+
+        fs::create_dir_all(p.join("tests/visible")).unwrap();
+        fs::write(p.join("tests/visible/01.yaml"), "args: [2]\nexpected: 3\n").unwrap();
+        assert!(validate_release(&root).is_err());
+        fs::remove_dir_all(p.join("tests")).unwrap();
+        fs::write(
+            p.join("problem.yaml"),
+            source.replace("expected: 3\n", "expected: 3\n      hidden: true\n"),
+        )
+        .unwrap();
+        let error = validate_release(&root).unwrap_err();
+        assert!(format!("{error:#}").contains("visibility comes from tests group"));
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

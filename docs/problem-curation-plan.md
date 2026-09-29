@@ -8,7 +8,7 @@ The numbered items below are planning IDs, not catalog keys. Titles are working 
 
 ## Backlog
 
-`E` = easy, `M` = medium, `H` = hard, `XH` = extra-hard. `✓` marks an existing catalog problem. Extra-hard is a curation label: publish it as `difficulty: "hard"` with `difficulty_score: 5`. Publish the 20 additional hard problems with `difficulty_score: 4`.
+`E` = easy, `M` = medium, `H` = hard, `XH` = extra-hard. `✓` marks an existing catalog problem. In the current source format, publish extra-hard entries as `difficulty: 5` and the other hard entries as `difficulty: 4`.
 
 ### Arrays and matrices (12)
 
@@ -209,7 +209,7 @@ These 20 hard and 5 extra-hard problems extend the tracks above. Keep their prim
 
 ## Authoring and review workflow
 
-The initial 125-problem curation is complete. For new or revised entries, copy the sibling repository's `example-problem/` into `problems/<slug>/`, then edit `problem.yaml`, `statement.md`, ordered hint files, and one case per YAML or JSON file. The catalog discovers these files without a manifest. See [Git-native problem authoring](git-problem-authoring-plan.md).
+The initial 125-problem curation is complete. For new or revised entries, copy the sibling repository's `example-problem/` into `problems/<slug>/`, then edit the statement, ordered hints, and visible and hidden case lists in `problem.yaml`. The catalog discovers problem directories without a manifest. See [Git-native problem authoring](git-problem-authoring-plan.md).
 
 Fix the interface, constraints, return ordering, tie rules, empty inputs, overflow behavior, and intended complexity before writing cases. Give each new problem at least two visible examples and hidden boundary, degenerate, tie, and scale cases where applicable. A reviewer checks that the statement determines one result, examples match the contract, and tags and difficulty are appropriate. Run `catalog-validate` and the quality and oracle checks before merge; run every present reference against all cases in the gVisor sandbox.
 
