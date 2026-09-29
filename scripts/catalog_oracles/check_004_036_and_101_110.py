@@ -70,7 +70,7 @@ def solve(title,a):
   return [i for i in range(len(s)-len(p)+1) if collections.Counter(s[i:i+len(p)])==collections.Counter(p)]
  if title=='Longest Uniform Replacement':
   s,k=a;return max([j-i for i in range(len(s)+1) for j in range(i,len(s)+1) if j-i-max(collections.Counter(s[i:j]).values(),default=0)<=k]+[0])
- if title=='Reverse Word Order': return ' '.join(a[0].split()[::-1])
+ if title=='Reverse Word Order': return ' '.join(re.findall(r'[^ \t\n\r\v\f]+',a[0])[::-1])
  if title=='Compress Consecutive Characters':
   s=a[0];return ''.join(c+str(len(list(g))) for c,g in itertools.groupby(s))
  if title=='Expand Nested Repeats':
