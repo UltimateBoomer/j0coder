@@ -779,12 +779,24 @@ fn base64_encode(data: &[u8]) -> String {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Collected {
     pub exit: i32,
+    #[serde(default, deserialize_with = "deserialize_present_output")]
     pub output: Option<serde_json::Value>,
     pub log: String,
     pub overflow: bool,
     #[serde(default)]
     pub artifact: Option<String>,
 }
+
+fn deserialize_present_output<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // A present JSON null is a valid result for nullable and empty codec values.
+    Value::deserialize(deserializer).map(Some)
+}
+
 #[allow(async_fn_in_trait)]
 pub trait SandboxBackend {
     async fn create(
@@ -1494,6 +1506,19 @@ mod kubernetes_tests {
     use super::*;
 
     #[test]
+    fn collected_output_distinguishes_json_null_from_missing_output() {
+        let mut response = serde_json::json!({"exit":0,"output":null,"log":"","overflow":false});
+        let collected: Collected = serde_json::from_value(response.clone()).unwrap();
+        assert_eq!(collected.output, Some(Value::Null));
+        response["output"] = serde_json::json!(42);
+        let collected: Collected = serde_json::from_value(response.clone()).unwrap();
+        assert_eq!(collected.output, Some(serde_json::json!(42)));
+        response.as_object_mut().unwrap().remove("output");
+        let collected: Collected = serde_json::from_value(response).unwrap();
+        assert_eq!(collected.output, None);
+    }
+
+    #[test]
     fn jvm_limits_add_only_execution_headroom() {
         let limits = Limits {
             time_ms: 2000,
@@ -1512,7 +1537,7 @@ mod kubernetes_tests {
 
     #[test]
     fn reference_comparison_can_check_or_ignore_recorded_expectations() {
-        let job = Job {
+        let mut job = Job {
             attempt_base: 0,
             generation: uuid::Uuid::new_v4(),
             schema: 3,
@@ -1546,6 +1571,20 @@ mod kubernetes_tests {
         );
         assert_eq!(
             compare_case(&job, &case, Some(&serde_json::json!("invalid")), false).0,
+            Some(Verdict::RuntimeError)
+        );
+        assert_eq!(
+            compare_case(&job, &case, Some(&Value::Null), false).0,
+            Some(Verdict::RuntimeError)
+        );
+        job.interface = Interface::Function {
+            name: "solve".into(),
+            params: vec![],
+            returns: Type::Nullable(Box::new(Type::Int)),
+        };
+        assert_eq!(compare_case(&job, &case, Some(&Value::Null), false).0, None);
+        assert_eq!(
+            compare_case(&job, &case, None, false).0,
             Some(Verdict::RuntimeError)
         );
     }

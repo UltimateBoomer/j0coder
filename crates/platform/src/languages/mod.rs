@@ -7,6 +7,7 @@ use self::{cpp::Cpp, java::Java, kotlin::Kotlin, python::Python};
 use crate::contract::{Codec, Interface, Language, Type, TypeDefinition};
 use anyhow::Result;
 use serde::Serialize;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Execution {
@@ -60,6 +61,117 @@ struct InterfaceContext<'a> {
     models: String,
 }
 
+// Standard names may be shadowed by a model or the stateful submission class.
+// Keep canonical qualified spellings in the language implementations and shorten
+// each standard symbol only after all generated declarations are known.
+struct StarterTypes<'a> {
+    language: Language,
+    definitions: &'a [TypeDefinition],
+    declared_names: HashSet<String>,
+    function_name: Option<&'a str>,
+}
+
+fn graph_node_name(
+    definition: &TypeDefinition,
+    defs: &[TypeDefinition],
+    interface: &Interface,
+) -> String {
+    let candidate = format!("{}Node", definition.name);
+    if defs.iter().any(|d| d.name == candidate)
+        || matches!(interface, Interface::DataStructure { name, .. } if *name == candidate)
+    {
+        format!("__JudgeGraphNode_{}", definition.name)
+    } else {
+        candidate
+    }
+}
+
+impl<'a> StarterTypes<'a> {
+    fn new(
+        language: Language,
+        definitions: &'a [TypeDefinition],
+        interface: &'a Interface,
+    ) -> Self {
+        let mut declared_names: HashSet<_> = definitions.iter().map(|d| d.name.clone()).collect();
+        for d in definitions.iter().filter(|d| d.codec == Codec::ObjectGraph) {
+            declared_names.insert(graph_node_name(d, definitions, interface));
+        }
+        let function_name = match interface {
+            Interface::DataStructure { name, .. } => {
+                declared_names.insert(name.clone());
+                None
+            }
+            Interface::Function { name, .. } => Some(name.as_str()),
+        };
+        Self {
+            language,
+            definitions,
+            declared_names,
+            function_name,
+        }
+    }
+
+    fn standard_name<'b>(&self, qualified: &'b str) -> &'b str {
+        let short = qualified.rsplit('.').next().unwrap();
+        if self.declared_names.contains(short) {
+            qualified
+        } else {
+            short
+        }
+    }
+
+    fn list_factory(&self) -> &str {
+        if self.function_name == Some("mutableListOf") {
+            "kotlin.collections.mutableListOf"
+        } else {
+            self.standard_name("kotlin.collections.mutableListOf")
+        }
+    }
+
+    fn render(&self, ty: &Type) -> String {
+        let language = self.language;
+        if !matches!(language, Language::Java | Language::Kotlin) {
+            return language.implementation().type_spelling(ty);
+        }
+        match ty {
+            Type::Array(inner) => {
+                let list = if language == Language::Java {
+                    "java.util.List"
+                } else {
+                    "kotlin.collections.MutableList"
+                };
+                format!("{}<{}>", self.standard_name(list), self.render(inner))
+            }
+            Type::Nullable(inner) => {
+                let inner = self.render(inner);
+                if language == Language::Kotlin {
+                    format!("{}?", inner.trim_end_matches('?'))
+                } else {
+                    inner
+                }
+            }
+            Type::Named(name) => {
+                if language == Language::Kotlin
+                    && self.definitions.iter().any(|d| {
+                        d.name == *name
+                            && matches!(
+                                d.codec,
+                                Codec::SinglyLinkedList | Codec::BinaryTree | Codec::NaryTree
+                            )
+                    })
+                {
+                    format!("{}?", language.source_name(name))
+                } else {
+                    language.source_name(name)
+                }
+            }
+            _ => self
+                .standard_name(&language.implementation().type_spelling(ty))
+                .to_owned(),
+        }
+    }
+}
+
 fn render_template(name: &str, template: &str, context: impl Serialize) -> Result<String> {
     let mut environment = minijinja::Environment::new();
     environment.set_keep_trailing_newline(true);
@@ -100,6 +212,7 @@ impl Language {
         interface: &Interface,
         defs: &[TypeDefinition],
     ) -> Result<String> {
+        let types = StarterTypes::new(self, defs, interface);
         match interface {
             Interface::Function {
                 name,
@@ -120,12 +233,12 @@ impl Language {
                         .iter()
                         .map(|p| ParameterContext {
                             name: self.source_name(&p.name),
-                            ty: self.type_with_definitions(&p.ty, defs),
+                            ty: types.render(&p.ty),
                         })
                         .collect(),
-                    return_type: self.type_with_definitions(returns, defs),
+                    return_type: types.render(returns),
                     methods: vec![],
-                    models: self.models(defs, interface),
+                    models: self.models(defs, interface, &types),
                 },
             ),
             Interface::DataStructure {
@@ -154,22 +267,22 @@ impl Language {
                         .iter()
                         .map(|p| ParameterContext {
                             name: self.source_name(&p.name),
-                            ty: self.type_with_definitions(&p.ty, defs),
+                            ty: types.render(&p.ty),
                         })
                         .collect(),
                     return_type: String::new(),
-                    models: self.models(defs, interface),
+                    models: self.models(defs, interface, &types),
                     methods: methods
                         .iter()
                         .map(|m| MethodContext {
                             name: self.source_name(&m.name),
-                            return_type: self.type_with_definitions(&m.returns, defs),
+                            return_type: types.render(&m.returns),
                             parameters: m
                                 .params
                                 .iter()
                                 .map(|p| ParameterContext {
                                     name: self.source_name(&p.name),
-                                    ty: self.type_with_definitions(&p.ty, defs),
+                                    ty: types.render(&p.ty),
                                 })
                                 .collect(),
                             is_void: matches!(m.returns, Type::Void),
@@ -242,7 +355,7 @@ impl Language {
                         .collect(),
                     return_type: i.type_spelling(returns),
                     methods: vec![],
-                    models: self.models(defs, interface),
+                    models: String::new(),
                 },
             ),
             Interface::DataStructure {
@@ -286,36 +399,12 @@ impl Language {
         }
     }
 
-    fn type_with_definitions(self, ty: &Type, defs: &[TypeDefinition]) -> String {
-        if self != Language::Kotlin {
-            return self.implementation().type_spelling(ty);
-        }
-        match ty {
-            Type::Array(t) => format!(
-                "kotlin.collections.MutableList<{}>",
-                self.type_with_definitions(t, defs)
-            ),
-            Type::Nullable(t) => {
-                let inner = self.type_with_definitions(t, defs);
-                format!("{}?", inner.trim_end_matches('?'))
-            }
-            Type::Named(name)
-                if defs.iter().any(|d| {
-                    d.name == *name
-                        && matches!(
-                            d.codec,
-                            Codec::SinglyLinkedList | Codec::BinaryTree | Codec::NaryTree
-                        )
-                }) =>
-            {
-                format!("{}?", self.source_name(name))
-            }
-            Type::Named(name) => self.source_name(name),
-            _ => self.implementation().type_spelling(ty),
-        }
-    }
-
-    fn models(self, defs: &[TypeDefinition], interface: &Interface) -> String {
+    fn models(
+        self,
+        defs: &[TypeDefinition],
+        interface: &Interface,
+        types: &StarterTypes<'_>,
+    ) -> String {
         if !matches!(self, Language::Java | Language::Kotlin) {
             return String::new();
         }
@@ -323,23 +412,22 @@ impl Language {
         for d in defs {
             let graph = d.codec == Codec::ObjectGraph;
             let class_name = if graph {
-                let candidate = format!("{}Node", d.name);
-                if defs.iter().any(|d| d.name == candidate)
-                    || matches!(interface, Interface::DataStructure { name, .. } if *name == candidate)
-                {
-                    format!("__JudgeGraphNode_{}", d.name)
-                } else {
-                    candidate
-                }
+                graph_node_name(d, defs, interface)
             } else {
                 self.source_name(&d.name)
             };
             let mut fields = String::new();
             if graph {
                 if self == Language::Java {
-                    fields.push_str("    public java.lang.String __judgeId;\n");
+                    fields.push_str(&format!(
+                        "    public {} __judgeId;\n",
+                        types.render(&Type::String)
+                    ));
                 } else {
-                    fields.push_str("    var __judgeId: kotlin.String? = null\n");
+                    fields.push_str(&format!(
+                        "    var __judgeId: {}? = null\n",
+                        types.render(&Type::String)
+                    ));
                 }
             }
             for f in &d.fields {
@@ -353,10 +441,10 @@ impl Language {
                                 format!("{class_name}?")
                             }
                         }
-                        _ => self.type_with_definitions(&f.ty, defs),
+                        _ => types.render(&f.ty),
                     }
                 } else {
-                    self.type_with_definitions(&f.ty, defs)
+                    types.render(&f.ty)
                 };
                 if self == Language::Java {
                     fields.push_str(&format!("    public {ty} {};\n", f.name));
@@ -384,12 +472,16 @@ impl Language {
                     "class {class_name} {{\n{fields}    public {class_name}() {{}}\n}}\n"
                 ));
                 if graph {
-                    out.push_str(&format!("class {} {{\n    public java.util.List<{class_name}> roots = new java.util.ArrayList<>();\n    public java.util.List<{class_name}> nodes = new java.util.ArrayList<>();\n}}\n",self.source_name(&d.name)));
+                    let list = types.standard_name("java.util.List");
+                    let array_list = types.standard_name("java.util.ArrayList");
+                    out.push_str(&format!("class {} {{\n    public {list}<{class_name}> roots = new {array_list}<>();\n    public {list}<{class_name}> nodes = new {array_list}<>();\n}}\n",self.source_name(&d.name)));
                 }
             } else {
                 out.push_str(&format!("class {class_name} {{\n{fields}}}\n"));
                 if graph {
-                    out.push_str(&format!("class {} {{\n    var roots: kotlin.collections.MutableList<{class_name}?> = kotlin.collections.mutableListOf()\n    var nodes: kotlin.collections.MutableList<{class_name}> = kotlin.collections.mutableListOf()\n}}\n",self.source_name(&d.name)));
+                    let list = types.standard_name("kotlin.collections.MutableList");
+                    let factory = types.list_factory();
+                    out.push_str(&format!("class {} {{\n    var roots: {list}<{class_name}?> = {factory}()\n    var nodes: {list}<{class_name}> = {factory}()\n}}\n",self.source_name(&d.name)));
                 }
             }
         }
@@ -418,6 +510,194 @@ impl Language {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jvm_standard_types_use_short_names_recursively() {
+        let interface = Interface::Function {
+            name: "echo".into(),
+            params: vec![],
+            returns: Type::Void,
+        };
+        for (language, expected) in [
+            (
+                Language::Java,
+                ["void", "Integer", "Long", "Double", "Boolean", "String"],
+            ),
+            (
+                Language::Kotlin,
+                ["Unit", "Int", "Long", "Double", "Boolean", "String"],
+            ),
+        ] {
+            let types = StarterTypes::new(language, &[], &interface);
+            for (ty, expected) in [
+                Type::Void,
+                Type::Int,
+                Type::Int64,
+                Type::Float,
+                Type::Bool,
+                Type::String,
+            ]
+            .iter()
+            .zip(expected)
+            {
+                assert_eq!(types.render(ty), expected);
+            }
+            let nested = Type::Array(Box::new(Type::Array(Box::new(Type::Nullable(Box::new(
+                Type::Int64,
+            ))))));
+            assert_eq!(
+                types.render(&nested),
+                if language == Language::Java {
+                    "List<List<Long>>"
+                } else {
+                    "MutableList<MutableList<Long?>>"
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn jvm_function_and_stateful_starters_shorten_all_models() {
+        let defs: Vec<TypeDefinition> = serde_json::from_value(serde_json::json!([
+            {"name":"Sample","fields":[{"name":"label","ty":"string"},{"name":"items","ty":{"array":{"nullable":"int64"}}}]},
+            {"name":"Link","codec":"singly_linked_list","fields":[{"name":"val","ty":"int"},{"name":"next","ty":{"nullable":{"named":"Link"}}}]},
+            {"name":"Tree","codec":"binary_tree","fields":[{"name":"val","ty":"int"},{"name":"left","ty":{"nullable":{"named":"Tree"}}},{"name":"right","ty":{"nullable":{"named":"Tree"}}}]},
+            {"name":"Nary","codec":"nary_tree","fields":[{"name":"val","ty":"int"},{"name":"children","ty":{"array":{"named":"Nary"}}}]},
+            {"name":"Graph","codec":"object_graph","fields":[{"name":"label","ty":"string"},{"name":"next","ty":{"nullable":{"named":"Graph"}}}]}
+        ])).unwrap();
+        let interfaces: Vec<Interface> = serde_json::from_value(serde_json::json!([
+            {"kind":"function","name":"echo","params":[{"name":"values","ty":{"array":{"nullable":"int"}}}],"returns":{"array":{"array":"int64"}}},
+            {"kind":"data_structure","name":"Store","constructor":{"params":[{"name":"values","ty":{"array":{"nullable":"int"}}}]},"methods":[{"name":"echo","params":[{"name":"values","ty":{"array":{"nullable":"int"}}}],"returns":{"array":{"array":"int64"}}},{"name":"clear","params":[],"returns":"void"}]}
+        ])).unwrap();
+        for language in [Language::Java, Language::Kotlin] {
+            for interface in &interfaces {
+                let starter = language.starter_with_definitions(interface, &defs).unwrap();
+                assert!(
+                    !starter
+                        .lines()
+                        .filter(|line| !line.starts_with("import "))
+                        .any(|line| line.contains("java.")),
+                    "{starter}"
+                );
+                assert!(!starter.contains("kotlin."), "{starter}");
+                if language == Language::Java {
+                    assert!(starter.contains("List<Integer> values"), "{starter}");
+                    assert!(starter.contains("List<List<Long>> echo("), "{starter}");
+                    assert!(starter.contains("public String __judgeId;"), "{starter}");
+                    assert!(
+                        starter.contains("List<GraphNode> roots = new ArrayList<>();"),
+                        "{starter}"
+                    );
+                } else {
+                    assert!(starter.contains("values: MutableList<Int?>"), "{starter}");
+                    assert!(
+                        starter.contains("): MutableList<MutableList<Long>>"),
+                        "{starter}"
+                    );
+                    assert!(
+                        starter.contains("var __judgeId: String? = null"),
+                        "{starter}"
+                    );
+                    assert!(starter.contains("MutableList<Nary?>"), "{starter}");
+                    assert!(
+                        starter.contains("MutableList<GraphNode?> = mutableListOf()"),
+                        "{starter}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn jvm_standard_names_qualify_only_model_and_stateful_collisions() {
+        for language in [Language::Java, Language::Kotlin] {
+            let scalar_types = [
+                Type::Int,
+                Type::Int64,
+                Type::Float,
+                Type::Bool,
+                Type::String,
+            ];
+            let mut test_types = scalar_types.to_vec();
+            test_types.push(Type::Array(Box::new(Type::Int)));
+            if language == Language::Kotlin {
+                test_types.push(Type::Void);
+            }
+            for ty in &test_types {
+                let qualified = language.implementation().type_spelling(ty);
+                let qualified_symbol = qualified.split('<').next().unwrap();
+                let name = qualified_symbol.rsplit('.').next().unwrap();
+                let named = Type::Named(name.into());
+                let defs = vec![TypeDefinition {
+                    name: name.into(),
+                    codec: Codec::Record,
+                    fields: vec![],
+                }];
+                let interfaces: Vec<Interface> = serde_json::from_value(serde_json::json!([
+                    {"kind":"function","name":"echo","params":[{"name":"model","ty":{"named":name}}],"returns":ty},
+                    {"kind":"data_structure","name":name,"constructor":{"params":[]},"methods":[{"name":"echo","params":[],"returns":ty}]}
+                ])).unwrap();
+                for (interface, definitions) in
+                    [(&interfaces[0], defs.as_slice()), (&interfaces[1], &[][..])]
+                {
+                    let types = StarterTypes::new(language, definitions, interface);
+                    assert!(types.render(ty).starts_with(qualified_symbol));
+                    assert_eq!(types.render(&named), name);
+                    for other in scalar_types.iter().filter(|other| *other != ty) {
+                        assert!(!types.render(other).contains('.'));
+                    }
+                    let starter = language
+                        .starter_with_definitions(interface, definitions)
+                        .unwrap();
+                    assert!(starter.contains(&types.render(ty)), "{starter}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn jvm_graph_initializers_preserve_helper_collisions() {
+        let defs: Vec<TypeDefinition> = serde_json::from_value(serde_json::json!([
+            {"name":"Graph","codec":"object_graph","fields":[]},
+            {"name":"ArrayList","fields":[]},
+            {"name":"MutableList","fields":[]},
+            {"name":"mutableListOf","fields":[]}
+        ]))
+        .unwrap();
+        let interface = Interface::Function {
+            name: "echo".into(),
+            params: vec![],
+            returns: Type::Void,
+        };
+        let java = Language::Java
+            .starter_with_definitions(&interface, &defs)
+            .unwrap();
+        assert!(
+            java.contains("List<GraphNode> roots = new java.util.ArrayList<>();"),
+            "{java}"
+        );
+        let kotlin = Language::Kotlin
+            .starter_with_definitions(&interface, &defs)
+            .unwrap();
+        assert!(
+            kotlin.contains(
+                "kotlin.collections.MutableList<GraphNode?> = kotlin.collections.mutableListOf()"
+            ),
+            "{kotlin}"
+        );
+        let interface = Interface::Function {
+            name: "mutableListOf".into(),
+            params: vec![],
+            returns: Type::Void,
+        };
+        let kotlin = Language::Kotlin
+            .starter_with_definitions(&interface, &defs[..1])
+            .unwrap();
+        assert!(
+            kotlin.contains("MutableList<GraphNode?> = kotlin.collections.mutableListOf()"),
+            "{kotlin}"
+        );
+    }
 
     #[test]
     fn jvm_starters_avoid_model_and_keyword_collisions() {
@@ -481,7 +761,16 @@ mod tests {
             fields: vec![],
         }];
         assert_eq!(
-            Language::Kotlin.type_with_definitions(&Type::Named("Box".into()), &defs),
+            StarterTypes::new(
+                Language::Kotlin,
+                &defs,
+                &Interface::Function {
+                    name: "echo".into(),
+                    params: vec![],
+                    returns: Type::Named("Box".into())
+                }
+            )
+            .render(&Type::Named("Box".into())),
             "Box"
         );
     }

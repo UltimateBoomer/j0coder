@@ -249,6 +249,115 @@ async fn generated_jvm_starters_compile_and_judge_named_values() -> anyhow::Resu
 
 #[tokio::test]
 #[ignore = "requires the JVM toolchain image and working Podman + gVisor"]
+async fn generated_jvm_stateful_starters_judge_short_names_and_collisions() -> anyhow::Result<()> {
+    let definitions: Vec<TypeDefinition> = serde_json::from_value(json!([
+        {"name":"Sample","fields":[{"name":"label","ty":"string"},{"name":"flag","ty":"bool"},{"name":"fraction","ty":"float"},{"name":"items","ty":{"array":{"nullable":"int64"}}}]},
+        {"name":"Link","codec":"singly_linked_list","fields":[{"name":"val","ty":"int"},{"name":"next","ty":{"nullable":{"named":"Link"}}}]},
+        {"name":"Tree","codec":"binary_tree","fields":[{"name":"val","ty":"int"},{"name":"left","ty":{"nullable":{"named":"Tree"}}},{"name":"right","ty":{"nullable":{"named":"Tree"}}}]},
+        {"name":"Nary","codec":"nary_tree","fields":[{"name":"val","ty":"int"},{"name":"children","ty":{"array":{"named":"Nary"}}}]},
+        {"name":"Graph","codec":"object_graph","fields":[{"name":"value","ty":"int"},{"name":"next","ty":{"nullable":{"named":"Graph"}}}]}
+    ]))?;
+    let values = [
+        json!({"label":"sample","flag":true,"fraction":1.25,"items":[null,-9223372036854775808i64,9223372036854775807i64]}),
+        json!([1, 2, 3]),
+        json!([1, null, 2, 3]),
+        json!({"value":1,"children":[{"value":2,"children":[]}]}),
+        json!({"roots":["a","a"],"nodes":[{"id":"a","value":1,"next":"b"},{"id":"b","value":2,"next":"a"}]}),
+        json!([[1, null, -1], []]),
+    ];
+    for language in [Language::Java, Language::Kotlin] {
+        for collisions in [false, true] {
+            let class_name = match (language, collisions) {
+                (Language::Java, true) => "List",
+                (Language::Kotlin, true) => "MutableList",
+                _ => "Store",
+            };
+            let interface: Interface = serde_json::from_value(json!({
+                "kind":"data_structure","name":class_name,
+                "constructor":{"params":[{"name":"labels","ty":{"array":"string"}}]},
+                "methods":[
+                    {"name":"record","params":[{"name":"value","ty":{"named":"Sample"}}],"returns":{"named":"Sample"}},
+                    {"name":"list","params":[{"name":"value","ty":{"named":"Link"}}],"returns":{"named":"Link"}},
+                    {"name":"tree","params":[{"name":"value","ty":{"named":"Tree"}}],"returns":{"named":"Tree"}},
+                    {"name":"nary","params":[{"name":"value","ty":{"named":"Nary"}}],"returns":{"named":"Nary"}},
+                    {"name":"graph","params":[{"name":"value","ty":{"named":"Graph"}}],"returns":{"named":"Graph"}},
+                    {"name":"matrix","params":[{"name":"value","ty":{"array":{"array":{"nullable":"int"}}}}],"returns":{"array":{"array":{"nullable":"int"}}}},
+                    {"name":"clear","params":[],"returns":"void"}
+                ]
+            }))?;
+            let mut job = job(language);
+            job.interface = interface;
+            job.type_definitions = definitions.clone();
+            job.limits.time_ms = 2000;
+            job.limits.memory_mib = 256;
+            if collisions {
+                let names: &[&str] = if language == Language::Java {
+                    &[
+                        "Integer",
+                        "Long",
+                        "Double",
+                        "Boolean",
+                        "String",
+                        "ArrayList",
+                        "GraphNode",
+                    ]
+                } else {
+                    &[
+                        "Int",
+                        "Long",
+                        "Double",
+                        "Boolean",
+                        "String",
+                        "Unit",
+                        "mutableListOf",
+                        "GraphNode",
+                    ]
+                };
+                job.type_definitions
+                    .extend(names.iter().map(|name| TypeDefinition {
+                        name: (*name).into(),
+                        codec: Codec::Record,
+                        fields: vec![],
+                    }));
+            }
+            let starter =
+                language.starter_with_definitions(&job.interface, &job.type_definitions)?;
+            let source = if language == Language::Java {
+                starter.replace(
+                    "throw new UnsupportedOperationException();",
+                    "return value;",
+                )
+            } else {
+                starter.replace("TODO(\"Implement\")", "return value")
+            };
+            let mut operations = Vec::new();
+            for (method, value) in ["record", "list", "tree", "nary", "graph", "matrix"]
+                .iter()
+                .zip(&values)
+            {
+                operations.push(json!({"method":method,"args":[value],"expected":value}));
+            }
+            operations.push(json!({"method":"clear","args":[],"expected":null}));
+            let cases = [Case {
+                constructor_args: Some(json!([["initial"]])),
+                operations: Some(serde_json::from_value(json!(operations))?),
+                args: None,
+                expected: None,
+                hidden: false,
+            }];
+            let result = judge(&job, &source, &cases).await?;
+            assert_eq!(
+                result.verdict,
+                Verdict::Accepted,
+                "{language:?}, collisions={collisions}: {result:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the JVM toolchain image and working Podman + gVisor"]
 async fn generated_kotlin_starters_accept_empty_codec_values() -> anyhow::Result<()> {
     let definitions: Vec<TypeDefinition> = serde_json::from_value(json!([
         {"name":"Link","codec":"singly_linked_list","fields":[{"name":"val","ty":"int"},{"name":"next","ty":{"nullable":{"named":"Link"}}}]},
@@ -282,10 +391,8 @@ async fn generated_kotlin_starters_accept_empty_codec_values() -> anyhow::Result
             constructor_args: None,
             operations: None,
         }];
-        assert_eq!(
-            judge(&job, &source, &cases).await?.verdict,
-            Verdict::Accepted
-        );
+        let result = judge(&job, &source, &cases).await?;
+        assert_eq!(result.verdict, Verdict::Accepted, "{name}: {result:?}");
     }
     Ok(())
 }
