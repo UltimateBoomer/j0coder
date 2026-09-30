@@ -228,7 +228,9 @@ async fn problem(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Re
     let r=sqlx::query("SELECT v.id,v.public FROM problems p JOIN versions v ON v.id=p.current_version WHERE p.id=$1").bind(id).fetch_optional(&a.db).await?.ok_or_else(||Error(StatusCode::NOT_FOUND,"problem not found".into()))?;
     let p: Value = r.get("public");
     let definition: Problem = serde_json::from_value(p.clone()).map_err(|e| anyhow::anyhow!(e))?;
-    let starter = |language: Language| language.starter_interface(&definition.interface);
+    let starter = |language: Language| {
+        language.starter_with_definitions(&definition.interface, &definition.type_definitions)
+    };
     Ok(Json(json!({
         "id": id,
         "version": r.get::<Uuid, _>("id"),
@@ -236,6 +238,8 @@ async fn problem(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Re
         "starters": {
             "cpp": starter(Language::Cpp)?,
             "python": starter(Language::Python)?,
+            "java": starter(Language::Java)?,
+            "kotlin": starter(Language::Kotlin)?,
         }
     })))
 }
@@ -249,7 +253,7 @@ async fn get_solution(
     Path((version, language)): Path<(Uuid, String)>,
 ) -> Result<Response> {
     let u = user(&a, &h, false).await?;
-    if !["cpp", "python"].contains(&language.as_str()) {
+    if !["cpp", "python", "java", "kotlin"].contains(&language.as_str()) {
         return Err(bad("invalid language"));
     }
     let row = sqlx::query("SELECT source,updated_at FROM solution_drafts WHERE user_id=$1 AND version_id=$2 AND language=$3")
@@ -273,7 +277,7 @@ async fn put_solution(
     Json(draft): Json<SolutionDraft>,
 ) -> Result<StatusCode> {
     let u = user(&a, &h, true).await?;
-    if !["cpp", "python"].contains(&language.as_str()) {
+    if !["cpp", "python", "java", "kotlin"].contains(&language.as_str()) {
         return Err(bad("invalid language"));
     }
     if draft.source.len() > 100000 {

@@ -229,6 +229,22 @@ export interface components {
             /** @description Optional display-only Markdown; at most 1000 UTF-8 bytes */
             constraints?: string;
         };
+        Field: {
+            name: string;
+            ty: components["schemas"]["Type"];
+        };
+        TypeDefinition: {
+            name: string;
+            /** @enum {string} */
+            codec?: "record" | "singly_linked_list" | "binary_tree" | "nary_tree" | "object_graph";
+            fields?: components["schemas"]["Field"][];
+        };
+        Comparison: {
+            /** @enum {string} */
+            array: "ordered" | "set" | "multiset";
+            absolute_tolerance: number;
+            relative_tolerance: number;
+        };
         Limits: {
             time_ms: number;
             memory_mib: number;
@@ -285,6 +301,8 @@ export interface components {
             difficulty: "easy" | "medium" | "hard";
             tags: string[];
             interface: components["schemas"]["Interface"];
+            type_definitions?: components["schemas"]["TypeDefinition"][];
+            comparison?: components["schemas"]["Comparison"];
             limits: components["schemas"]["Limits"];
             tests: components["schemas"]["Case"][];
         };
@@ -300,7 +318,7 @@ export interface components {
             password: string;
         };
         /** @enum {string} */
-        Language: "cpp" | "python";
+        Language: "cpp" | "python" | "java" | "kotlin";
         /** @enum {string} */
         Verdict: "accepted" | "wrong_answer" | "compilation_error" | "runtime_error" | "time_limit" | "memory_limit" | "output_limit" | "infrastructure_failure";
         Outcome: {
@@ -343,6 +361,8 @@ export interface components {
             starters: {
                 cpp: string;
                 python: string;
+                java: string;
+                kotlin: string;
             };
         };
         ProblemSummary: {

@@ -120,3 +120,172 @@ async fn refuses_non_gvisor() {
     };
     assert!(b.preflight().await.is_err());
 }
+
+#[tokio::test]
+#[ignore = "requires the JVM toolchain image and working Podman + gVisor"]
+async fn jvm_verdicts_and_hidden_case_redaction() -> anyhow::Result<()> {
+    Podman::new().preflight().await?;
+    let cases = vec![
+        Case {
+            args: Some(json!([42])),
+            expected: Some(json!(42)),
+            hidden: false,
+            constructor_args: None,
+            operations: None,
+        },
+        Case {
+            args: Some(json!([-2147483648i64])),
+            expected: Some(json!(-2147483648i64)),
+            hidden: true,
+            constructor_args: None,
+            operations: None,
+        },
+    ];
+    for (language, accepted, wrong) in [
+        (
+            Language::Java,
+            "class Solution { public Integer echo(Integer value) { return value; } }",
+            "class Solution { public Integer echo(Integer value) { return 0; } }",
+        ),
+        (
+            Language::Kotlin,
+            "fun echo(value: Int): Int = value",
+            "fun echo(value: Int): Int = 0",
+        ),
+    ] {
+        let mut job = job(language);
+        job.limits.time_ms = 2000;
+        assert_eq!(
+            judge(&job, accepted, &cases).await?.verdict,
+            Verdict::Accepted
+        );
+        let bad = judge(&job, wrong, &cases).await?;
+        assert_eq!(bad.verdict, Verdict::WrongAnswer);
+        assert!(bad.cases[1].hidden);
+        assert!(bad.cases[1].output.is_none());
+        assert!(bad.cases[1].log.is_empty());
+        assert!(!serde_json::to_string(&bad)?.contains("-2147483648"));
+        let compilation = judge(&job, "invalid syntax", &cases).await?;
+        assert_eq!(compilation.verdict, Verdict::CompilationError);
+        let invalid_output = if language == Language::Java {
+            "class Solution { public Integer echo(Integer value) { return null; } }"
+        } else {
+            "fun echo(value: Int): Int? = null"
+        };
+        assert_eq!(
+            judge(&job, invalid_output, &cases).await?.verdict,
+            Verdict::RuntimeError
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the JVM toolchain image and working Podman + gVisor"]
+async fn generated_jvm_starters_compile_and_judge_named_values() -> anyhow::Result<()> {
+    let definition = TypeDefinition {
+        name: "Sample".into(),
+        codec: Codec::Record,
+        fields: vec![
+            Field {
+                name: "value".into(),
+                ty: Type::Int64,
+            },
+            Field {
+                name: "val".into(),
+                ty: Type::Int,
+            },
+            Field {
+                name: "items".into(),
+                ty: Type::Array(Box::new(Type::Nullable(Box::new(Type::Int)))),
+            },
+            Field {
+                name: "matrix".into(),
+                ty: Type::Array(Box::new(Type::Array(Box::new(Type::Nullable(Box::new(
+                    Type::Int64,
+                )))))),
+            },
+        ],
+    };
+    let mut job = job(Language::Java);
+    job.interface = Interface::Function {
+        name: "echo".into(),
+        params: vec![Parameter {
+            name: "value".into(),
+            ty: Type::Named("Sample".into()),
+            constraints: None,
+        }],
+        returns: Type::Named("Sample".into()),
+    };
+    job.type_definitions = vec![definition];
+    job.limits.time_ms = 2000;
+    job.limits.memory_mib = 256;
+    let value = json!({"value":9223372036854775807i64,"val":7,"items":[1,null,-1],"matrix":[[null,-9223372036854775808i64,9223372036854775807i64],[]]});
+    let cases = [Case {
+        args: Some(json!([value.clone()])),
+        expected: Some(value),
+        hidden: false,
+        constructor_args: None,
+        operations: None,
+    }];
+    for language in [Language::Java, Language::Kotlin] {
+        job.language = language;
+        let starter = language.starter_with_definitions(&job.interface, &job.type_definitions)?;
+        let source = if language == Language::Java {
+            starter.replace(
+                "throw new UnsupportedOperationException();",
+                "return value;",
+            )
+        } else {
+            starter.replace("TODO(\"Implement\")", "return value")
+        };
+        assert_eq!(
+            judge(&job, &source, &cases).await?.verdict,
+            Verdict::Accepted
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the JVM toolchain image and working Podman + gVisor"]
+async fn generated_kotlin_starters_accept_empty_codec_values() -> anyhow::Result<()> {
+    let definitions: Vec<TypeDefinition> = serde_json::from_value(json!([
+        {"name":"Link","codec":"singly_linked_list","fields":[{"name":"val","ty":"int"},{"name":"next","ty":{"nullable":{"named":"Link"}}}]},
+        {"name":"Tree","codec":"binary_tree","fields":[{"name":"val","ty":"int"},{"name":"left","ty":{"nullable":{"named":"Tree"}}},{"name":"right","ty":{"nullable":{"named":"Tree"}}}]},
+        {"name":"Nary","codec":"nary_tree","fields":[{"name":"val","ty":"int"},{"name":"children","ty":{"array":{"named":"Nary"}}}]}
+    ]))?;
+    for (name, value) in [
+        ("Link", json!([])),
+        ("Tree", json!([])),
+        ("Nary", json!(null)),
+    ] {
+        let mut job = job(Language::Kotlin);
+        job.type_definitions = definitions.clone();
+        job.limits.time_ms = 2000;
+        job.interface = Interface::Function {
+            name: "echo".into(),
+            params: vec![Parameter {
+                name: "value".into(),
+                ty: Type::Named(name.into()),
+                constraints: None,
+            }],
+            returns: Type::Named(name.into()),
+        };
+        let source = Language::Kotlin
+            .starter_with_definitions(&job.interface, &job.type_definitions)?
+            .replace("TODO(\"Implement\")", "return value");
+        let cases = [Case {
+            args: Some(json!([value.clone()])),
+            expected: Some(value),
+            hidden: false,
+            constructor_args: None,
+            operations: None,
+        }];
+        assert_eq!(
+            judge(&job, &source, &cases).await?.verdict,
+            Verdict::Accepted
+        );
+    }
+    Ok(())
+}

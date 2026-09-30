@@ -27,12 +27,14 @@ const START_TIMEOUT: Duration = Duration::from_secs(90);
 async fn renew_session(
     connection: &mut valkey::aio::ConnectionManager,
     user: uuid::Uuid,
+    language: Language,
     session: &str,
 ) -> anyhow::Result<bool> {
     let expiry = chrono::Utc::now().timestamp() + SESSION_LEASE_SECS;
-    let renewed: i32 = valkey::Script::new("if not redis.call('ZSCORE',KEYS[1],ARGV[1]) or not redis.call('ZSCORE',KEYS[2],ARGV[1]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[1]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[1]);return 1")
+    let renewed: i32 = valkey::Script::new("if not redis.call('ZSCORE',KEYS[1],ARGV[1]) or not redis.call('ZSCORE',KEYS[2],ARGV[1]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[1]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[1]);redis.call('ZADD',KEYS[3],ARGV[2],ARGV[1]);return 1")
         .key("editor:active")
         .key(format!("editor:user:{user}"))
+        .key(format!("editor:language:{}", language.identifier()))
         .arg(session)
         .arg(expiry)
         .invoke_async(connection)
@@ -129,14 +131,20 @@ pub async fn upgrade(
     .map_err(|e| anyhow::anyhow!(e))?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().timestamp();
-    let script = r#"redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1]);redis.call('ZREMRANGEBYSCORE',KEYS[2],'-inf',ARGV[1]);if redis.call('ZCARD',KEYS[1])>=tonumber(ARGV[4]) or redis.call('ZCARD',KEYS[2])>=2 then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[3]);return 1"#;
+    let script = r#"redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1]);redis.call('ZREMRANGEBYSCORE',KEYS[2],'-inf',ARGV[1]);redis.call('ZREMRANGEBYSCORE',KEYS[3],'-inf',ARGV[1]);if redis.call('ZCARD',KEYS[1])>=tonumber(ARGV[4]) or redis.call('ZCARD',KEYS[2])>=2 or redis.call('ZCARD',KEYS[3])>=tonumber(ARGV[5]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[3],ARGV[2],ARGV[3]);return 1"#;
     let capacity: i32 = valkey::Script::new(script)
         .key("editor:active")
         .key(format!("editor:user:{}", t.user))
+        .key(format!("editor:language:{}", t.language.identifier()))
         .arg(now)
         .arg(now + SESSION_LEASE_SECS)
         .arg(&id)
         .arg(crate::env("EDITOR_CAPACITY", "8"))
+        .arg(match t.language {
+            Language::Java => 4,
+            Language::Kotlin => 2,
+            _ => 8,
+        })
         .invoke_async(&mut c)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
@@ -150,12 +158,16 @@ pub async fn upgrade(
         .max_message_size(1024 * 1024)
         .on_upgrade(move |socket| async move {
             let user = t.user;
+            let language = t.language;
             let result = bridge(socket, t, &id, &state.shutdown).await;
             if let Err(e) = result {
                 tracing::warn!(error=%e,"editor session closed")
             }
             let _: valkey::RedisResult<usize> = c.zrem("editor:active", &id).await;
             let _: valkey::RedisResult<usize> = c.zrem(format!("editor:user:{user}"), &id).await;
+            let _: valkey::RedisResult<usize> = c
+                .zrem(format!("editor:language:{}", language.identifier()), &id)
+                .await;
         }))
 }
 // Only text-document operations are admitted. Workspace commands, configuration changes,
@@ -214,7 +226,7 @@ async fn bridge(
     let session_id = session.to_owned();
     let (start_tx, mut start_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        let result = b.start_lsp(cmd, &session_id).await;
+        let result = b.start_lsp(cmd, t.language, &session_id).await;
         if let Err(Ok(process)) = start_tx.send(result) {
             process.cleanup().await;
         }
@@ -246,7 +258,7 @@ async fn bridge(
                 let _ = socket.send(Message::Close(None)).await;
             }
             _ = tick.tick() => {
-                if !renew_session(&mut c, t.user, session).await? {
+                if !renew_session(&mut c, t.user, t.language, session).await? {
                     disconnected = true;
                     let _ = socket.send(Message::Close(None)).await;
                 }
@@ -310,7 +322,7 @@ async fn bridge(
                     }
                     _ = tick.tick() => {
                         if activity.elapsed()>Duration::from_secs(300) { break; }
-                        if !renew_session(&mut c,t.user,session).await? { break; }
+                        if !renew_session(&mut c,t.user,t.language,session).await? { break; }
                     }
                     _ = shutdown.cancelled() => {
                         let _ = send_frame(&mut stdin, &json!({"jsonrpc":"2.0","id":"service-shutdown","method":"shutdown"})).await;
@@ -376,6 +388,19 @@ mod tests {
             &json!({"method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///workspace/solution.cpp"}}}),
             Language::Cpp
         ));
+        for (language, uri) in [
+            (Language::Java, "file:///workspace/Solution.java"),
+            (Language::Kotlin, "file:///workspace/solution.kt"),
+        ] {
+            assert!(safe_message(
+                &json!({"method":"textDocument/didOpen","params":{"textDocument":{"uri":uri}}}),
+                language
+            ));
+            assert!(!safe_message(
+                &json!({"method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///workspace/solution.cpp"}}}),
+                language
+            ));
+        }
     }
 }
 

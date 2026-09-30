@@ -379,9 +379,14 @@ pub fn identifier(s: &str) -> bool {
         && s.bytes()
             .enumerate()
             .all(|(i, c)| c.is_ascii_alphabetic() || (i > 0 && (c.is_ascii_digit() || c == b'_')))
-        && [Language::Cpp, Language::Python]
-            .iter()
-            .all(|l| !l.is_reserved(s))
+        && [
+            Language::Cpp,
+            Language::Python,
+            Language::Java,
+            Language::Kotlin,
+        ]
+        .iter()
+        .all(|l| !l.is_reserved(s))
 }
 fn type_refs(t: &Type, known: &HashSet<&str>) -> Result<()> {
     match t {
@@ -397,6 +402,8 @@ fn type_refs(t: &Type, known: &HashSet<&str>) -> Result<()> {
 pub enum Language {
     Cpp,
     Python,
+    Java,
+    Kotlin,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Limits {

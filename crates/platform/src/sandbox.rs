@@ -50,6 +50,31 @@ fn backend_kind(value: &str) -> Result<&str> {
     Ok(value)
 }
 
+fn sandbox_memory(name: &str, compile: bool, limits: &Limits) -> u64 {
+    if compile {
+        if name == "solution.kt" { 2048 } else { 1024 }
+    } else if name == "program.jar.b64" {
+        limits.memory_mib + 256
+    } else {
+        limits.memory_mib
+    }
+}
+fn sandbox_wall(name: &str, compile: bool, limits: &Limits) -> u64 {
+    if compile {
+        if name == "solution.kt" {
+            120_000
+        } else if name == "solution.java" {
+            45_000
+        } else {
+            30_000
+        }
+    } else if name == "program.jar.b64" {
+        limits.time_ms + 1500
+    } else {
+        limits.time_ms
+    }
+}
+
 pub struct LspSession {
     pub stdin: Option<Box<dyn AsyncWrite + Unpin + Send>>,
     pub stdout: Option<Box<dyn AsyncRead + Unpin + Send>>,
@@ -118,10 +143,15 @@ impl Backend {
             }
         }
     }
-    pub async fn start_lsp(&self, command: &[&str], session: &str) -> Result<LspSession> {
+    pub async fn start_lsp(
+        &self,
+        command: &[&str],
+        language: Language,
+        session: &str,
+    ) -> Result<LspSession> {
         match self {
-            Self::Podman(b) => b.start_lsp(command, session).await,
-            Self::Kubernetes(b) => b.start_lsp(command, session).await,
+            Self::Podman(b) => b.start_lsp(command, language, session).await,
+            Self::Kubernetes(b) => b.start_lsp(command, language, session).await,
         }
     }
     pub async fn cleanup_orphaned_editors(
@@ -233,17 +263,30 @@ impl Kubernetes {
         };
         let mut requests = BTreeMap::new();
         requests.insert("cpu".into(), Quantity("100m".into()));
-        requests.insert("memory".into(), Quantity("128Mi".into()));
+        requests.insert(
+            "memory".into(),
+            Quantity(if purpose == "editor" && memory_mib >= 2048 {
+                format!("{memory_mib}Mi")
+            } else {
+                "128Mi".into()
+            }),
+        );
         requests.insert("ephemeral-storage".into(), Quantity("64Mi".into()));
         let mut limits = BTreeMap::new();
         limits.insert("cpu".into(), Quantity("1".into()));
         limits.insert("memory".into(), Quantity(format!("{memory_mib}Mi")));
-        limits.insert("ephemeral-storage".into(), Quantity("256Mi".into()));
+        limits.insert(
+            "ephemeral-storage".into(),
+            Quantity(if purpose == "editor" { "2Gi" } else { "256Mi" }.into()),
+        );
         let volumes = [
             ("tmp", "32Mi"),
             ("input", "48Mi"),
             ("work", "128Mi"),
-            ("editor-cache", "32Mi"),
+            (
+                "editor-cache",
+                if purpose == "editor" { "1Gi" } else { "32Mi" },
+            ),
         ]
         .into_iter()
         .map(|(n, s)| Volume {
@@ -282,11 +325,28 @@ impl Kubernetes {
                     image_pull_policy: Some("IfNotPresent".into()),
                     command: Some(command),
                     working_dir: (purpose == "editor").then(|| "/workspace".into()),
-                    env: Some(vec![k8s_openapi::api::core::v1::EnvVar {
-                        name: "LOCODER_STREAM_PROTOCOL".into(),
-                        value: Some("1".into()),
-                        ..Default::default()
-                    }]),
+                    env: Some(
+                        [
+                            ("LOCODER_STREAM_PROTOCOL", "1"),
+                            ("HOME", "/workspace/.cache"),
+                            ("XDG_CACHE_HOME", "/workspace/.cache"),
+                            (
+                                "IJ_JAVA_OPTIONS",
+                                if purpose == "editor" && memory_mib == 4096 {
+                                    "-Xmx3g -Duser.home=/workspace/.cache"
+                                } else {
+                                    ""
+                                },
+                            ),
+                        ]
+                        .into_iter()
+                        .map(|(name, value)| k8s_openapi::api::core::v1::EnvVar {
+                            name: name.into(),
+                            value: Some(value.into()),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ),
                     stdin: Some(true),
                     stdin_once: Some(true),
                     tty: Some(false),
@@ -458,15 +518,16 @@ impl Kubernetes {
                     "run".into()
                 },
                 output,
+                limits.memory_mib.to_string(),
             ],
-            if compile { 1024 } else { limits.memory_mib },
+            sandbox_memory(name, compile, limits),
             crate::env("KUBERNETES_SANDBOX_TTL", "300").parse()?,
         );
         self.create_pod(&pod).await?;
         let request = serde_json::to_vec(
             &serde_json::json!({"name":name,"data":base64_encode(source),"input":input}),
         )?;
-        let wall = Duration::from_millis(if compile { 30000 } else { limits.time_ms });
+        let wall = Duration::from_millis(sandbox_wall(name, compile, limits));
         let run = tokio::select! { r=self.attached(&id,&request,wall,cap) => r, _=shutdown.cancelled()=>Err(anyhow::anyhow!("execution cancelled during shutdown")) };
         let should_wait_for_status = matches!(&run, Ok((_, false)));
         let status = if should_wait_for_status {
@@ -595,7 +656,12 @@ impl Kubernetes {
         );
         Ok(())
     }
-    async fn start_lsp(&self, command: &[&str], session: &str) -> Result<LspSession> {
+    async fn start_lsp(
+        &self,
+        command: &[&str],
+        language: Language,
+        session: &str,
+    ) -> Result<LspSession> {
         ensure!(
             !self.runtime_class.is_empty(),
             "SANDBOX_RUNTIME_CLASS is required"
@@ -608,7 +674,11 @@ impl Kubernetes {
             &name,
             "editor",
             command.iter().map(|s| s.to_string()).collect(),
-            512,
+            match language {
+                Language::Java => 2048,
+                Language::Kotlin => 4096,
+                _ => 512,
+            },
             3600,
         );
         self.create_pod(&pod).await?;
@@ -720,6 +790,7 @@ pub trait SandboxBackend {
     async fn create(
         &self,
         limits: &Limits,
+        name: &str,
         compile: bool,
         shutdown: &crate::shutdown::Shutdown,
     ) -> Result<String>;
@@ -849,8 +920,18 @@ impl Podman {
         r?;
         Ok(())
     }
-    async fn start_lsp(&self, command: &[&str], session: &str) -> Result<LspSession> {
+    async fn start_lsp(
+        &self,
+        command: &[&str],
+        language: Language,
+        session: &str,
+    ) -> Result<LspSession> {
         let name = format!("locoder-editor-{session}");
+        let memory = match language {
+            Language::Java => "2048m",
+            Language::Kotlin => "4096m",
+            _ => "512m",
+        };
         let mut args = vec![
             "create",
             "--timeout=3600",
@@ -867,19 +948,29 @@ impl Podman {
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
             "--security-opt=label=disable",
-            "--memory=512m",
-            "--memory-swap=512m",
+            "--memory",
+            memory,
+            "--memory-swap",
+            memory,
             "--cpus=1",
             "--pids-limit=64",
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777",
             "--tmpfs",
-            "/workspace/.cache:rw,noexec,nosuid,nodev,size=32m,mode=1777",
+            "/workspace/.cache:rw,noexec,nosuid,nodev,size=1024m,mode=1777",
             "--log-driver=none",
             "--workdir=/workspace",
+            "--env=HOME=/workspace/.cache",
+            "--env=XDG_CACHE_HOME=/workspace/.cache",
             "-i",
             &self.image,
         ];
+        if language == Language::Kotlin {
+            args.splice(
+                args.len() - 2..args.len() - 2,
+                ["--env=IJ_JAVA_OPTIONS=-Xmx3g -Duser.home=/workspace/.cache"],
+            );
+        }
         args.extend(command.iter().copied());
         let id = String::from_utf8(self.checked(&args).await?)?
             .trim()
@@ -925,7 +1016,7 @@ impl Podman {
         compile: bool,
         shutdown: &crate::shutdown::Shutdown,
     ) -> Result<std::result::Result<Collected, Verdict>> {
-        let id = self.create(limits, compile, shutdown).await?;
+        let id = self.create(limits, name, compile, shutdown).await?;
         let guard = Cleanup(self.clone(), id.clone());
         let operation = async {
             self.copy_bytes(&id, name, source).await?;
@@ -933,7 +1024,7 @@ impl Podman {
                 .start(
                     &id,
                     args,
-                    Duration::from_millis(if compile { 30000 } else { limits.time_ms }),
+                    Duration::from_millis(sandbox_wall(name, compile, limits)),
                     if compile {
                         64 * 1024 * 1024
                     } else {
@@ -986,19 +1077,16 @@ impl SandboxBackend for Podman {
     async fn create(
         &self,
         l: &Limits,
+        source_name: &str,
         compile: bool,
         shutdown: &crate::shutdown::Shutdown,
     ) -> Result<String> {
         let name = format!("locoder-{}", uuid::Uuid::new_v4());
-        let memory = if compile { 1024 } else { l.memory_mib };
-        let timeout = if compile {
-            35
-        } else {
-            l.time_ms.div_ceil(1000) + 3
-        }
-        .to_string();
+        let memory = sandbox_memory(source_name, compile, l);
+        let timeout = (sandbox_wall(source_name, compile, l).div_ceil(1000) + 5).to_string();
         let memory = format!("{memory}m");
         let output_bytes = l.output_bytes.to_string();
+        let heap_mib = l.memory_mib.to_string();
         let args = [
             "create",
             "--timeout",
@@ -1038,6 +1126,7 @@ impl SandboxBackend for Podman {
             "/opt/harness.py",
             if compile { "compile" } else { "run" },
             &output_bytes,
+            &heap_mib,
         ];
         let create = self.checked(&args);
         let out = tokio::select! {
@@ -1209,7 +1298,9 @@ async fn run_cases(
     compare_expected: bool,
 ) -> Result<Outcome> {
     let b = Backend::from_env().await?;
-    let wrapped = job.language.wrapper_interface(&job.interface, source)?;
+    let wrapped =
+        job.language
+            .wrapper_with_definitions(&job.interface, &job.type_definitions, source)?;
     let execution = job.language.execution();
     let mut artifact = None;
     let mut result = Outcome {
@@ -1401,6 +1492,23 @@ pub fn not_run(tests: &[Case]) -> Vec<CaseResult> {
 #[cfg(test)]
 mod kubernetes_tests {
     use super::*;
+
+    #[test]
+    fn jvm_limits_add_only_execution_headroom() {
+        let limits = Limits {
+            time_ms: 2000,
+            memory_mib: 256,
+            output_bytes: 4096,
+        };
+        assert_eq!(sandbox_wall("solution.java", true, &limits), 45_000);
+        assert_eq!(sandbox_memory("solution.java", true, &limits), 1024);
+        assert_eq!(sandbox_wall("solution.kt", true, &limits), 120_000);
+        assert_eq!(sandbox_memory("solution.kt", true, &limits), 2048);
+        assert_eq!(sandbox_wall("program.jar.b64", false, &limits), 3500);
+        assert_eq!(sandbox_memory("program.jar.b64", false, &limits), 512);
+        assert_eq!(sandbox_wall("program.b64", false, &limits), 2000);
+        assert_eq!(sandbox_memory("program.b64", false, &limits), 256);
+    }
 
     #[test]
     fn reference_comparison_can_check_or_ignore_recorded_expectations() {
@@ -1624,5 +1732,40 @@ mod kubernetes_tests {
                 .contains_key("ephemeral-storage")
         );
         assert!(resources.requests.as_ref().unwrap().contains_key("memory"));
+        for memory in [2048, 4096] {
+            let editor = backend.pod(
+                "locoder-editor-test",
+                "editor",
+                vec!["true".into()],
+                memory,
+                60,
+            );
+            let spec = editor.spec.unwrap();
+            let resources = spec.containers[0].resources.as_ref().unwrap();
+            assert_eq!(
+                resources.requests.as_ref().unwrap()["memory"].0,
+                format!("{memory}Mi")
+            );
+            assert_eq!(
+                resources.limits.as_ref().unwrap()["memory"].0,
+                format!("{memory}Mi")
+            );
+            assert_eq!(
+                spec.volumes
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .find(|v| v.name == "editor-cache")
+                    .unwrap()
+                    .empty_dir
+                    .as_ref()
+                    .unwrap()
+                    .size_limit
+                    .as_ref()
+                    .unwrap()
+                    .0,
+                "1Gi"
+            );
+        }
     }
 }

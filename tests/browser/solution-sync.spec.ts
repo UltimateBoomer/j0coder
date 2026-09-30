@@ -4,14 +4,14 @@ const problemId='00000000-0000-4000-8000-000000000011';
 const firstVersion='00000000-0000-4000-8000-000000000012';
 const secondVersion='00000000-0000-4000-8000-000000000013';
 const userId='00000000-0000-4000-8000-000000000014';
-const starters={cpp:'int solve() { return 1; }',python:'def solve():\n    return 1'};
+const starters={cpp:'int solve() { return 1; }',python:'def solve():\n    return 1',java:'class Solution { int solve() { return 1; } }',kotlin:'fun solve(): Int = 1'};
 type Backend={drafts:Map<string,string>;version:string;failWrites:number};
 
 async function mockBackend(context:BrowserContext,backend:Backend){
  await context.route('**/api/v1/**',async route=>{
   const request=route.request();
   const path=new URL(request.url()).pathname;
-  const solution=path.match(/^\/api\/v1\/solutions\/([^/]+)\/(cpp|python)$/);
+  const solution=path.match(/^\/api\/v1\/solutions\/([^/]+)\/(cpp|python|java|kotlin)$/);
   if(solution){
    const key=`${solution[1]}:${solution[2]}`;
    if(request.method()==='PUT'){
@@ -22,6 +22,7 @@ async function mockBackend(context:BrowserContext,backend:Backend){
    const source=backend.drafts.get(key);
    return route.fulfill(source===undefined?{status:404,contentType:'application/json',body:JSON.stringify({error:'solution not found'})}:{status:200,contentType:'application/json',body:JSON.stringify({source,updated_at:'2026-09-25T00:00:00Z'})});
   }
+  if(path.endsWith('/editor-ticket'))return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'semantic unavailable'})});
   const data=path.endsWith('/session')?{id:userId,username:'tester',admin:false,csrf:'csrf'}:
    path.endsWith(`/problems/${problemId}`)?{id:problemId,version:backend.version,problem:{title:'Cloud sample',statement:'Return the value.',difficulty:'easy',tags:[],interface:{kind:'function',name:'solve',params:[],returns:'int'},limits:{time_ms:2000,memory_mib:256},tests:[]},starters}:[];
   return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
@@ -48,6 +49,13 @@ test('saves both languages and restores them in a fresh browser setup',async({br
  await page.getByLabel('Language').selectOption('python');
  await replaceCode(page,'def solve(): return 9');
  await expect.poll(()=>backend.drafts.get(`${firstVersion}:python`)).toBe('def solve(): return 9');
+ await page.getByLabel('Language').selectOption('java');
+ await expect(page.locator('.semantic')).toHaveAttribute('aria-label',/Basic completion/);
+ await replaceCode(page,'class Solution { int solve() { return 11; } }');
+ await expect.poll(()=>backend.drafts.get(`${firstVersion}:java`)).toBe('class Solution { int solve() { return 11; } }');
+ await page.getByLabel('Language').selectOption('kotlin');
+ await replaceCode(page,'fun solve(): Int = 13');
+ await expect.poll(()=>backend.drafts.get(`${firstVersion}:kotlin`)).toBe('fun solve(): Int = 13');
  const second=await browser.newContext({baseURL:new URL(page.url()).origin});
  try{
   await mockBackend(second,backend);
@@ -56,6 +64,12 @@ test('saves both languages and restores them in a fresh browser setup',async({br
   await expect(other.locator('.monaco-editor .view-lines').first()).toContainText('return 7');
   await other.getByLabel('Language').selectOption('python');
   await expect(other.locator('.monaco-editor .view-lines').first()).toContainText('return 9');
+  await other.getByLabel('Language').selectOption('java');
+  await expect(other.locator('.monaco-editor .view-lines').first()).toContainText('return 11');
+  await expect(other.locator('.filename')).toContainText('Solution.java');
+  await other.getByLabel('Language').selectOption('kotlin');
+  await expect(other.locator('.monaco-editor .view-lines').first()).toContainText('= 13');
+  await expect(other.locator('.filename')).toContainText('solution.kt');
  }finally{await second.close()}
 });
 
@@ -153,4 +167,31 @@ test('does not clear an unsent draft while an older write is in flight',async({p
  await expect.poll(()=>page.evaluate(key=>localStorage.getItem(key),`practice:${userId}:${firstVersion}:cpp:unsent`)).toBeNull();
  await page.reload();
  await expect(page.locator('.monaco-editor .view-lines').first()).toContainText('return 4',{timeout:45000});
+});
+
+test('submits Java and Kotlin source with basic editor fallback',async({page})=>{
+ test.setTimeout(90000);
+ const backend:Backend={drafts:new Map(),version:firstVersion,failWrites:0};
+ await mockBackend(page.context(),backend);
+ const submitted:{language:string;source:string}[]=[];
+ await page.route('**/api/v1/submissions**',async route=>{
+  const request=route.request();
+  const path=new URL(request.url()).pathname;
+  if(request.method()==='POST'){
+   const body=request.postDataJSON();submitted.push({language:body.language,source:body.source});
+   return route.fulfill({json:{id:'run-'+submitted.length}});
+  }
+  if(path.match(/\/submissions\/run-\d+$/))return route.fulfill({json:{status:'completed',result:{verdict:'accepted',passed:0,total:0,cases:[]}}});
+  return route.fulfill({json:[]});
+ });
+ await openEditor(page);
+ for(const [language,source] of [['java','class Solution { int solve() { return 7; } }'],['kotlin','fun solve(): Int = 9']] as const){
+  await page.getByLabel('Language').selectOption(language);
+  await expect(page.locator('.semantic')).toHaveAttribute('aria-label',/Basic completion/);
+  await replaceCode(page,source);
+  await page.getByRole('button',{name:'Run',exact:true}).click();
+  await expect.poll(()=>submitted.length).toBe(language==='java'?1:2);
+  await expect(page.getByRole('button',{name:'Run',exact:true})).toBeEnabled();
+ }
+ expect(submitted).toEqual([{language:'java',source:'class Solution { int solve() { return 7; } }'},{language:'kotlin',source:'fun solve(): Int = 9'}]);
 });

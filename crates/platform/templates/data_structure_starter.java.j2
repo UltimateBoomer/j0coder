@@ -1,0 +1,10 @@
+import java.util.*;
+
+{{ models }}
+class {{ name }} {
+    public {{ name }}({% for parameter in parameters %}{{ parameter.type }} {{ parameter.name }}{% if not loop.last %}, {% endif %}{% endfor %}) {}
+{% for method in methods %}
+    public {{ method.return_type }} {{ method.name }}({% for parameter in method.parameters %}{{ parameter.type }} {{ parameter.name }}{% if not loop.last %}, {% endif %}{% endfor %}) {
+{% if not method.is_void %}        throw new UnsupportedOperationException();
+{% endif %}    }
+{% endfor %}}

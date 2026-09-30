@@ -25,20 +25,21 @@ let initialized:Promise<void>|undefined;
 export function initialize(){
  return initialized??=(async()=>{
   await services.start();
-  for(const language of ['cpp','python']){
-   monaco.languages.register({id:language,extensions:[language==='cpp'?'.cpp':'.py']});
+  for(const language of ['cpp','python','java','kotlin']){
+   monaco.languages.register({id:language,extensions:[({cpp:'.cpp',python:'.py',java:'.java',kotlin:'.kt'} as Record<string,string>)[language]]});
    const brackets:[string,string][]=[['{','}'],['[',']'],['(',')']];
    const quotes:[string,string][]=[['"','"'],["'","'"]];
    monaco.languages.setMonarchTokensProvider(language,{
-    keywords:language==='cpp'?cppKeywords:['class','def','return','if','else','elif','for','while','in','not','and','or','True','False','None','pass','import','from'],
-    tokenizer:{root:[[/\b[a-zA-Z_]\w*\b/,{cases:{'@keywords':'keyword','@default':'identifier'}}],[/"([^"\\]|\\.)*"/,'string'],[/'([^'\\]|\\.)*'/,'string'],[/\d+/,'number'],[/\/\/.*$/,'comment'],[/#.*$/,'comment']]}
+    keywords:language==='cpp'?cppKeywords:language==='python'?['class','def','return','if','else','elif','for','while','in','not','and','or','True','False','None','pass','import','from']:language==='java'?['class','interface','public','private','static','void','int','long','double','boolean','new','return','if','else','for','while','null','true','false','import']:['class','fun','val','var','return','if','else','for','while','when','null','true','false','import','object'],
+    tokenizer:{root:[[/\b[a-zA-Z_]\w*\b/,{cases:{'@keywords':'keyword','@default':'identifier'}}],[/"([^"\\]|\\.)*"/,'string'],[/'([^'\\]|\\.)*'/,'string'],[/\d+/,'number'],language==='python'?[/#.*$/,'comment']:[/\/\/.*$/,'comment']]}
    });
    monaco.languages.setLanguageConfiguration(language,{
+    comments:{lineComment:language==='python'?'#':'//'},
     brackets,
     colorizedBracketPairs:brackets,
     autoClosingPairs:[...brackets,...quotes].map(([open,close])=>({open,close})),
     surroundingPairs:[...brackets,...quotes].map(([open,close])=>({open,close})),
-    indentationRules:language==='cpp'?{
+    indentationRules:language!=='python'?{
      increaseIndentPattern:/\{[^}"']*$/,
      decreaseIndentPattern:/^\s*\}/
     }:{

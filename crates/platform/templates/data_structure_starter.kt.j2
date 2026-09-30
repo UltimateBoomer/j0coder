@@ -1,0 +1,7 @@
+{{ models }}
+class {{ name }}({% for parameter in parameters %}{{ parameter.name }}: {{ parameter.type }}{% if not loop.last %}, {% endif %}{% endfor %}) {
+{% for method in methods %}
+    fun {{ method.name }}({% for parameter in method.parameters %}{{ parameter.name }}: {{ parameter.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ method.return_type }} {
+{% if not method.is_void %}        TODO("Implement")
+{% endif %}    }
+{% endfor %}}

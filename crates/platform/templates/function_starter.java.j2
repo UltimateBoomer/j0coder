@@ -1,0 +1,8 @@
+import java.util.*;
+
+{{ models }}
+class Solution {
+    public {{ return_type }} {{ name }}({% for parameter in parameters %}{{ parameter.type }} {{ parameter.name }}{% if not loop.last %}, {% endif %}{% endfor %}) {
+        throw new UnsupportedOperationException();
+    }
+}

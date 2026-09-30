@@ -45,6 +45,8 @@ class Acceptance(unittest.TestCase):
   self.assertEqual(len(data['problem']['tests']),2)
   self.assertNotIn('-2147483648',json.dumps(data))
   self.assertIn('def between(',data['starters']['python'])
+  self.assertIn('class Solution',data['starters']['java'])
+  self.assertIn('fun between(',data['starters']['kotlin'])
   self.assertEqual(self.user.request('/problems?difficulty=easy&tag=scalar')[0],200)
  def test_idempotency_ownership_and_validation(self):
   body=dict(version=self.version,source='def between(value, left, right): return min(left, right) <= value <= max(left, right)',language='python',mode='submit');key=str(uuid.uuid4())
@@ -55,6 +57,8 @@ class Acceptance(unittest.TestCase):
   self.assertEqual(self.user.request('/submissions/'+a['id'])[0],200)
   self.assertEqual(self.user.request('/submissions','POST',{**body,'mode':'run','cases':[dict(args=[True,0,2])]}, {'Idempotency-Key':str(uuid.uuid4())})[0],400)
   self.assertEqual(self.user.request('/submissions','POST',{**body,'mode':'run','cases':[dict(args=[2147483648,0,2])]}, {'Idempotency-Key':str(uuid.uuid4())})[0],400)
+  for language,source in [('java','class Solution { public Boolean between(Integer value, Integer left, Integer right) { return left <= value && value <= right; } }'),('kotlin','fun between(value: Int, left: Int, right: Int): Boolean = left <= value && value <= right')]:
+   self.assertEqual(self.user.request('/submissions','POST',{**body,'language':language,'source':source},{'Idempotency-Key':str(uuid.uuid4())})[0],202)
  def test_publish_immutable(self):
   old=self.user.request('/problems/'+self.problem)[1]
   solution='/solutions/'+self.version+'/python'
@@ -84,6 +88,12 @@ class Acceptance(unittest.TestCase):
   self.assertEqual(self.admin.request(path,'PUT',{'source':'admin code'})[0],204)
   self.assertEqual(subject.request(path)[1]['source'],'second')
   self.assertEqual(subject.request('/solutions/'+self.version+'/python')[0],404)
+  for language in ('java','kotlin'):
+   language_path='/solutions/'+self.version+'/'+language
+   self.assertEqual(subject.request(language_path)[0],404)
+   self.assertEqual(subject.request(language_path,'PUT',{'source':language+' draft'})[0],204)
+   self.assertEqual(subject.request(language_path)[1]['source'],language+' draft')
+   self.assertEqual(self.user.request(language_path)[0],404)
   self.assertEqual(subject.request('/solutions/'+self.version+'/invalid','PUT',{'source':'x'})[0],400)
   self.assertEqual(subject.request('/solutions/'+self.version+'/invalid')[0],400)
   self.assertEqual(subject.request(path,'PUT',{'source':'é'*50001})[0],400)

@@ -431,28 +431,28 @@ fn validate_directory_release(root: &Path) -> Result<ValidatedRelease> {
         );
         ensure!(keys.insert(key.clone()), "duplicate catalog key {key}");
         object.insert("schema".into(), json!(3));
-        if let Some(difficulty) = object.get("difficulty") {
-            if difficulty.is_number() {
-                ensure!(
-                    !object.contains_key("difficulty_score"),
-                    "{}: integer difficulty cannot have difficulty_score",
-                    metadata.display()
-                );
-                let score = difficulty
-                    .as_u64()
-                    .filter(|score| (1..=5).contains(score))
-                    .with_context(|| {
-                        format!(
-                            "{}: difficulty must be an integer from 1 to 5",
-                            metadata.display()
-                        )
-                    })?;
-                object.insert(
-                    "difficulty".into(),
-                    json!(Problem::difficulty_band(score as u8)),
-                );
-                object.insert("difficulty_score".into(), json!(score));
-            }
+        if let Some(difficulty) = object.get("difficulty")
+            && difficulty.is_number()
+        {
+            ensure!(
+                !object.contains_key("difficulty_score"),
+                "{}: integer difficulty cannot have difficulty_score",
+                metadata.display()
+            );
+            let score = difficulty
+                .as_u64()
+                .filter(|score| (1..=5).contains(score))
+                .with_context(|| {
+                    format!(
+                        "{}: difficulty must be an integer from 1 to 5",
+                        metadata.display()
+                    )
+                })?;
+            object.insert(
+                "difficulty".into(),
+                json!(Problem::difficulty_band(score as u8)),
+            );
+            object.insert("difficulty_score".into(), json!(score));
         }
         let mut expected = HashSet::from([PathBuf::from("problem.yaml")]);
         let statement_path = dir.join("statement.md");
@@ -558,6 +558,8 @@ fn validate_directory_release(root: &Path) -> Result<ValidatedRelease> {
         let refs = [
             ("reference.py", Language::Python),
             ("reference.cpp", Language::Cpp),
+            ("reference.java", Language::Java),
+            ("reference.kt", Language::Kotlin),
         ]
         .into_iter()
         .filter(|(name, _)| dir.join(name).exists())
@@ -731,6 +733,29 @@ mod tests {
             cpp.problems[0].reference.as_ref().unwrap().language,
             Language::Cpp
         );
+        fs::remove_file(root.join("problems/example/reference.cpp")).unwrap();
+        for (filename, source, language) in [
+            (
+                "reference.java",
+                "class Solution { public Integer addOne(Integer value) { return value + 1; } }",
+                Language::Java,
+            ),
+            (
+                "reference.kt",
+                "fun addOne(value: Int): Int = value + 1",
+                Language::Kotlin,
+            ),
+        ] {
+            let path = root.join("problems/example").join(filename);
+            fs::write(&path, source).unwrap();
+            let release = validate_release(&root).unwrap();
+            assert_eq!(first.problems[0].hash, release.problems[0].hash);
+            assert_eq!(
+                release.problems[0].reference.as_ref().unwrap().language,
+                language
+            );
+            fs::remove_file(path).unwrap();
+        }
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

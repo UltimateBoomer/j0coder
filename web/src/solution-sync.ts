@@ -1,12 +1,12 @@
 import {api,ApiError} from './api';
 
-export type SolutionLanguage='cpp'|'python';
+export type SolutionLanguage='cpp'|'python'|'java'|'kotlin';
 export type SaveStatus='loading'|'pending'|'saving'|'saved'|'retrying'|'unavailable';
 type SaveState={timer?:ReturnType<typeof setTimeout>;inFlight?:Promise<boolean>;retryMs:number};
 
 export class SolutionSync {
- private states:Record<SolutionLanguage,SaveState>={cpp:{retryMs:1000},python:{retryMs:1000}};
- private statuses:Record<SolutionLanguage,SaveStatus>={cpp:'loading',python:'loading'};
+ private states:Record<SolutionLanguage,SaveState>={cpp:{retryMs:1000},python:{retryMs:1000},java:{retryMs:1000},kotlin:{retryMs:1000}};
+ private statuses:Record<SolutionLanguage,SaveStatus>={cpp:'loading',python:'loading',java:'loading',kotlin:'loading'};
  private disposed=false;
 
  constructor(private userId:string,private version:string,private starters:Record<SolutionLanguage,string>,private onStatus?:(language:SolutionLanguage,status:SaveStatus)=>void){}
@@ -105,6 +105,6 @@ export class SolutionSync {
   }else this.setStatus(language,'saved');
  }
 
- flushAll(){void this.flush('cpp');void this.flush('python')}
- dispose(){this.disposed=true;for(const language of ['cpp','python'] as const){const timer=this.states[language].timer;if(timer)clearTimeout(timer)}this.flushAll()}
+ flushAll(){for(const language of ['cpp','python','java','kotlin'] as const)void this.flush(language)}
+ dispose(){this.disposed=true;for(const language of ['cpp','python','java','kotlin'] as const){const timer=this.states[language].timer;if(timer)clearTimeout(timer)}this.flushAll()}
 }

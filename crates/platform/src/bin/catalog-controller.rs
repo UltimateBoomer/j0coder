@@ -233,6 +233,8 @@ async fn apply(
                 let language = match reference.language {
                     locoder::contract::Language::Python => "python",
                     locoder::contract::Language::Cpp => "cpp",
+                    locoder::contract::Language::Java => "java",
+                    locoder::contract::Language::Kotlin => "kotlin",
                 };
                 sqlx::query("INSERT INTO catalog_reference_revisions(id,problem_id,language,source,source_hash,repository_url,resolved_commit) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(problem_id,language,source_hash) DO NOTHING")
                     .bind(Uuid::new_v4()).bind(problem_id).bind(language).bind(&reference.source).bind(&reference.hash).bind(&s.repository_url).bind(commit).execute(&mut *tx).await?;

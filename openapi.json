@@ -2197,6 +2197,72 @@
           "ty"
         ]
       },
+      "Field": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "ty": {
+            "$ref": "#/components/schemas/Type"
+          }
+        },
+        "required": [
+          "name",
+          "ty"
+        ]
+      },
+      "TypeDefinition": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "codec": {
+            "type": "string",
+            "enum": [
+              "record",
+              "singly_linked_list",
+              "binary_tree",
+              "nary_tree",
+              "object_graph"
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            }
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "Comparison": {
+        "type": "object",
+        "properties": {
+          "array": {
+            "type": "string",
+            "enum": [
+              "ordered",
+              "set",
+              "multiset"
+            ]
+          },
+          "absolute_tolerance": {
+            "type": "number"
+          },
+          "relative_tolerance": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "array",
+          "absolute_tolerance",
+          "relative_tolerance"
+        ]
+      },
       "Limits": {
         "type": "object",
         "properties": {
@@ -2419,6 +2485,15 @@
           "interface": {
             "$ref": "#/components/schemas/Interface"
           },
+          "type_definitions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TypeDefinition"
+            }
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          },
           "limits": {
             "$ref": "#/components/schemas/Limits"
           },
@@ -2485,7 +2560,9 @@
         "type": "string",
         "enum": [
           "cpp",
-          "python"
+          "python",
+          "java",
+          "kotlin"
         ]
       },
       "Verdict": {
@@ -2657,11 +2734,19 @@
               },
               "python": {
                 "type": "string"
+              },
+              "java": {
+                "type": "string"
+              },
+              "kotlin": {
+                "type": "string"
               }
             },
             "required": [
               "cpp",
-              "python"
+              "python",
+              "java",
+              "kotlin"
             ]
           }
         },
