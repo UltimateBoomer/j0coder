@@ -15,7 +15,7 @@ test('routes preserve authentication intent, filters, and browser history',async
  const draft=await (await page.request.post('/api/v1/admin/problems',{headers,data:definition})).json();
  await page.request.post(`/api/v1/admin/problems/${draft.id}/publish`,{headers});
 
- await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Sign out'}).click();
+ await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Sign out'}).click();await expect(page.getByLabel('Username',{exact:true})).toBeVisible();
  await page.goto(`/problems/${draft.id}`);expect(page.url()).toContain(`/problems/${draft.id}`);
  await signIn(page);await expect(page.getByRole('heading',{name:definition.title})).toBeVisible();
  await page.getByRole('button',{name:'Problems',exact:true}).click();
@@ -45,5 +45,5 @@ test('admin routes and route error states are addressable',async({page})=>{
  await page.goto('/unknown/path');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
  await page.goto('/problems/not-a-uuid');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
  await page.goto('/problems/00000000-0000-4000-8000-000000000000');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
- const student=`route${Date.now()}`;await page.request.post('/api/v1/admin/users',{headers,data:{username:student,password:'Routing-student-password'}});await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Sign out'}).click();await page.goto('/admin/problems');await signIn(page,student,'Routing-student-password');await expect(page.getByRole('heading',{name:'Access denied'})).toBeVisible();
+ const student=`route${Date.now()}`;await page.request.post('/api/v1/admin/users',{headers,data:{username:student,password:'Routing-student-password'}});await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Sign out'}).click();await expect(page.getByLabel('Username',{exact:true})).toBeVisible();await page.goto('/admin/problems');await signIn(page,student,'Routing-student-password');await expect(page.getByRole('heading',{name:'Access denied'})).toBeVisible();
 });
