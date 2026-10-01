@@ -19,7 +19,7 @@ with tarfile.open(args.output / 'deployment.tar.gz', 'w:gz', dereference=True) a
     for name in ['compose.yaml', 'deploy/nginx.conf', 'scripts/setup.py', 'scripts/setup.sh', 'scripts/install.sh', 'scripts/preflight.sh', 'scripts/gvisor-controller.sh']:
         tar.add(root / name, arcname=name)
     makefile = args.output / 'Makefile'
-    makefile.write_text('.PHONY: up down status logs\nup down status logs:\n\t./scripts/setup.sh $@\n')
+    makefile.write_text('SETUP_ARGS ?=\n.PHONY: up down status logs\nup down status logs:\n\t./scripts/setup.sh $@ $(SETUP_ARGS)\n')
     tar.add(makefile, arcname='Makefile')
 makefile.unlink()
 with tarfile.open(args.output / 'gvisor-linux-x86_64.tar.gz', 'w:gz', dereference=True) as tar:

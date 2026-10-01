@@ -49,7 +49,7 @@ First setup resolves the latest complete stable release, downloads checksum-veri
 
 Terminal prompts use `/dev/tty`, including hidden and confirmed administrator password entry, so piped installation works. The default origin is `http://localhost:8080`, with ingress bound to loopback. For a public installation, choose the exact HTTPS browser origin and put your existing TLS reverse proxy in front of the local port; forward editor WebSockets too. Cookie security follows the chosen origin. Git import is disabled by default and placeholder mounts are created automatically. Follow the [catalog guide](docs/catalog.md) to enable import.
 
-The default installation directory is `$HOME/.local/share/j0coder`. Installer arguments include `--install-dir`, `--version`, `--public-origin`, `--port`, `--admin-username`, `--admin-password-file`, `--install-packages`/`--no-install-packages`, and `--autostart`/`--no-autostart`. Environment equivalents are `J0CODER_INSTALL_DIR`, `J0CODER_VERSION`, `PUBLIC_ORIGIN`, `PORT`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD_FILE`. For unattended installation, explicitly choose package installation and autostart, and supply the username and a private password file:
+The default installation directory is `$HOME/.local/share/j0coder`. Installer arguments include `--install-dir`, `--version`, `--public-origin`, `--port`, `--admin-username`, `--admin-password-file`, `--install-packages`/`--no-install-packages`, and `--autostart`/`--no-autostart`. Environment equivalents are `J0CODER_INSTALL_DIR`, `J0CODER_VERSION`, `PUBLIC_ORIGIN`, `PORT`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD_FILE`. Without a controlling terminal, package installation and autostart default to disabled. Explicitly opt in when desired; supply the username and a private password file for unattended first onboarding:
 
 ```sh
 sh install.sh --no-install-packages --no-autostart \
@@ -63,6 +63,8 @@ Run lifecycle commands inside the installation directory:
 
 ```sh
 make up
+# Optional setup flags, including selecting this beta:
+make up SETUP_ARGS="--version v0.1.1-beta.1"
 make status
 make logs
 make down

@@ -361,8 +361,13 @@ def main():
                 run(['bash', str(root / 'scripts/gvisor-controller.sh'), 'stop'], cwd=root, env={**os.environ, **env})
                 return
             stage = 'prerequisites'
-            if not interactive() and (args.install_packages is None or args.autostart is None):
-                raise ValueError('without a terminal explicitly select --[no-]install-packages and --[no-]autostart')
+            if not interactive():
+                # Ordinary starts work in terminals without a controlling /dev/tty.
+                # Privileged setup and reboot integration remain explicit opt-ins.
+                if args.install_packages is None:
+                    args.install_packages = False
+                if args.autostart is None:
+                    args.autostart = False
             prerequisites(args)
             stage = 'release provisioning'
             state = root / '.release.json'

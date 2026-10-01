@@ -1,4 +1,5 @@
 PODMAN ?= podman
+SETUP_ARGS ?=
 BUILD_JOBS ?= 2
 LIMA_INSTANCE ?= j0coder
 LIMA_CPUS ?= 6
@@ -79,7 +80,7 @@ preflight:
 	./scripts/preflight.sh
 
 up:
-	./scripts/setup.sh up
+	./scripts/setup.sh up $(SETUP_ARGS)
 
 down status logs:
 	./scripts/setup.sh $@

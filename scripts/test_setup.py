@@ -139,7 +139,7 @@ class SetupTests(unittest.TestCase):
 
     def test_interrupted_install_resumes_and_reuses_cached_release(self):
         from contextlib import ExitStack
-        args = ['setup.py', 'install', '--install-dir', str(self.root), '--no-install-packages', '--no-autostart', '--public-origin', 'http://localhost:8080', '--port', '8080']
+        args = ['setup.py', 'install', '--install-dir', str(self.root), '--public-origin', 'http://localhost:8080', '--port', '8080']
         def extract(asset, destination):
             if asset == self.manifest['bundle']:
                 for name in ('compose.yaml', 'Makefile', 'deploy/nginx.conf', 'scripts/setup.py', 'scripts/setup.sh', 'scripts/install.sh', 'scripts/preflight.sh', 'scripts/gvisor-controller.sh'):
@@ -154,14 +154,14 @@ class SetupTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch('sys.argv', args))
             stack.enter_context(patch.object(setup, 'interactive', return_value=False))
-            stack.enter_context(patch.object(setup, 'prerequisites'))
+            prerequisites = stack.enter_context(patch.object(setup, 'prerequisites'))
             resolve = stack.enter_context(patch.object(setup, 'resolve_release', return_value=self.manifest))
             stack.enter_context(patch.object(setup, 'run'))
             stack.enter_context(patch.object(setup.subprocess, 'run', return_value=argparse.Namespace(returncode=1)))
             stack.enter_context(patch.object(setup, 'compose'))
             stack.enter_context(patch.object(setup, 'wait_ready'))
             stack.enter_context(patch.object(setup, 'bootstrap'))
-            stack.enter_context(patch.object(setup, 'autostart'))
+            autostart = stack.enter_context(patch.object(setup, 'autostart'))
             with patch.object(setup, 'archive', side_effect=OSError('interrupted download')):
                 with self.assertRaisesRegex(SystemExit, 'release provisioning failed'):
                     setup.main()
@@ -173,6 +173,8 @@ class SetupTests(unittest.TestCase):
                 setup.main()
                 archives.assert_not_called()
             resolve.assert_called_once()
+            self.assertIs(prerequisites.call_args.args[0].install_packages, False)
+            self.assertIs(autostart.call_args.args[1].autostart, False)
             self.assertTrue((self.root / '.dev/gvisor/current/.complete').exists())
 
 
