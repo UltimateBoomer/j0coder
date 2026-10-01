@@ -1,6 +1,6 @@
 # Architecture and scaling
 
-Locoder separates the trusted control plane from untrusted user execution. PostgreSQL is the durable authority, Valkey coordinates asynchronous work, and gVisor provides the execution boundary. Local Compose development controls gVisor through rootless Podman; staging and production control it through Kubernetes.
+j0coder separates the trusted control plane from untrusted user execution. PostgreSQL is the durable authority, Valkey coordinates asynchronous work, and gVisor provides the execution boundary. Local Compose development controls gVisor through rootless Podman; staging and production control it through Kubernetes.
 
 `SANDBOX_BACKEND=podman` is the local default. The Kubernetes deployment sets `SANDBOX_BACKEND=kubernetes`, uses in-cluster credentials, and creates a fresh Pod for compilation, each function case or stateful trace, and each editor session. Public API contracts, queued jobs, comparison logic, and verdicts are unchanged.
 
@@ -149,7 +149,7 @@ worker replicas × WORKER_CONCURRENCY × active sandboxes per submission
 
 A submission normally has one execution sandbox active at a time, plus compilation when required. Limits apply per sandbox, but execution nodes still need headroom for gVisor, workers, and compilation bursts.
 
-The Podman socket in the Compose deployment is node-local and must never be exposed over a public network. The Kubernetes chart uses service accounts and sandbox Pods for multi-node scaling; see its [capacity and scheduling guidance](../deploy/helm/locoder/README.md#capacity-and-scheduling).
+The Podman socket in the Compose deployment is node-local and must never be exposed over a public network. The Kubernetes chart uses service accounts and sandbox Pods for multi-node scaling; see its [capacity and scheduling guidance](../deploy/helm/j0coder/README.md#capacity-and-scheduling).
 
 ### Editors
 
@@ -169,7 +169,7 @@ Catalog reconciliation is a singleton responsibility and should not be horizonta
 
 ## Deployment topology
 
-The Compose topology targets one rootless Linux host. It can scale workers and editors on that host, but it does not schedule across machines. Staging and production use the [Kubernetes chart](../deploy/helm/locoder/README.md), which schedules application replicas and gVisor sandbox Pods across nodes. That deployment needs:
+The Compose topology targets one rootless Linux host. It can scale workers and editors on that host, but it does not schedule across machines. Staging and production use the [Kubernetes chart](../deploy/helm/j0coder/README.md), which schedules application replicas and gVisor sandbox Pods across nodes. That deployment needs:
 
 - shared PostgreSQL and Valkey services;
 - ingress for API and editor replicas;

@@ -7,8 +7,8 @@ import subprocess
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--podman', default='podman')
-parser.add_argument('--app-image', default='localhost/locoder-app:1')
-parser.add_argument('--toolchain-image', default='localhost/locoder-toolchain:1')
+parser.add_argument('--app-image', default='localhost/j0coder-app:1')
+parser.add_argument('--toolchain-image', default='localhost/j0coder-toolchain:1')
 args = parser.parse_args()
 
 root=pathlib.Path(__file__).resolve().parent.parent

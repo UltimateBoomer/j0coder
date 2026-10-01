@@ -9,7 +9,7 @@ assert RUNTIME.rsplit('/',1)[-1]=='runsc', 'gVisor runsc is required'
 
 def harness(mode,name,content,case='',memory=256):
     request=json.dumps({'name':name,'data':base64.b64encode(content).decode(),'input':case}).encode()
-    cmd=['podman','run','--rm','-i','--runtime',RUNTIME,'--cpus=1','--network=none','--security-opt=label=disable','--cap-drop=ALL','--security-opt=no-new-privileges','--read-only','--pids-limit=64','--memory','2048m' if name=='solution.kt' else '1024m' if mode=='compile' else '512m','--tmpfs','/input:rw,size=48m,mode=1777','--tmpfs','/work:rw,exec,size=128m,mode=1777','-e','LOCODER_STREAM_PROTOCOL=1',IMAGE,'python3','/opt/harness.py',mode,'1048576',str(memory)]
+    cmd=['podman','run','--rm','-i','--runtime',RUNTIME,'--cpus=1','--network=none','--security-opt=label=disable','--cap-drop=ALL','--security-opt=no-new-privileges','--read-only','--pids-limit=64','--memory','2048m' if name=='solution.kt' else '1024m' if mode=='compile' else '512m','--tmpfs','/input:rw,size=48m,mode=1777','--tmpfs','/work:rw,exec,size=128m,mode=1777','-e','J0CODER_STREAM_PROTOCOL=1',IMAGE,'python3','/opt/harness.py',mode,'1048576',str(memory)]
     p=subprocess.run(cmd,input=request,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=150)
     if p.returncode:raise RuntimeError(p.stderr.decode())
     try:r=json.loads(p.stdout)

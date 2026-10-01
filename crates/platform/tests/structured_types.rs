@@ -1,4 +1,4 @@
-use locoder::contract::*;
+use j0coder::contract::*;
 use serde_json::json;
 
 #[test]

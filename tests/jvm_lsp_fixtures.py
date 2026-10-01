@@ -80,6 +80,6 @@ if __name__ == '__main__':
     if language == 'java':
         check(['/opt/jdtls/bin/jdtls', '-configuration', '/workspace/.cache/jdtls-config', '-data', '/workspace/.cache/jdtls'], 'java', 'Solution.java', 'class Solution { void solve() { String value = "x"; value. } }', 0, 58)
     elif language == 'kotlin':
-        check(['/usr/local/bin/locoder-kotlin-lsp', '--stdio', '--system-path=/workspace/.cache/kotlin-lsp', '--data-sharing=none', '--region=americas'], 'kotlin', 'solution.kt', 'fun solve() { val value = "x"; value. }', 0, 37)
+        check(['/usr/local/bin/j0coder-kotlin-lsp', '--stdio', '--system-path=/workspace/.cache/kotlin-lsp', '--data-sharing=none', '--region=americas'], 'kotlin', 'solution.kt', 'fun solve() { val value = "x"; value. }', 0, 37)
     else:
         raise SystemExit('expected java or kotlin')

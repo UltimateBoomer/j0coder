@@ -1,6 +1,6 @@
 FROM docker.io/library/debian@sha256:b1a741487078b369e78119849663d7f1a5341ef2768798f7b7406c4240f86aef
 RUN apt-get update && apt-get install -y --no-install-recommends clang-16 clangd-16 python3 nodejs npm nlohmann-json3-dev ca-certificates curl unzip tar && rm -rf /var/lib/apt/lists/*
-RUN --mount=type=cache,id=locoder-toolchain-npm,target=/root/.npm npm install -g pyright@1.1.407
+RUN --mount=type=cache,id=j0coder-toolchain-npm,target=/root/.npm npm install -g pyright@1.1.407
 # JDK 25 runs the compiler and language servers. Bytecode targets JVM 21.
 RUN curl -fsSL 'https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.2%2B10/OpenJDK25U-jdk_x64_linux_hotspot_25.0.2_10.tar.gz' -o /tmp/jdk.tar.gz \
     && echo '987387933b64b9833846dee373b640440d3e1fd48a04804ec01a6dbf718e8ab8  /tmp/jdk.tar.gz' | sha256sum -c - \
@@ -17,7 +17,7 @@ RUN mkdir -p /opt/kotlin-lsp && curl -fsSL 'https://download.jetbrains.com/langu
     && echo '1e11d2e5fefbf9ea215ad8dd6be95f2222897cd086e8cb7a661a52084a590405  /tmp/kotlin-lsp.tar.gz' | sha256sum -c - \
     && tar --no-same-owner -xzf /tmp/kotlin-lsp.tar.gz -C /opt/kotlin-lsp && rm /tmp/kotlin-lsp.tar.gz \
     && find /opt/kotlin-lsp -name kotlin-lsp.sh -exec chmod +x '{}' \; \
-    && ln -s "$(find /opt/kotlin-lsp -name kotlin-lsp.sh -print -quit)" /usr/local/bin/locoder-kotlin-lsp
+    && ln -s "$(find /opt/kotlin-lsp -name kotlin-lsp.sh -print -quit)" /usr/local/bin/j0coder-kotlin-lsp
 RUN mkdir -p /opt/jackson /opt/judge \
     && for module in jackson-core jackson-databind; do curl -fsSL "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/$module/2.20.1/$module-2.20.1.jar" -o "/opt/jackson/$module.jar"; done \
     && curl -fsSL 'https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.20/jackson-annotations-2.20.jar' -o /opt/jackson/jackson-annotations.jar \

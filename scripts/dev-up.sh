@@ -10,17 +10,17 @@ done
 [[ -f .env ]] || { echo 'Run make configure first' >&2; exit 1; }
 [[ -x .dev/gvisor/current/runsc ]] || { echo 'Run make dev-gvisor first' >&2; exit 1; }
 compose=(podman compose -f compose.dev.yaml)
-tmux_cmd=(tmux -L locoder-dev)
+tmux_cmd=(tmux -L j0coder-dev)
 "${compose[@]}" version >/dev/null
-if "${tmux_cmd[@]}" has-session -t locoder 2>/dev/null; then
+if "${tmux_cmd[@]}" has-session -t j0coder 2>/dev/null; then
  echo 'Development services are already running; use make dev-down before restarting' >&2
  exit 1
 fi
-requested_toolchain_image=${TOOLCHAIN_IMAGE:-localhost/locoder-toolchain:1}
+requested_toolchain_image=${TOOLCHAIN_IMAGE:-localhost/j0coder-toolchain:1}
 set -a
 source .env
 set +a
-export PODMAN_SOCKET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/locoder-podman.sock"
+export PODMAN_SOCKET="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/j0coder-podman.sock"
 export SANDBOX_RUNTIME="$root/.dev/gvisor/current/runsc"
 export TOOLCHAIN_IMAGE="$requested_toolchain_image"
 if [[ ! -x web/node_modules/.bin/vite || web/package-lock.json -nt web/node_modules/.package-lock.json || web/package.json -nt web/node_modules/.package-lock.json ]]; then
@@ -58,17 +58,17 @@ done
 for service in api worker editor catalog-controller web; do
  printf -v pane_command '%q %q' "$root/scripts/dev-service.sh" "$service"
  if [[ "$service" == api ]]; then
-  "${tmux_cmd[@]}" new-session -d -s locoder -n "$service" "$pane_command"
+  "${tmux_cmd[@]}" new-session -d -s j0coder -n "$service" "$pane_command"
   "${tmux_cmd[@]}" set-window-option -g automatic-rename off >/dev/null
   "${tmux_cmd[@]}" set-window-option -g remain-on-exit on >/dev/null
  else
-  "${tmux_cmd[@]}" new-window -d -t locoder -n "$service" "$pane_command"
+  "${tmux_cmd[@]}" new-window -d -t j0coder -n "$service" "$pane_command"
  fi
 done
 ready=false
 for _ in {1..300}; do
  for service in api worker editor catalog-controller web; do
-  pane_dead=$("${tmux_cmd[@]}" list-panes -t "locoder:$service" -F '#{pane_dead}') || pane_dead=1
+  pane_dead=$("${tmux_cmd[@]}" list-panes -t "j0coder:$service" -F '#{pane_dead}') || pane_dead=1
   if [[ "$pane_dead" == 1 ]]; then
    echo "$service exited during startup; recent output:" >&2
    tail -n 30 ".dev/run/logs/$service.log" >&2 || true
@@ -93,5 +93,5 @@ if [[ "$ready" != true ]]; then
 fi
 trap - ERR INT TERM
 printf 'Development services ready at %s\n' "${PUBLIC_ORIGIN:-http://localhost:8080}"
-printf 'View logs: tmux -L locoder-dev attach -t locoder\n'
+printf 'View logs: tmux -L j0coder-dev attach -t j0coder\n'
 printf 'Stop services: make dev-down\n'

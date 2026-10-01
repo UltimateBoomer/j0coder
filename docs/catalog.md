@@ -9,12 +9,12 @@ Validate before merging a catalog change:
 The Python quality and oracle scripts use `PyYAML` from `scripts/requirements-catalog.txt`.
 
 ```sh
-RUSTC_WRAPPER= cargo run --locked -p locoder --bin catalog-validate -- ../locoder-problems
-RUSTC_WRAPPER= cargo run --locked -p locoder --bin catalog-validate -- ../locoder-problems --check-references
-python3 scripts/check-catalog-quality.py ../locoder-problems
-python3 scripts/catalog_oracles/check_004_036_and_101_110.py ../locoder-problems
-python3 scripts/catalog_oracles/check_037_071_and_111_120.py ../locoder-problems
-python3 scripts/catalog_oracles/check_072_099_and_121_125.py ../locoder-problems
+RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0coder-problems
+RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0coder-problems --check-references
+python3 scripts/check-catalog-quality.py ../j0coder-problems
+python3 scripts/catalog_oracles/check_004_036_and_101_110.py ../j0coder-problems
+python3 scripts/catalog_oracles/check_037_071_and_111_120.py ../j0coder-problems
+python3 scripts/catalog_oracles/check_072_099_and_121_125.py ../j0coder-problems
 ```
 
 Reference checks require the same configured gVisor sandbox and toolchain image as learner submissions. The controller never executes catalog source. During transition it also accepts a legacy `catalog.json` release; mixed releases are rejected. The manifest builder has been retired for the directory catalog.

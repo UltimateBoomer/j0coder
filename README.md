@@ -1,6 +1,8 @@
-# Locoder
+# j0coder
 
-Locoder is a self-hosted coding workspace for authoring and solving programming problems. It combines a Svelte/Monaco frontend, a Rust/Axum API, PostgreSQL, Valkey Streams, and isolated gVisor execution through either rootless Podman or Kubernetes.
+j0coder is a self-hosted coding workspace for authoring and solving programming problems. It combines a Svelte/Monaco frontend, a Rust/Axum API, PostgreSQL, Valkey Streams, and isolated gVisor execution through either rootless Podman or Kubernetes.
+
+Upgrading an existing Locoder installation? Follow the [data-preserving rename migration](docs/rename-migration.md) before starting the renamed stack.
 
 Problems can expose global C++ or top-level Python functions, or stateful data structures. Published versions are immutable, hidden tests remain server-side, and every test runs inside a resource-limited sandbox.
 
@@ -14,7 +16,7 @@ This is the default development path. It runs as your current Linux user and doe
 make dev-up
 ```
 
-On the first run, Locoder creates `.env`, builds the sandbox toolchain image and a pinned gVisor release, installs frontend dependencies, and builds the Rust binaries. Network access is required and setup may take a while. Later starts reuse the local build caches.
+On the first run, j0coder creates `.env`, builds the sandbox toolchain image and a pinned gVisor release, installs frontend dependencies, and builds the Rust binaries. Network access is required and setup may take a while. Later starts reuse the local build caches.
 
 PostgreSQL and Valkey run in `compose.dev.yaml`, with ports published only on `127.0.0.1`. The API, worker, editor, catalog controller, and Vite run natively in a tmux session. Open `http://localhost:8080`; changes under `web/` hot reload there. Vite proxies API requests and editor WebSockets to the native services. To inspect each service's output:
 
@@ -26,10 +28,10 @@ Switch windows with `Ctrl-b n`, or read the logs under `.dev/run/logs/`. After c
 
 ```sh
 cargo build --locked --bin api
-tmux -L locoder-dev respawn-window -k -t locoder:api
+tmux -L j0coder-dev respawn-window -k -t j0coder:api
 ```
 
-To run all Locoder services with the full `compose.yaml` stack on one rootless host, use:
+To run all j0coder services with the full `compose.yaml` stack on one rootless host, use:
 
 ```sh
 make images
@@ -41,18 +43,18 @@ make up
 Create the first administrator after the services are ready:
 
 ```bash
-read -rsp 'New admin password (12+ characters): ' locoder_password; echo
-printf '%s\n' "$locoder_password" | scripts/dev-service.sh api bootstrap-admin admin
-unset locoder_password
+read -rsp 'New admin password (12+ characters): ' j0coder_password; echo
+printf '%s\n' "$j0coder_password" | scripts/dev-service.sh api bootstrap-admin admin
+unset j0coder_password
 ```
 
 In fish:
 
 ```fish
-read --silent --prompt-str 'New admin password (12+ characters): ' locoder_password
+read --silent --prompt-str 'New admin password (12+ characters): ' j0coder_password
 echo
-printf '%s\n' "$locoder_password" | scripts/dev-service.sh api bootstrap-admin admin
-set -e locoder_password
+printf '%s\n' "$j0coder_password" | scripts/dev-service.sh api bootstrap-admin admin
+set -e j0coder_password
 ```
 
 Sign in as `admin`. Stop the native services, Compose dependencies, and dedicated Podman controller with:
@@ -81,7 +83,7 @@ Native services and the Compose dependencies listen on loopback only. The worker
 
 ## Staging and production on Kubernetes
 
-Use the [Helm deployment guide](deploy/helm/locoder/README.md) for prerequisites, image digests, external PostgreSQL and Valkey, Secrets, ingress, first administrator setup, upgrades, and rollback. Set `publicOrigin` to the browser's HTTPS origin and use a TLS ingress. The chart requires a working gVisor RuntimeClass and never falls back to the node's ordinary runtime.
+Use the [Helm deployment guide](deploy/helm/j0coder/README.md) for prerequisites, image digests, external PostgreSQL and Valkey, Secrets, ingress, first administrator setup, upgrades, and rollback. Set `publicOrigin` to the browser's HTTPS origin and use a TLS ingress. The chart requires a working gVisor RuntimeClass and never falls back to the node's ordinary runtime.
 
 To exercise the Kubernetes deployment locally on Fedora, see the [disposable Lima cluster guide](docs/local-kubernetes-fedora.md). Its database uses ephemeral storage and is not a staging or production deployment.
 
@@ -127,7 +129,7 @@ Build and pin both local container images with:
 make images BUILD_JOBS=2
 ```
 
-Publishing a GitHub Release runs `.github/workflows/publish-images.yml`. It builds `deploy/App.Containerfile` and `deploy/Toolchain.Containerfile` for `linux/amd64`, then publishes `ghcr.io/ultimateboomer/locoder-app:<release-tag>` and `ghcr.io/ultimateboomer/locoder-toolchain:<release-tag>`. The workflow summary records both immutable digests for the Helm values file. It uses the repository's `GITHUB_TOKEN` with `packages: write`; no personal access token is needed for publishing.
+Publishing a GitHub Release runs `.github/workflows/publish-images.yml`. It builds `deploy/App.Containerfile` and `deploy/Toolchain.Containerfile` for `linux/amd64`, then publishes `ghcr.io/ultimateboomer/j0coder-app:<release-tag>` and `ghcr.io/ultimateboomer/j0coder-toolchain:<release-tag>`. The workflow summary records both immutable digests for the Helm values file. It uses the repository's `GITHUB_TOKEN` with `packages: write`; no personal access token is needed for publishing.
 
 When updating the checked-in REST schema, run `python3 scripts/generate-openapi.py` before `npm run generate:api --prefix web`.
 
@@ -138,13 +140,13 @@ Integration and browser tests require isolated PostgreSQL/Valkey services or a c
 For a full Compose installation, back up PostgreSQL and Valkey together using the same rootless user and Compose project:
 
 ```sh
-scripts/backup.sh "$HOME/backups/locoder-$(date +%F)"
+scripts/backup.sh "$HOME/backups/j0coder-$(date +%F)"
 ```
 
-Restore only into a fresh checkout with no `.env` and no `locoder_*` volumes:
+Restore only into a fresh checkout with no `.env` and no `j0coder_*` volumes:
 
 ```sh
-scripts/restore.sh "$HOME/backups/locoder-2026-09-20"
+scripts/restore.sh "$HOME/backups/j0coder-2026-09-20"
 make images
 make dev-gvisor
 scripts/gvisor-controller.sh start

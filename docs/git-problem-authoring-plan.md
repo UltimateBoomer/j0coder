@@ -1,6 +1,6 @@
 # Git-native problem authoring
 
-The catalog is edited as ordinary files in `locoder-problems`. There is no authoring CLI or application-held Git credential. A copyable, unpublished `example-problem/` directory shows the full format.
+The catalog is edited as ordinary files in `j0coder-problems`. There is no authoring CLI or application-held Git credential. A copyable, unpublished `example-problem/` directory shows the full format.
 
 ## Layout
 
@@ -31,9 +31,9 @@ Hints are published in list order and revealed one at a time in the practice UI 
 Copy `example-problem/` to `problems/<slug>/`, edit its key, metadata, statement, cases, and optional reference, then run:
 
 ```sh
-RUSTC_WRAPPER= cargo run --locked -p locoder --bin catalog-validate -- ../locoder-problems
-RUSTC_WRAPPER= cargo run --locked -p locoder --bin catalog-validate -- ../locoder-problems --check-references
-python3 scripts/check-catalog-quality.py ../locoder-problems
+RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0coder-problems
+RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0coder-problems --check-references
+python3 scripts/check-catalog-quality.py ../j0coder-problems
 ```
 
 The second command needs the configured gVisor sandbox and toolchain image. Author changes through a normal Git branch and pull request. Catalog CI must pass before merge.

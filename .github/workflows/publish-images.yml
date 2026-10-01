@@ -20,9 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: locoder-app
+          - image: j0coder-app
             containerfile: deploy/App.Containerfile
-          - image: locoder-toolchain
+          - image: j0coder-toolchain
             containerfile: deploy/Toolchain.Containerfile
     steps:
       - name: Check out release

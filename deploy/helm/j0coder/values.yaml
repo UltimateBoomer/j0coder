@@ -1,16 +1,16 @@
-publicOrigin: https://locoder.example.com
+publicOrigin: https://j0coder.example.com
 cookieSecure: true
 images:
   app:
-    repository: ghcr.io/ultimateboomer/locoder-app
+    repository: ghcr.io/ultimateboomer/j0coder-app
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
   toolchain:
-    repository: ghcr.io/ultimateboomer/locoder-toolchain
+    repository: ghcr.io/ultimateboomer/j0coder-toolchain
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 imagePullSecrets: []
 existingSecrets:
-  database: {name: locoder-database, key: DATABASE_URL}
-  valkey: {name: locoder-valkey, key: VALKEY_URL}
+  database: {name: j0coder-database, key: DATABASE_URL}
+  valkey: {name: j0coder-valkey, key: VALKEY_URL}
   catalogSsh: {name: "", privateKeyKey: private_key, knownHostsKey: known_hosts}
 sandbox:
   namespace: ""
@@ -29,7 +29,7 @@ resources:
   worker: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 256Mi}}
   editor: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 256Mi}}
   catalog: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 256Mi}}
-ingress: {enabled: true, className: "", annotations: {}, host: locoder.example.com, tlsSecret: ""}
+ingress: {enabled: true, className: "", annotations: {}, host: j0coder.example.com, tlsSecret: ""}
 catalog: {enabled: false, repositoryUrl: "", revision: main, strategy: track_branch}
 hpa:
   api: {enabled: false, minReplicas: 2, maxReplicas: 10, targetCPUUtilizationPercentage: 70}

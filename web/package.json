@@ -1,6 +1,6 @@
 {
-  "name": "locoder-web",
-  "version": "0.1.0",
+  "name": "j0coder-web",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {

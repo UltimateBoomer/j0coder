@@ -31,7 +31,7 @@ impl LanguageImplementation for Kotlin {
     }
     fn lsp_command(&self) -> &'static [&'static str] {
         &[
-            "/usr/local/bin/locoder-kotlin-lsp",
+            "/usr/local/bin/j0coder-kotlin-lsp",
             "--stdio",
             "--system-path=/workspace/.cache/kotlin-lsp",
             "--data-sharing=none",

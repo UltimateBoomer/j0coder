@@ -1,4 +1,4 @@
-use locoder::{
+use j0coder::{
     contract::*,
     sandbox::{Podman, judge},
 };

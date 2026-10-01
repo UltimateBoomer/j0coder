@@ -1,7 +1,7 @@
-use locoder::api;
+use j0coder::api;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    locoder::logging();
+    j0coder::logging();
     let db = sqlx::postgres::PgPoolOptions::new()
         .max_connections(20)
         .connect(&std::env::var("DATABASE_URL")?)
@@ -11,7 +11,7 @@ async fn main() -> anyhow::Result<()> {
         sqlx::migrate!("../../migrations").run(&db).await?;
         return Ok(());
     }
-    if locoder::env("MIGRATE_ON_START", "true") == "true" {
+    if j0coder::env("MIGRATE_ON_START", "true") == "true" {
         sqlx::migrate!("../../migrations").run(&db).await?;
     }
     if args.get(1).is_some_and(|a| a == "bootstrap-admin") {
@@ -25,16 +25,16 @@ async fn main() -> anyhow::Result<()> {
     }
     let app = api::App {
         db: db.clone(),
-        origin: locoder::env("PUBLIC_ORIGIN", "http://localhost:8080"),
-        secure: locoder::env("COOKIE_SECURE", "true") == "true",
+        origin: j0coder::env("PUBLIC_ORIGIN", "http://localhost:8080"),
+        secure: j0coder::env("COOKIE_SECURE", "true") == "true",
     };
-    let shutdown = locoder::shutdown::signal();
-    let dispatcher = tokio::spawn(locoder::queue::dispatch_forever(
+    let shutdown = j0coder::shutdown::signal();
+    let dispatcher = tokio::spawn(j0coder::queue::dispatch_forever(
         db.clone(),
         shutdown.clone(),
     ));
-    let events = tokio::spawn(locoder::queue::events_forever(db, shutdown.clone()));
-    let listener = tokio::net::TcpListener::bind(locoder::env("API_BIND", "0.0.0.0:8080")).await?;
+    let events = tokio::spawn(j0coder::queue::events_forever(db, shutdown.clone()));
+    let listener = tokio::net::TcpListener::bind(j0coder::env("API_BIND", "0.0.0.0:8080")).await?;
     let server_shutdown = shutdown.clone();
     axum::serve(listener, api::router(app))
         .with_graceful_shutdown(async move { server_shutdown.cancelled().await })

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, ensure};
-use locoder::catalog::{self, ValidatedRelease};
-use locoder::contract::Problem;
+use j0coder::catalog::{self, ValidatedRelease};
+use j0coder::contract::Problem;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
@@ -57,10 +57,10 @@ async fn seed(db: &PgPool) -> Result<()> {
     };
     let s = Settings {
         repository_url: url,
-        strategy: locoder::env("CATALOG_STRATEGY", "track_branch"),
-        revision: locoder::env("CATALOG_REVISION", "main"),
-        poll_interval_seconds: locoder::env("CATALOG_POLL_INTERVAL_SECONDS", "300").parse()?,
-        enabled: locoder::env("CATALOG_ENABLED", "true") == "true",
+        strategy: j0coder::env("CATALOG_STRATEGY", "track_branch"),
+        revision: j0coder::env("CATALOG_REVISION", "main"),
+        poll_interval_seconds: j0coder::env("CATALOG_POLL_INTERVAL_SECONDS", "300").parse()?,
+        enabled: j0coder::env("CATALOG_ENABLED", "true") == "true",
         generation: 1,
     };
     validate_settings(&s)?;
@@ -231,10 +231,10 @@ async fn apply(
             .await?;
             if let Some(reference) = &item.reference {
                 let language = match reference.language {
-                    locoder::contract::Language::Python => "python",
-                    locoder::contract::Language::Cpp => "cpp",
-                    locoder::contract::Language::Java => "java",
-                    locoder::contract::Language::Kotlin => "kotlin",
+                    j0coder::contract::Language::Python => "python",
+                    j0coder::contract::Language::Cpp => "cpp",
+                    j0coder::contract::Language::Java => "java",
+                    j0coder::contract::Language::Kotlin => "kotlin",
                 };
                 sqlx::query("INSERT INTO catalog_reference_revisions(id,problem_id,language,source,source_hash,repository_url,resolved_commit) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(problem_id,language,source_hash) DO NOTHING")
                     .bind(Uuid::new_v4()).bind(problem_id).bind(language).bind(&reference.source).bind(&reference.hash).bind(&s.repository_url).bind(commit).execute(&mut *tx).await?;
@@ -305,7 +305,7 @@ async fn reconcile(db: &PgPool, s: &Settings, key: &Path, hosts: &Path) -> Resul
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    locoder::logging();
+    j0coder::logging();
     let database_url = std::env::var("DATABASE_URL")?;
     let db = PgPool::connect(&database_url).await?;
     sqlx::migrate!("../../migrations").run(&db).await?;

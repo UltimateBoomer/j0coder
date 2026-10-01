@@ -1,9 +1,10 @@
 <script lang="ts">
  import {onMount} from 'svelte';import {api,type ProblemDetail,type User} from './api';import {SolutionSync,type SolutionLanguage,type SaveStatus} from './solution-sync';import DOMPurify from 'dompurify';import {marked} from 'marked';import Constraints from './Constraints.svelte';
  export let problem:ProblemDetail;export let user:User;export let theme:'light'|'dark';export let onerror:(e:string)=>void;
+ import {readPreference} from './preferences';
  let host:HTMLDivElement, language:SolutionLanguage='cpp',modelLanguage:SolutionLanguage='cpp',editor:any,monaco:any,semantic='Starting editor…',busy=false,switching=false,history:any[]=[],selected:any=null,alive=true,subscription:any;
  let workspace:HTMLDivElement,resultsSplit:HTMLDivElement;
- let statementWidth=43,resultsHeight=36,historyWidth=30,blindMode=localStorage.getItem('locoder:blind-mode')==='true',revealedHints=0;
+ let statementWidth=43,resultsHeight=36,historyWidth=30,blindMode=readPreference('blind-mode')==='true',revealedHints=0;
  $: if(monaco)monaco.editor.setTheme(theme==='dark'?'vs-dark':'vs');
  let connection:import('./semantic').Connection|undefined,connectionGeneration=0,retryCount=0,retryTimer:ReturnType<typeof setTimeout>|undefined;
  let saveStatuses:Record<SolutionLanguage,SaveStatus>={cpp:'loading',python:'loading',java:'loading',kotlin:'loading'};
@@ -20,7 +21,7 @@
  const hints=problem.problem.hints??[];
  const stateful=()=>problem.problem.interface?.kind==='data_structure';
  const visibleTests=():any[]=>problem.problem.tests.filter((test:any)=>!test.hidden).map((test:any)=>stateful()?{...test,args:{constructor_args:test.constructor_args,operations:test.operations.map((o:any)=>({method:o.method,args:o.args}))},expected:test.operations.map((o:any)=>o.expected)}:test);
- function toggleBlindMode(){blindMode=!blindMode;localStorage.setItem('locoder:blind-mode',String(blindMode))}
+ function toggleBlindMode(){blindMode=!blindMode;localStorage.setItem('j0coder:blind-mode',String(blindMode))}
  function resetEditor(){if(editor&&window.confirm(`Replace your ${({cpp:'C++',python:'Python',java:'Java',kotlin:'Kotlin'}[language])} code with the starter code?`)){editor.setValue(problem.starters[language]);save();editor.focus()}}
  type Split='statement'|'results'|'history';
  function resize(split:Split,clientX:number,clientY:number){

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: j0coder
+description: j0coder control plane and gVisor Kubernetes sandboxes
+type: application
+version: 0.1.1
+appVersion: "0.1.1"
+kubeVersion: ">=1.27.0-0"

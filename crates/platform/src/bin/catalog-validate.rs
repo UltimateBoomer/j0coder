@@ -1,6 +1,6 @@
 use anyhow::{Result, ensure};
-use locoder::catalog::validate_release;
-use locoder::contract::Job;
+use j0coder::catalog::validate_release;
+use j0coder::contract::Job;
 use std::{collections::HashSet, env, fs, path::Path};
 use uuid::Uuid;
 
@@ -37,7 +37,7 @@ fn main() -> Result<()> {
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("usage: catalog-validate <catalog-directory>"))?;
     let scratch =
-        Scratch(env::temp_dir().join(format!("locoder-catalog-check-{}", uuid::Uuid::new_v4())));
+        Scratch(env::temp_dir().join(format!("j0coder-catalog-check-{}", uuid::Uuid::new_v4())));
     copy_release(Path::new(&root), &scratch.0, true)?;
     let release = validate_release(&scratch.0)?;
     let mut titles = HashSet::new();
@@ -58,7 +58,7 @@ fn main() -> Result<()> {
         }] += 1;
         scores[usize::from(score - 1)] += 1;
         ensure!(
-            p.difficulty == locoder::contract::Problem::difficulty_band(score),
+            p.difficulty == j0coder::contract::Problem::difficulty_band(score),
             "difficulty and score disagree for {}",
             item.key
         );
@@ -96,7 +96,7 @@ fn main() -> Result<()> {
                     type_definitions: p.type_definitions.clone(),
                     comparison: p.comparison.clone(),
                 };
-                locoder::sandbox::reference_outputs(&job, &reference.source, &p.tests)
+                j0coder::sandbox::reference_outputs(&job, &reference.source, &p.tests)
                     .await
                     .map_err(|e| anyhow::anyhow!("{}: reference failed: {e:#}", item.path))?;
             }

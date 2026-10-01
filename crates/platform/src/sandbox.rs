@@ -166,13 +166,13 @@ impl Backend {
                     .checked(&[
                         "ps",
                         "-a",
-                        "--filter=label=locoder.editor=true",
+                        "--filter=label=j0coder.editor=true",
                         "--format={{.ID}} {{.Names}}",
                     ])
                     .await?;
                 for line in String::from_utf8(output)?.lines() {
                     if let Some((id, name)) = line.split_once(' ')
-                        && let Some(session) = name.strip_prefix("locoder-editor-")
+                        && let Some(session) = name.strip_prefix("j0coder-editor-")
                         && !active.contains(session)
                     {
                         orphaned.insert(session.to_owned());
@@ -186,12 +186,12 @@ impl Backend {
                 for pod in
                     b.pods
                         .list(&ListParams::default().labels(
-                            "app.kubernetes.io/managed-by=locoder,locoder.io/purpose=editor",
+                            "app.kubernetes.io/managed-by=j0coder,j0coder.io/purpose=editor",
                         ))
                         .await?
                 {
                     if let Some(name) = pod.metadata.name
-                        && let Some(session) = name.strip_prefix("locoder-editor-")
+                        && let Some(session) = name.strip_prefix("j0coder-editor-")
                         && !active.contains(session)
                     {
                         orphaned.insert(session.to_owned());
@@ -209,10 +209,10 @@ impl Backend {
 impl Kubernetes {
     pub async fn new() -> Result<Self> {
         let client = Client::try_default().await?;
-        let namespace = crate::env("SANDBOX_NAMESPACE", "locoder-sandbox");
+        let namespace = crate::env("SANDBOX_NAMESPACE", "j0coder-sandbox");
         Ok(Self {
             pods: Api::namespaced(client, &namespace),
-            image: crate::env("TOOLCHAIN_IMAGE", "localhost/locoder-toolchain:1"),
+            image: crate::env("TOOLCHAIN_IMAGE", "localhost/j0coder-toolchain:1"),
             runtime_class: crate::env("SANDBOX_RUNTIME_CLASS", ""),
             start_timeout: Duration::from_secs(
                 crate::env("KUBERNETES_POD_START_TIMEOUT", "30").parse()?,
@@ -234,15 +234,15 @@ impl Kubernetes {
         ttl: u64,
     ) -> Pod {
         let mut labels = BTreeMap::new();
-        labels.insert("app.kubernetes.io/managed-by".into(), "locoder".into());
-        labels.insert("locoder.io/owner".into(), "locoder".into());
-        labels.insert("locoder.io/purpose".into(), purpose.into());
+        labels.insert("app.kubernetes.io/managed-by".into(), "j0coder".into());
+        labels.insert("j0coder.io/owner".into(), "j0coder".into());
+        labels.insert("j0coder.io/purpose".into(), purpose.into());
         labels.insert(
-            "locoder.io/id".into(),
-            name.trim_start_matches("locoder-").into(),
+            "j0coder.io/id".into(),
+            name.trim_start_matches("j0coder-").into(),
         );
         labels.insert(
-            "locoder.io/expiry".into(),
+            "j0coder.io/expiry".into(),
             (chrono::Utc::now().timestamp() + ttl as i64).to_string(),
         );
         let security = SecurityContext {
@@ -327,7 +327,7 @@ impl Kubernetes {
                     working_dir: (purpose == "editor").then(|| "/workspace".into()),
                     env: Some(
                         [
-                            ("LOCODER_STREAM_PROTOCOL", "1"),
+                            ("J0CODER_STREAM_PROTOCOL", "1"),
                             ("HOME", "/workspace/.cache"),
                             ("XDG_CACHE_HOME", "/workspace/.cache"),
                             (
@@ -499,7 +499,7 @@ impl Kubernetes {
             !self.runtime_class.is_empty(),
             "SANDBOX_RUNTIME_CLASS is required"
         );
-        let id = format!("locoder-{}", uuid::Uuid::new_v4().simple());
+        let id = format!("j0coder-{}", uuid::Uuid::new_v4().simple());
         let cap = if compile {
             64 * 1024 * 1024
         } else {
@@ -625,7 +625,7 @@ impl Kubernetes {
             !self.runtime_class.is_empty(),
             "SANDBOX_RUNTIME_CLASS is required"
         );
-        let name = format!("locoder-preflight-{}", uuid::Uuid::new_v4().simple());
+        let name = format!("j0coder-preflight-{}", uuid::Uuid::new_v4().simple());
         let pod = self.pod(&name, "preflight", vec!["dmesg".into()], 256, 60);
         self.create_pod(&pod).await?;
         let result = tokio::time::timeout(self.start_timeout, async {
@@ -667,7 +667,7 @@ impl Kubernetes {
             "SANDBOX_RUNTIME_CLASS is required"
         );
         let name = format!(
-            "locoder-editor-{}",
+            "j0coder-editor-{}",
             session.to_ascii_lowercase().replace('_', "-")
         );
         let pod = self.pod(
@@ -730,14 +730,14 @@ impl Kubernetes {
         let now = chrono::Utc::now().timestamp();
         for p in self
             .pods
-            .list(&ListParams::default().labels("app.kubernetes.io/managed-by=locoder"))
+            .list(&ListParams::default().labels("app.kubernetes.io/managed-by=j0coder"))
             .await?
         {
             let expired = p
                 .metadata
                 .labels
                 .as_ref()
-                .and_then(|l| l.get("locoder.io/expiry"))
+                .and_then(|l| l.get("j0coder.io/expiry"))
                 .and_then(|s| s.parse::<i64>().ok())
                 .is_some_and(|t| t <= now);
             let terminal = matches!(
@@ -825,7 +825,7 @@ impl Default for Podman {
 impl Podman {
     pub fn new() -> Self {
         Self {
-            image: crate::env("TOOLCHAIN_IMAGE", "localhost/locoder-toolchain:1"),
+            image: crate::env("TOOLCHAIN_IMAGE", "localhost/j0coder-toolchain:1"),
             runtime: crate::env("SANDBOX_RUNTIME", "runsc"),
         }
     }
@@ -923,7 +923,7 @@ impl Podman {
         Ok(())
     }
     pub async fn copy_bytes(&self, id: &str, name: &str, data: &[u8]) -> Result<()> {
-        let path = std::env::temp_dir().join(format!("locoder-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("j0coder-{}", uuid::Uuid::new_v4()));
         tokio::fs::write(&path, data).await?;
         let r = self
             .checked(&["cp", path.to_str().unwrap(), &format!("{id}:/input/{name}")])
@@ -938,7 +938,7 @@ impl Podman {
         language: Language,
         session: &str,
     ) -> Result<LspSession> {
-        let name = format!("locoder-editor-{session}");
+        let name = format!("j0coder-editor-{session}");
         let memory = match language {
             Language::Java => "2048m",
             Language::Kotlin => "4096m",
@@ -949,7 +949,7 @@ impl Podman {
             "--timeout=3600",
             "--name",
             &name,
-            "--label=locoder.editor=true",
+            "--label=j0coder.editor=true",
             "--runtime",
             &self.runtime,
             "--network=none",
@@ -1093,7 +1093,7 @@ impl SandboxBackend for Podman {
         compile: bool,
         shutdown: &crate::shutdown::Shutdown,
     ) -> Result<String> {
-        let name = format!("locoder-{}", uuid::Uuid::new_v4());
+        let name = format!("j0coder-{}", uuid::Uuid::new_v4());
         let memory = sandbox_memory(source_name, compile, l);
         let timeout = (sandbox_wall(source_name, compile, l).div_ceil(1000) + 5).to_string();
         let memory = format!("{memory}m");
@@ -1105,7 +1105,7 @@ impl SandboxBackend for Podman {
             &timeout,
             "--name",
             &name,
-            "--label=locoder.sandbox=true",
+            "--label=j0coder.sandbox=true",
             "--runtime",
             &self.runtime,
             "--network=none",
@@ -1737,7 +1737,7 @@ mod kubernetes_tests {
                 name: "ghcr-pull".into(),
             }],
         };
-        let pod = backend.pod("locoder-test", "execute", vec!["true".into()], 256, 60);
+        let pod = backend.pod("j0coder-test", "execute", vec!["true".into()], 256, 60);
         let spec = pod.spec.unwrap();
         assert_eq!(spec.runtime_class_name.as_deref(), Some("runsc"));
         assert_eq!(spec.automount_service_account_token, Some(false));
@@ -1773,7 +1773,7 @@ mod kubernetes_tests {
         assert!(resources.requests.as_ref().unwrap().contains_key("memory"));
         for memory in [2048, 4096] {
             let editor = backend.pod(
-                "locoder-editor-test",
+                "j0coder-editor-test",
                 "editor",
                 vec!["true".into()],
                 memory,

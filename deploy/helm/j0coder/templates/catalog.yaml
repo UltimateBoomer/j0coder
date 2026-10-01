@@ -1,7 +1,7 @@
 {{- if .Values.catalog.enabled }}
 apiVersion: v1
 kind: ServiceAccount
-metadata: {name: locoder-catalog, namespace: {{ .Release.Namespace }}}
+metadata: {name: j0coder-catalog, namespace: {{ .Release.Namespace }}}
 automountServiceAccountToken: false
 ---
 apiVersion: apps/v1
@@ -12,12 +12,12 @@ spec:
   strategy: {type: Recreate}
   selector: {matchLabels: {app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: catalog}}
   template:
-    metadata: {labels: {app.kubernetes.io/name: locoder, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: catalog}}
+    metadata: {labels: {app.kubernetes.io/name: j0coder, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: catalog}}
     spec:
-      serviceAccountName: locoder-catalog
+      serviceAccountName: j0coder-catalog
       automountServiceAccountToken: false
       imagePullSecrets: {{ toYaml .Values.imagePullSecrets | nindent 8 }}
-      securityContext: {{- include "locoder.podSecurity" . | nindent 8 }}
+      securityContext: {{- include "j0coder.podSecurity" . | nindent 8 }}
       nodeSelector: {{ toYaml .Values.catalogScheduling.nodeSelector | nindent 8 }}
       tolerations: {{ toYaml .Values.catalogScheduling.tolerations | nindent 8 }}
       affinity: {{ toYaml .Values.catalogScheduling.affinity | nindent 8 }}
@@ -27,9 +27,9 @@ spec:
           secret: {secretName: {{ required "existingSecrets.catalogSsh.name is required when catalog is enabled" .Values.existingSecrets.catalogSsh.name }}}
       containers:
         - name: catalog-controller
-          image: {{ include "locoder.appImage" . }}
+          image: {{ include "j0coder.appImage" . }}
           command: [catalog-controller]
-          securityContext: {{- include "locoder.containerSecurity" . | nindent 12 }}
+          securityContext: {{- include "j0coder.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml .Values.resources.catalog | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}

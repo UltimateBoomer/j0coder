@@ -1,11 +1,11 @@
 PODMAN ?= podman
 BUILD_JOBS ?= 2
-LIMA_INSTANCE ?= locoder
+LIMA_INSTANCE ?= j0coder
 LIMA_CPUS ?= 6
 LIMA_MEMORY ?= 12
 LIMA_DISK_SIZE ?= 40
-APP_IMAGE ?= localhost/locoder-app:1
-TOOLCHAIN_IMAGE ?= localhost/locoder-toolchain:1
+APP_IMAGE ?= localhost/j0coder-app:1
+TOOLCHAIN_IMAGE ?= localhost/j0coder-toolchain:1
 
 .DEFAULT_GOAL := help
 
@@ -63,8 +63,8 @@ app-image:
 	$(PODMAN) build --layers --jobs=$(BUILD_JOBS) -t $(APP_IMAGE) -f deploy/App.Containerfile .
 
 helm-check:
-	helm lint deploy/helm/locoder
-	helm template locoder deploy/helm/locoder >/dev/null
+	helm lint deploy/helm/j0coder
+	helm template j0coder deploy/helm/j0coder >/dev/null
 
 toolchain-image:
 	$(PODMAN) build --layers --jobs=$(BUILD_JOBS) -t $(TOOLCHAIN_IMAGE) -f deploy/Toolchain.Containerfile .
@@ -91,7 +91,7 @@ dev-up: configure toolchain-image dev-gvisor
 	TOOLCHAIN_IMAGE='$(TOOLCHAIN_IMAGE)' ./scripts/dev-up.sh
 
 dev-attach:
-	tmux -L locoder-dev attach -t locoder
+	tmux -L j0coder-dev attach -t j0coder
 
 dev-down:
 	./scripts/dev-down.sh

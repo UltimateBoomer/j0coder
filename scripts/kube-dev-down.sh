@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-profile=${LIMA_INSTANCE:-locoder}
+profile=${LIMA_INSTANCE:-j0coder}
 command -v limactl >/dev/null || { echo "missing required command: limactl" >&2; exit 1; }
 
 if limactl list --quiet | grep -Fxq "$profile"; then

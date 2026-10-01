@@ -1,7 +1,7 @@
 {{- $root := . -}}
 apiVersion: v1
 kind: ServiceAccount
-metadata: {name: locoder-api, namespace: {{ .Release.Namespace }}}
+metadata: {name: j0coder-api, namespace: {{ .Release.Namespace }}}
 automountServiceAccountToken: false
 {{- range $component := list "api" "worker" "editor" }}
 ---
@@ -10,17 +10,17 @@ kind: Deployment
 metadata:
   name: {{ $root.Release.Name }}-{{ $component }}
   namespace: {{ $root.Release.Namespace }}
-  labels: {{- include "locoder.labels" $root | nindent 4 }}
+  labels: {{- include "j0coder.labels" $root | nindent 4 }}
 spec:
   replicas: {{ index $root.Values.replicas $component }}
   selector: {matchLabels: {app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $component }}}}
   template:
     metadata:
-      labels: {app.kubernetes.io/name: locoder, app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $component }}}
+      labels: {app.kubernetes.io/name: j0coder, app.kubernetes.io/instance: {{ $root.Release.Name }}, app.kubernetes.io/component: {{ $component }}}
     spec:
-      serviceAccountName: locoder-{{ $component }}
+      serviceAccountName: j0coder-{{ $component }}
       automountServiceAccountToken: {{ if or (eq $component "worker") (eq $component "editor") }}true{{ else }}false{{ end }}
-      securityContext: {{- include "locoder.podSecurity" $root | nindent 8 }}
+      securityContext: {{- include "j0coder.podSecurity" $root | nindent 8 }}
       imagePullSecrets: {{ toYaml $root.Values.imagePullSecrets | nindent 8 }}
       nodeSelector: {{ toYaml $root.Values.scheduling.nodeSelector | nindent 8 }}
       tolerations: {{ toYaml $root.Values.scheduling.tolerations | nindent 8 }}
@@ -30,10 +30,10 @@ spec:
         - {name: tmp, emptyDir: {sizeLimit: 32Mi}}
       containers:
         - name: {{ $component }}
-          image: {{ include "locoder.appImage" $root }}
+          image: {{ include "j0coder.appImage" $root }}
           imagePullPolicy: IfNotPresent
           command: [{{ $component | quote }}]
-          securityContext: {{- include "locoder.containerSecurity" $root | nindent 12 }}
+          securityContext: {{- include "j0coder.containerSecurity" $root | nindent 12 }}
           resources: {{ toYaml (index $root.Values.resources $component) | nindent 12 }}
           volumeMounts: [{name: tmp, mountPath: /tmp}]
           {{- if ne $component "worker" }}
@@ -45,9 +45,9 @@ spec:
             - {name: COOKIE_SECURE, value: {{ $root.Values.cookieSecure | quote }}}
             - {name: MIGRATE_ON_START, value: "false"}
             - {name: SANDBOX_BACKEND, value: kubernetes}
-            - {name: SANDBOX_NAMESPACE, value: {{ include "locoder.sandboxNamespace" $root | quote }}}
+            - {name: SANDBOX_NAMESPACE, value: {{ include "j0coder.sandboxNamespace" $root | quote }}}
             - {name: SANDBOX_RUNTIME_CLASS, value: {{ $root.Values.sandbox.runtimeClass | quote }}}
-            - {name: TOOLCHAIN_IMAGE, value: {{ include "locoder.toolchainImage" $root | quote }}}
+            - {name: TOOLCHAIN_IMAGE, value: {{ include "j0coder.toolchainImage" $root | quote }}}
             - {name: KUBERNETES_POD_START_TIMEOUT, value: {{ $root.Values.sandbox.podStartTimeoutSeconds | quote }}}
             - {name: KUBERNETES_CLEANUP_INTERVAL, value: {{ $root.Values.sandbox.cleanupIntervalSeconds | quote }}}
             - {name: KUBERNETES_SANDBOX_TTL, value: {{ $root.Values.sandbox.ttlSeconds | quote }}}
@@ -80,13 +80,13 @@ spec:
       restartPolicy: Never
       automountServiceAccountToken: false
       imagePullSecrets: {{ toYaml .Values.imagePullSecrets | nindent 8 }}
-      securityContext: {{- include "locoder.podSecurity" . | nindent 8 }}
+      securityContext: {{- include "j0coder.podSecurity" . | nindent 8 }}
       volumes: [{name: tmp, emptyDir: {sizeLimit: 32Mi}}]
       containers:
         - name: migrate
-          image: {{ include "locoder.appImage" . }}
+          image: {{ include "j0coder.appImage" . }}
           command: [api, migrate]
-          securityContext: {{- include "locoder.containerSecurity" . | nindent 12 }}
+          securityContext: {{- include "j0coder.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml .Values.resources.api | nindent 12 }}
           volumeMounts: [{name: tmp, mountPath: /tmp}]
           env:

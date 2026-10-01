@@ -23,7 +23,7 @@ except (ValueError, OSError):
 
 # Kubernetes cannot copy into an unstarted Pod. Its controller sends one bounded
 # request containing the single input file and case input over attach stdin.
-protocol = os.environ.get('LOCODER_STREAM_PROTOCOL') == '1'
+protocol = os.environ.get('J0CODER_STREAM_PROTOCOL') == '1'
 request = None
 if protocol:
     raw = sys.stdin.buffer.read(64 * 1024 * 1024 + 1)

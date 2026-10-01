@@ -121,15 +121,16 @@ test('dismissed search reopens at the top and closes when focus leaves',async({p
 
 test('header search shows a fetch error, retries, and reports no matches',async({page})=>{
  await mockApp(page);
- let failed=false;
+ let allowRetry=false;
  await page.route('**/api/v1/problems?*',route=>{
-  if(!failed){failed=true;return route.fulfill({status:500,json:{error:'Catalog unavailable'}})}
+  if(!allowRetry)return route.fulfill({status:500,json:{error:'Catalog unavailable'}});
   return route.fallback();
  });
  await page.goto('/admin/problems');
  const search=page.getByRole('combobox',{name:'Find a problem'});
  await search.fill('no-such-problem-query');
  await expect(page.locator('.quick-state')).toContainText('Could not load problems.');
+ allowRetry=true;
  await page.getByRole('button',{name:'Retry'}).click();
  await expect(page.getByText('No matching problems.')).toBeVisible();
 });

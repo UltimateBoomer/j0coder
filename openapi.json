@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Locoder API",
+    "title": "j0coder API",
     "version": "1.0.0"
   },
   "paths": {

@@ -35,13 +35,13 @@ valkey = urllib.parse.quote(values["VALKEY_PASSWORD"], safe="")
 data = {
     "POSTGRES_PASSWORD": encoded(values["POSTGRES_PASSWORD"]),
     "VALKEY_PASSWORD": encoded(values["VALKEY_PASSWORD"]),
-    "DATABASE_URL": encoded(f"postgres://practice:{postgres}@locoder-postgres:5432/practice"),
-    "VALKEY_URL": encoded(f"redis://:{valkey}@locoder-valkey:6379"),
+    "DATABASE_URL": encoded(f"postgres://practice:{postgres}@j0coder-postgres:5432/practice"),
+    "VALKEY_URL": encoded(f"redis://:{valkey}@j0coder-valkey:6379"),
 }
 secrets = [{
     "apiVersion": "v1",
     "kind": "Secret",
-    "metadata": {"name": "locoder-dev", "namespace": "locoder"},
+    "metadata": {"name": "j0coder-dev", "namespace": "j0coder"},
     "type": "Opaque",
     "data": data,
 }]
@@ -54,7 +54,7 @@ if values.get("CATALOG_ENABLED", "false").lower() == "true":
     secrets.append({
         "apiVersion": "v1",
         "kind": "Secret",
-        "metadata": {"name": "locoder-catalog-ssh", "namespace": "locoder"},
+        "metadata": {"name": "j0coder-catalog-ssh", "namespace": "j0coder"},
         "type": "Opaque",
         "data": {
             "private_key": base64.b64encode(pathlib.Path(key_path).read_bytes()).decode(),

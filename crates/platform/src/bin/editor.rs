@@ -1,14 +1,14 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    locoder::logging();
-    let backend = locoder::sandbox::Backend::from_env().await?;
+    j0coder::logging();
+    let backend = j0coder::sandbox::Backend::from_env().await?;
     backend.preflight().await?;
-    let shutdown = locoder::shutdown::signal();
+    let shutdown = j0coder::shutdown::signal();
     let sweep_shutdown = shutdown.clone();
     tokio::spawn(async move {
         let mut previously_orphaned = std::collections::HashSet::new();
         while !sweep_shutdown.is_cancelled() {
-            match locoder::editor::cleanup_orphans(&backend, &previously_orphaned).await {
+            match j0coder::editor::cleanup_orphans(&backend, &previously_orphaned).await {
                 Ok(orphaned) => previously_orphaned = orphaned,
                 Err(error) => tracing::warn!(%error, "editor orphan cleanup failed"),
             }
@@ -19,12 +19,12 @@ async fn main() -> anyhow::Result<()> {
         }
     });
     let router = axum::Router::new()
-        .route("/editor/ws", axum::routing::get(locoder::editor::upgrade))
+        .route("/editor/ws", axum::routing::get(j0coder::editor::upgrade))
         .route("/healthz", axum::routing::get(|| async { "ok" }))
-        .with_state(locoder::editor::EditorState::new(shutdown.clone()));
+        .with_state(j0coder::editor::EditorState::new(shutdown.clone()));
     let server_shutdown = shutdown.clone();
     axum::serve(
-        tokio::net::TcpListener::bind(locoder::env("EDITOR_BIND", "0.0.0.0:8081")).await?,
+        tokio::net::TcpListener::bind(j0coder::env("EDITOR_BIND", "0.0.0.0:8081")).await?,
         router,
     )
     .with_graceful_shutdown(async move { server_shutdown.cancelled().await })

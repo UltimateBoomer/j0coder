@@ -1,4 +1,4 @@
-name: locoder
+name: j0coder
 services:
   postgres:
     image: docker.io/library/postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
@@ -23,7 +23,7 @@ services:
     networks: [queue]
     restart: unless-stopped
   api:
-    image: ${APP_IMAGE:-localhost/locoder-app:1}
+    image: ${APP_IMAGE:-localhost/j0coder-app:1}
     environment:
       DATABASE_URL: postgres://practice:${POSTGRES_PASSWORD}@postgres:5432/practice
       VALKEY_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
@@ -42,7 +42,7 @@ services:
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
   catalog-controller:
-    image: ${APP_IMAGE:-localhost/locoder-app:1}
+    image: ${APP_IMAGE:-localhost/j0coder-app:1}
     command: [catalog-controller]
     # Map the host owner of the 0600 deploy key to the image's non-root user.
     userns_mode: keep-id:uid=65534,gid=65534
@@ -67,14 +67,14 @@ services:
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
   worker:
-    image: ${APP_IMAGE:-localhost/locoder-app:1}
+    image: ${APP_IMAGE:-localhost/j0coder-app:1}
     command: [worker]
     user: '0:0'
     environment:
       DATABASE_URL: postgres://practice:${POSTGRES_PASSWORD}@postgres:5432/practice
       VALKEY_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
       CONTAINER_HOST: unix:///run/podman/podman.sock
-      TOOLCHAIN_IMAGE: ${TOOLCHAIN_IMAGE:-localhost/locoder-toolchain:1}
+      TOOLCHAIN_IMAGE: ${TOOLCHAIN_IMAGE:-localhost/j0coder-toolchain:1}
       SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:?Set SANDBOX_RUNTIME}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
     volumes:
@@ -86,13 +86,13 @@ services:
       postgres: {condition: service_healthy}
       valkey: {condition: service_started}
   editor:
-    image: ${APP_IMAGE:-localhost/locoder-app:1}
+    image: ${APP_IMAGE:-localhost/j0coder-app:1}
     command: [editor]
     user: '0:0'
     environment:
       VALKEY_URL: redis://:${VALKEY_PASSWORD}@valkey:6379
       CONTAINER_HOST: unix:///run/podman/podman.sock
-      TOOLCHAIN_IMAGE: ${TOOLCHAIN_IMAGE:-localhost/locoder-toolchain:1}
+      TOOLCHAIN_IMAGE: ${TOOLCHAIN_IMAGE:-localhost/j0coder-toolchain:1}
       SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:?Set SANDBOX_RUNTIME}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
       EDITOR_CAPACITY: ${EDITOR_CAPACITY:-8}

@@ -11,15 +11,15 @@ set +a
 [[ -z "$requested_runtime" ]] || SANDBOX_RUNTIME=$requested_runtime
 [[ -z "$requested_image" ]] || TOOLCHAIN_IMAGE=$requested_image
 runtime=${SANDBOX_RUNTIME:-$PWD/.dev/gvisor/current/runsc}
-PODMAN_SOCKET=${PODMAN_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/locoder-podman.sock}
-image=${TOOLCHAIN_IMAGE:-localhost/locoder-toolchain:1}
+PODMAN_SOCKET=${PODMAN_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/j0coder-podman.sock}
+image=${TOOLCHAIN_IMAGE:-localhost/j0coder-toolchain:1}
 [[ "${runtime##*/}" == runsc ]] || { echo 'Only gVisor runsc is supported' >&2; exit 1; }
 podman run --rm --runtime "$runtime" --network=none --read-only --read-only-tmpfs=false \
  --user=65534:65534 --cap-drop=ALL --security-opt=no-new-privileges --security-opt=label=disable \
  --memory=256m --memory-swap=256m --cpus=1 --pids-limit=64 --timeout=10 \
  "$image" dmesg | grep -q gVisor
 printf 'Podman + gVisor resource-constrained sandbox passed\n'
-limit_name="locoder-limit-check-$$"
+limit_name="j0coder-limit-check-$$"
 cleanup_limit() { podman rm -f "$limit_name" >/dev/null 2>&1 || true; }
 trap cleanup_limit EXIT
 podman run -d --name "$limit_name" --runtime "$runtime" --network=none \

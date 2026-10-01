@@ -1,14 +1,14 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: locoder-postgres
-  namespace: locoder
-  labels: {app.kubernetes.io/name: locoder-postgres}
+  name: j0coder-postgres
+  namespace: j0coder
+  labels: {app.kubernetes.io/name: j0coder-postgres}
 spec:
   replicas: 1
-  selector: {matchLabels: {app.kubernetes.io/name: locoder-postgres}}
+  selector: {matchLabels: {app.kubernetes.io/name: j0coder-postgres}}
   template:
-    metadata: {labels: {app.kubernetes.io/name: locoder-postgres}}
+    metadata: {labels: {app.kubernetes.io/name: j0coder-postgres}}
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -41,7 +41,7 @@ spec:
             - {name: POSTGRES_DB, value: practice}
             - {name: POSTGRES_USER, value: practice}
             - name: POSTGRES_PASSWORD
-              valueFrom: {secretKeyRef: {name: locoder-dev, key: POSTGRES_PASSWORD}}
+              valueFrom: {secretKeyRef: {name: j0coder-dev, key: POSTGRES_PASSWORD}}
           ports: [{name: postgres, containerPort: 5432}]
           readinessProbe: {exec: {command: [pg_isready, -U, practice, -d, practice]}, periodSeconds: 2, failureThreshold: 30}
           resources:
@@ -57,22 +57,22 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: locoder-postgres, namespace: locoder}
+metadata: {name: j0coder-postgres, namespace: j0coder}
 spec:
-  selector: {app.kubernetes.io/name: locoder-postgres}
+  selector: {app.kubernetes.io/name: j0coder-postgres}
   ports: [{name: postgres, port: 5432, targetPort: postgres}]
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: locoder-valkey
-  namespace: locoder
-  labels: {app.kubernetes.io/name: locoder-valkey}
+  name: j0coder-valkey
+  namespace: j0coder
+  labels: {app.kubernetes.io/name: j0coder-valkey}
 spec:
   replicas: 1
-  selector: {matchLabels: {app.kubernetes.io/name: locoder-valkey}}
+  selector: {matchLabels: {app.kubernetes.io/name: j0coder-valkey}}
   template:
-    metadata: {labels: {app.kubernetes.io/name: locoder-valkey}}
+    metadata: {labels: {app.kubernetes.io/name: j0coder-valkey}}
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -91,7 +91,7 @@ spec:
             readOnlyRootFilesystem: true
           env:
             - name: VALKEY_PASSWORD
-              valueFrom: {secretKeyRef: {name: locoder-dev, key: VALKEY_PASSWORD}}
+              valueFrom: {secretKeyRef: {name: j0coder-dev, key: VALKEY_PASSWORD}}
           ports: [{name: valkey, containerPort: 6379}]
           readinessProbe: {exec: {command: [sh, -c, 'valkey-cli -a "$VALKEY_PASSWORD" ping | grep -qx PONG']}, periodSeconds: 2, failureThreshold: 30}
           resources:
@@ -106,7 +106,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: locoder-valkey, namespace: locoder}
+metadata: {name: j0coder-valkey, namespace: j0coder}
 spec:
-  selector: {app.kubernetes.io/name: locoder-valkey}
+  selector: {app.kubernetes.io/name: j0coder-valkey}
   ports: [{name: valkey, port: 6379, targetPort: valkey}]

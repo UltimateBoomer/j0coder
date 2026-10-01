@@ -73,15 +73,15 @@ jobs:
         env:
           TEST_ORIGIN: http://127.0.0.1:8080
         run: |
-          npm run dev --prefix web > /tmp/locoder-vite.log 2>&1 &
+          npm run dev --prefix web > /tmp/j0coder-vite.log 2>&1 &
           server=$!
-          trap 'kill "$server" 2>/dev/null || true; cat /tmp/locoder-vite.log' EXIT
+          trap 'kill "$server" 2>/dev/null || true; cat /tmp/j0coder-vite.log' EXIT
           for attempt in {1..60}; do
             if curl --fail --silent --output /dev/null "$TEST_ORIGIN"; then break; fi
             sleep 1
           done
           curl --fail --silent --output /dev/null "$TEST_ORIGIN"
-          npm test --prefix web -- editor-ui.spec.ts header-search.spec.ts problem-list.spec.ts solution-sync.spec.ts
+          npm test --prefix web -- editor-ui.spec.ts header-search.spec.ts problem-list.spec.ts solution-sync.spec.ts rename.spec.ts
 
   integration:
     needs: changes
@@ -133,9 +133,9 @@ jobs:
       - run: cd web && npx playwright install --with-deps chromium
       - name: Run API and live browser acceptance tests
         run: |
-          target/debug/api > /tmp/locoder-api.log 2>&1 &
+          target/debug/api > /tmp/j0coder-api.log 2>&1 &
           server=$!
-          trap 'kill "$server" 2>/dev/null || true; cat /tmp/locoder-api.log' EXIT
+          trap 'kill "$server" 2>/dev/null || true; cat /tmp/j0coder-api.log' EXIT
           for attempt in {1..60}; do
             if curl --fail --silent --output /dev/null "$TEST_ORIGIN/healthz"; then break; fi
             sleep 1
@@ -153,13 +153,13 @@ jobs:
         with:
           persist-credentials: false
       - run: make helm-check
-      - run: helm template locoder deploy/helm/locoder -f deploy/local-kubernetes/values.yaml > /dev/null
+      - run: helm template j0coder deploy/helm/j0coder -f deploy/local-kubernetes/values.yaml > /dev/null
       - name: Render private image pull settings
         run: |
-          helm template locoder deploy/helm/locoder \
+          helm template j0coder deploy/helm/j0coder \
             --set 'imagePullSecrets[0].name=ghcr-pull' \
-            --set 'sandbox.imagePullSecrets[0].name=ghcr-pull' > /tmp/locoder-private.yaml
-          grep -q 'name: ghcr-pull' /tmp/locoder-private.yaml
+            --set 'sandbox.imagePullSecrets[0].name=ghcr-pull' > /tmp/j0coder-private.yaml
+          grep -q 'name: ghcr-pull' /tmp/j0coder-private.yaml
 
   config:
     needs: changes
@@ -178,6 +178,7 @@ jobs:
           persist-credentials: false
       - run: bash -n scripts/*.sh
       - run: python3 -m compileall -q scripts tests
+      - run: python3 -m unittest discover -s tests -p 'test_backup_restore.py'
       - run: docker compose -f compose.dev.yaml config -q
       - run: docker compose -f compose.yaml config -q
 
@@ -195,8 +196,8 @@ jobs:
           context: .
           file: deploy/App.Containerfile
           push: false
-          cache-from: type=gha,scope=locoder-app
-          cache-to: type=gha,scope=locoder-app,mode=max,ignore-error=true
+          cache-from: type=gha,scope=j0coder-app
+          cache-to: type=gha,scope=j0coder-app,mode=max,ignore-error=true
 
   toolchain_image:
     needs: changes
@@ -212,8 +213,8 @@ jobs:
           context: .
           file: deploy/Toolchain.Containerfile
           push: false
-          cache-from: type=gha,scope=locoder-toolchain
-          cache-to: type=gha,scope=locoder-toolchain,mode=max,ignore-error=true
+          cache-from: type=gha,scope=j0coder-toolchain
+          cache-to: type=gha,scope=j0coder-toolchain,mode=max,ignore-error=true
 
   result:
     name: CI result

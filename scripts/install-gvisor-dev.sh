@@ -17,9 +17,9 @@ for command in git podman sha256sum tar; do
  command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done
 if [[ -x "$install_dir/runsc" && -d "$install_dir/gvisor-bin" ]]; then
- for marker in .locoder-patch-hash .practice-patch-hash; do
+ for marker in .j0coder-patch-hash .locoder-patch-hash .practice-patch-hash; do
   if [[ -f "$install_dir/$marker" && $(<"$install_dir/$marker") == "$patch_hash" ]]; then
-   printf '%s\n' "$patch_hash" >"$install_dir/.locoder-patch-hash"
+   printf '%s\n' "$patch_hash" >"$install_dir/.j0coder-patch-hash"
    ln -sfn "$(basename "$install_dir")" "$dev/gvisor/current"
    printf 'gVisor development runtime already installed: %s\n' "$install_dir/runsc"
    exit 0
@@ -66,7 +66,7 @@ tar -xjf "$archive" -C "$staging"
  echo 'Built release is missing runsc or gvisor-bin' >&2
  exit 1
 }
-printf '%s\n' "$patch_hash" >"$staging/.locoder-patch-hash"
+printf '%s\n' "$patch_hash" >"$staging/.j0coder-patch-hash"
 if [[ -e "$install_dir" ]]; then
  backup="$install_dir.stale.$(date +%s).$$"
  mv "$install_dir" "$backup"

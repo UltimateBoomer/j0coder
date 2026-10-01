@@ -54,7 +54,7 @@ export function connect(language:string,onClosed:()=>void):Connection{
     }
     return rawWrite(message);
    };
-   client=new MonacoLanguageClient({name:`Locoder ${language}`,clientOptions:{documentSelector:[language],errorHandler:{error:()=>({action:ErrorAction.Continue}),closed:()=>({action:CloseAction.DoNotRestart})}},messageTransports:{reader,writer}});
+   client=new MonacoLanguageClient({name:`j0coder ${language}`,clientOptions:{documentSelector:[language],errorHandler:{error:()=>({action:ErrorAction.Continue}),closed:()=>({action:CloseAction.DoNotRestart})}},messageTransports:{reader,writer}});
    let timer:ReturnType<typeof setTimeout>;
    const timeout=new Promise<never>((_,reject)=>{
     timer=setTimeout(()=>{ws?.close();reject(new Error('Semantic initialization timed out'))},105000);

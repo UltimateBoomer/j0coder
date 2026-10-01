@@ -1,4 +1,4 @@
-use locoder::contract::*;
+use j0coder::contract::*;
 use serde_json::{Value, json};
 
 fn base(interface: Interface, tests: Vec<Case>) -> Problem {
@@ -250,7 +250,7 @@ fn sibling_catalog_validates_all_problems_when_present() {
     if !root.exists() {
         return;
     }
-    let release = locoder::catalog::validate_release(&root).unwrap();
+    let release = j0coder::catalog::validate_release(&root).unwrap();
     assert_eq!(release.problems.len(), 125);
     assert!(
         release
@@ -296,7 +296,7 @@ fn write_trusted_data_structure_fixtures() {
     .unwrap();
     let catalog =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../code-practice-problems");
-    let release = locoder::catalog::validate_release(&catalog).unwrap();
+    let release = j0coder::catalog::validate_release(&catalog).unwrap();
     let cases = serde_json::to_value(
         &release
             .problems

@@ -61,7 +61,7 @@ For machine-specific Helm settings, create `deploy/local-kubernetes/values.local
 
 ```yaml
 existingSecrets:
-  catalogSsh: {name: locoder-catalog-ssh, privateKeyKey: private_key, knownHostsKey: known_hosts}
+  catalogSsh: {name: j0coder-catalog-ssh, privateKeyKey: private_key, knownHostsKey: known_hosts}
 catalog:
   enabled: true
   repositoryUrl: git@github.com:YOUR_ACCOUNT/YOUR_REPO.git
@@ -74,21 +74,21 @@ Create the referenced Kubernetes SSH Secret separately; do not put private keys 
 Lima forwards the Kubernetes API to localhost and exports a kubeconfig under its instance directory. The startup script prints its exact path. To locate it again:
 
 ```bash
-export KUBECONFIG="$(limactl list locoder --format '{{.Dir}}')/copied-from-guest/kubeconfig.yaml"
+export KUBECONFIG="$(limactl list j0coder --format '{{.Dir}}')/copied-from-guest/kubeconfig.yaml"
 kubectl get nodes
 ```
 
-Expose Locoder through the Kubernetes API connection:
+Expose j0coder through the Kubernetes API connection:
 
 ```bash
-kubectl -n locoder port-forward service/locoder-api 8080:8080
+kubectl -n j0coder port-forward service/j0coder-api 8080:8080
 ```
 
 Open `http://localhost:8080`. This API-only port-forward does not provide semantic completion. To use it, run these in separate terminals instead:
 
 ```bash
-kubectl -n locoder port-forward service/locoder-api 18080:8080
-kubectl -n locoder port-forward service/locoder-editor 8081:8081
+kubectl -n j0coder port-forward service/j0coder-api 18080:8080
+kubectl -n j0coder port-forward service/j0coder-editor 8081:8081
 npm run dev --prefix web
 ```
 
@@ -97,18 +97,18 @@ Open `http://localhost:8080` through Vite, which sends `/api` to the API forward
 For a new cluster, create its first administrator in another terminal using the same `KUBECONFIG`:
 
 ```bash
-read -rsp 'New admin password (12+ characters): ' locoder_password; echo
-printf '%s\n' "$locoder_password" | kubectl -n locoder exec -i deployment/locoder-api -- api bootstrap-admin admin
-unset locoder_password
+read -rsp 'New admin password (12+ characters): ' j0coder_password; echo
+printf '%s\n' "$j0coder_password" | kubectl -n j0coder exec -i deployment/j0coder-api -- api bootstrap-admin admin
+unset j0coder_password
 ```
 
 In fish:
 
 ```fish
-read --silent --prompt-str 'New admin password (12+ characters): ' locoder_password
+read --silent --prompt-str 'New admin password (12+ characters): ' j0coder_password
 echo
-printf '%s\n' "$locoder_password" | kubectl -n locoder exec -i deployment/locoder-api -- api bootstrap-admin admin
-set -e locoder_password
+printf '%s\n' "$j0coder_password" | kubectl -n j0coder exec -i deployment/j0coder-api -- api bootstrap-admin admin
+set -e j0coder_password
 ```
 
 Sign in as `admin`. The cluster and its database are deleted by `make kube-dev-down`, so a recreated cluster needs a new administrator.
@@ -116,14 +116,14 @@ Sign in as `admin`. The cluster and its database are deleted by `make kube-dev-d
 Resource settings and the instance name can be overridden on initial creation:
 
 ```bash
-LIMA_INSTANCE=locoder \
+LIMA_INSTANCE=j0coder \
 LIMA_CPUS=8 \
 LIMA_MEMORY=16 \
 LIMA_DISK_SIZE=60 \
 make kube-dev-up
 ```
 
-Resource overrides do not resize an existing instance. Delete and recreate the disposable VM to apply them. Startup also refuses to reuse a VM with another backend or without the Locoder template marker:
+Resource overrides do not resize an existing instance. Delete and recreate the disposable VM to apply them. Startup also refuses to reuse a VM with another backend or without the j0coder template marker:
 
 ```bash
 make kube-dev-down
@@ -142,16 +142,16 @@ The QEMU and Lima host-agent processes run with the developer's UID. A VM escape
 
 The repository template explicitly disables host mounts. Do not add home-directory mounts, repository mounts, SSH-agent forwarding, or host runtime sockets. Access to `/dev/kvm` exposes the kernel KVM interface but does not grant system-libvirt management authority. Guest `sudo`, kubeadm, containerd, and the gVisor installation operate inside the disposable VM.
 
-Locoder's chart containers and dynamically created sandbox Pods remain non-root and unprivileged. They disallow privilege escalation, drop all capabilities, use read-only root filesystems, and receive only explicit writable temporary volumes. The chart does not mount a container-runtime socket or add privileged containers. The sandbox namespace retains its default-deny NetworkPolicy.
+j0coder's chart containers and dynamically created sandbox Pods remain non-root and unprivileged. They disallow privilege escalation, drop all capabilities, use read-only root filesystems, and receive only explicit writable temporary volumes. The chart does not mount a container-runtime socket or add privileged containers. The sandbox namespace retains its default-deny NetworkPolicy.
 
 ## Troubleshooting
 
 - **`/dev/kvm` missing:** enable virtualization in firmware, load `kvm` plus `kvm_amd` or `kvm_intel`, and check `dmesg` for KVM errors.
 - **`/dev/kvm` permission denied:** confirm `id` shows the `kvm` group after a full logout/login and inspect `ls -l /dev/kvm`.
-- **Lima provisioning fails:** run `limactl shell locoder sudo tail -n 200 /var/log/cloud-init-output.log` and inspect `~/.lima/locoder/ha.stderr.log`.
-- **Kubernetes API unavailable:** verify `limactl list locoder`, confirm the copied kubeconfig exists, and retry `kubectl --kubeconfig PATH get nodes`.
-- **Containerd fails after gVisor installation:** inspect `limactl shell locoder sudo journalctl -u containerd -n 200` and `/etc/containerd/conf.d/99-locoder-gvisor.toml`.
-- **Image is reported missing:** check `limactl shell locoder sudo ctr --namespace k8s.io images list` and recreate the VM if an interrupted import left inconsistent state.
+- **Lima provisioning fails:** run `limactl shell j0coder sudo tail -n 200 /var/log/cloud-init-output.log` and inspect `~/.lima/j0coder/ha.stderr.log`.
+- **Kubernetes API unavailable:** verify `limactl list j0coder`, confirm the copied kubeconfig exists, and retry `kubectl --kubeconfig PATH get nodes`.
+- **Containerd fails after gVisor installation:** inspect `limactl shell j0coder sudo journalctl -u containerd -n 200` and `/etc/containerd/conf.d/99-j0coder-gvisor.toml`.
+- **Image is reported missing:** check `limactl shell j0coder sudo ctr --namespace k8s.io images list` and recreate the VM if an interrupted import left inconsistent state.
 - **VPN or DNS failures:** Lima user-mode networking uses the host resolver. Test without the VPN, then correct host resolver or VPN split-DNS policy.
 - **Existing instance rejected:** choose a different `LIMA_INSTANCE` or delete the disposable instance with `make kube-dev-down`.
 

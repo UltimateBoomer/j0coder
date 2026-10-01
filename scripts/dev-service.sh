@@ -18,7 +18,7 @@ source .env
 set +a
 export DATABASE_URL="postgres://practice:${POSTGRES_PASSWORD}@127.0.0.1:15432/practice"
 export VALKEY_URL="redis://:${VALKEY_PASSWORD}@127.0.0.1:16379"
-export CONTAINER_HOST="unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/locoder-podman.sock"
+export CONTAINER_HOST="unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/j0coder-podman.sock"
 export SANDBOX_RUNTIME="$root/.dev/gvisor/current/runsc"
 toolchain_image=$(<"$root/.dev/run/toolchain-image")
 export TOOLCHAIN_IMAGE="$toolchain_image"

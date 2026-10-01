@@ -1,4 +1,4 @@
-use locoder::{catalog, contract::*};
+use j0coder::{catalog, contract::*};
 use serde_json::{Value, json};
 
 fn sample() -> Problem {

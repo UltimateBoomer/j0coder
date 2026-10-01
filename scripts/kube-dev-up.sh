@@ -2,12 +2,12 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-profile=${LIMA_INSTANCE:-locoder}
+profile=${LIMA_INSTANCE:-j0coder}
 cpus=${LIMA_CPUS:-6}
 memory=${LIMA_MEMORY:-12}
 disk=${LIMA_DISK_SIZE:-40}
-app_image=${APP_IMAGE:-localhost/locoder-app:1}
-toolchain_image=${TOOLCHAIN_IMAGE:-localhost/locoder-toolchain:1}
+app_image=${APP_IMAGE:-localhost/j0coder-app:1}
+toolchain_image=${TOOLCHAIN_IMAGE:-localhost/j0coder-toolchain:1}
 
 case "$(uname -m)" in
     x86_64) qemu_command=qemu-system-x86_64 ;;
@@ -55,8 +55,8 @@ else
         "$root/deploy/local-kubernetes/lima.yaml"
 fi
 
-if ! limactl shell "$profile" test -f /etc/locoder/development-vm; then
-    echo "Lima instance $profile was not created by the Locoder development template." >&2
+if ! limactl shell "$profile" test -f /etc/j0coder/development-vm; then
+    echo "Lima instance $profile was not created by the j0coder development template." >&2
     echo "Choose another LIMA_INSTANCE or delete the disposable instance with make kube-dev-down." >&2
     exit 1
 fi
@@ -91,9 +91,9 @@ curl -fsSL "$gvisor_url/gvisor.tar.bz2.sha512" -o "$tmp/gvisor.tar.bz2.sha512"
 mkdir "$tmp/gvisor"
 tar -xjf "$tmp/gvisor.tar.bz2" -C "$tmp/gvisor"
 tar -cf "$tmp/gvisor.tar" -C "$tmp/gvisor" .
-limactl copy "$tmp/gvisor.tar" "$profile:/tmp/locoder-gvisor.tar"
+limactl copy "$tmp/gvisor.tar" "$profile:/tmp/j0coder-gvisor.tar"
 limactl copy "$root/scripts/lima-install-gvisor.sh" "$profile:/tmp/lima-install-gvisor.sh"
-limactl shell "$profile" sudo bash /tmp/lima-install-gvisor.sh /tmp/locoder-gvisor.tar
+limactl shell "$profile" sudo bash /tmp/lima-install-gvisor.sh /tmp/j0coder-gvisor.tar
 "${kubectl_cmd[@]}" wait --for=condition=Ready node/"$node_name" --timeout=120s
 "${kubectl_cmd[@]}" apply -f "$root/deploy/local-kubernetes/runtimeclass.yaml" >/dev/null
 test "$("${kubectl_cmd[@]}" get runtimeclass gvisor -o jsonpath='{.handler}')" = gvisor || {
@@ -101,20 +101,20 @@ test "$("${kubectl_cmd[@]}" get runtimeclass gvisor -o jsonpath='{.handler}')" =
     exit 1
 }
 
-"${kubectl_cmd[@]}" delete pod locoder-gvisor-check --ignore-not-found --wait=true --timeout=30s >/dev/null
-"${kubectl_cmd[@]}" run locoder-gvisor-check \
+"${kubectl_cmd[@]}" delete pod j0coder-gvisor-check --ignore-not-found --wait=true --timeout=30s >/dev/null
+"${kubectl_cmd[@]}" run j0coder-gvisor-check \
     --image=docker.io/library/busybox:latest \
     --restart=Never \
-    --overrides='{"spec":{"runtimeClassName":"gvisor","automountServiceAccountToken":false,"containers":[{"name":"locoder-gvisor-check","image":"docker.io/library/busybox:latest","command":["dmesg"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true,"runAsUser":65534,"runAsGroup":65534,"seccompProfile":{"type":"RuntimeDefault"}}}]}}' >/dev/null
-if ! "${kubectl_cmd[@]}" wait --for=jsonpath='{.status.phase}'=Succeeded pod/locoder-gvisor-check --timeout=60s; then
-    "${kubectl_cmd[@]}" describe pod locoder-gvisor-check >&2
+    --overrides='{"spec":{"runtimeClassName":"gvisor","automountServiceAccountToken":false,"containers":[{"name":"j0coder-gvisor-check","image":"docker.io/library/busybox:latest","command":["dmesg"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true,"runAsUser":65534,"runAsGroup":65534,"seccompProfile":{"type":"RuntimeDefault"}}}]}}' >/dev/null
+if ! "${kubectl_cmd[@]}" wait --for=jsonpath='{.status.phase}'=Succeeded pod/j0coder-gvisor-check --timeout=60s; then
+    "${kubectl_cmd[@]}" describe pod j0coder-gvisor-check >&2
     exit 1
 fi
-"${kubectl_cmd[@]}" logs locoder-gvisor-check | grep -qi gvisor || {
+"${kubectl_cmd[@]}" logs j0coder-gvisor-check | grep -qi gvisor || {
     echo "RuntimeClass probe did not identify itself as gVisor" >&2
     exit 1
 }
-"${kubectl_cmd[@]}" delete pod locoder-gvisor-check --wait=false >/dev/null
+"${kubectl_cmd[@]}" delete pod j0coder-gvisor-check --wait=false >/dev/null
 
 archive_image() {
     local image=$1 archive=$2
@@ -126,7 +126,7 @@ containerd_image_digest() {
         awk -v ref="$image" '$1 == ref { print $3 }'
 }
 
-echo "Loading Locoder images into Lima's Kubernetes containerd"
+echo "Loading j0coder images into Lima's Kubernetes containerd"
 archive_image "$app_image" "$tmp/app.tar"
 archive_image "$toolchain_image" "$tmp/toolchain.tar"
 limactl copy "$tmp/app.tar" "$tmp/toolchain.tar" "$profile:/tmp/"
@@ -143,20 +143,20 @@ limactl shell "$profile" sudo ctr --namespace k8s.io images tag --force \
 limactl shell "$profile" sudo rm -f /tmp/app.tar /tmp/toolchain.tar /tmp/lima-install-gvisor.sh
 
 echo "Creating ephemeral PostgreSQL and Valkey"
-"${kubectl_cmd[@]}" create namespace locoder --dry-run=client -o yaml | "${kubectl_cmd[@]}" apply -f - >/dev/null
+"${kubectl_cmd[@]}" create namespace j0coder --dry-run=client -o yaml | "${kubectl_cmd[@]}" apply -f - >/dev/null
 python3 "$root/scripts/kube-dev-secrets.py" "$root/.env" | "${kubectl_cmd[@]}" apply -f - >/dev/null
 "${kubectl_cmd[@]}" apply -f "$root/deploy/local-kubernetes/dependencies.yaml" >/dev/null
-"${kubectl_cmd[@]}" rollout status --namespace locoder deployment/locoder-postgres --timeout=180s
-"${kubectl_cmd[@]}" rollout status --namespace locoder deployment/locoder-valkey --timeout=180s
+"${kubectl_cmd[@]}" rollout status --namespace j0coder deployment/j0coder-postgres --timeout=180s
+"${kubectl_cmd[@]}" rollout status --namespace j0coder deployment/j0coder-valkey --timeout=180s
 
-echo "Installing Locoder"
+echo "Installing j0coder"
 values_args=(--values "$root/deploy/local-kubernetes/values.yaml")
 local_values="$root/deploy/local-kubernetes/values.local.yaml"
 if [[ -f "$local_values" ]]; then
     values_args+=(--values "$local_values")
 fi
-"${helm_cmd[@]}" upgrade --install locoder "$root/deploy/helm/locoder" \
-    --namespace locoder \
+"${helm_cmd[@]}" upgrade --install j0coder "$root/deploy/helm/j0coder" \
+    --namespace j0coder \
     "${values_args[@]}" \
     --set-string "images.app.repository=${app_image%:*}" \
     --set-string "images.app.digest=$app_digest" \
@@ -165,5 +165,5 @@ fi
     --wait \
     --timeout 5m
 
-"${kubectl_cmd[@]}" get pods --namespace locoder
-echo "Locoder is ready. Run: KUBECONFIG='$kubeconfig' kubectl -n locoder port-forward service/locoder-api 8080:8080"
+"${kubectl_cmd[@]}" get pods --namespace j0coder
+echo "j0coder is ready. Run: KUBECONFIG='$kubeconfig' kubectl -n j0coder port-forward service/j0coder-api 8080:8080"

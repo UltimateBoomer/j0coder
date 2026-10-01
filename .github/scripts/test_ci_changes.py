@@ -21,7 +21,7 @@ class ChangesTest(unittest.TestCase):
                          {"web", "integration"})
 
     def test_deployment_changes(self):
-        self.assertEqual(checks_for("deploy/helm/locoder/values.yaml"), {"helm"})
+        self.assertEqual(checks_for("deploy/helm/j0coder/values.yaml"), {"helm"})
         self.assertEqual(checks_for("deploy/local-kubernetes/lima.yaml"), {"helm", "config"})
         self.assertEqual(checks_for("compose.yaml"), {"config"})
         self.assertEqual(checks_for("deploy/nginx.conf"), {"config"})

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ include "locoder.sandboxNamespace" . }}
+  name: {{ include "j0coder.sandboxNamespace" . }}
   labels:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: latest
@@ -10,7 +10,7 @@ metadata:
 ---
 apiVersion: v1
 kind: ResourceQuota
-metadata: {name: locoder-sandboxes, namespace: {{ include "locoder.sandboxNamespace" . }}}
+metadata: {name: j0coder-sandboxes, namespace: {{ include "j0coder.sandboxNamespace" . }}}
 spec:
   hard:
     requests.cpu: {{ .Values.sandbox.quota.cpu | quote }}
@@ -23,7 +23,7 @@ spec:
 ---
 apiVersion: v1
 kind: LimitRange
-metadata: {name: locoder-sandboxes, namespace: {{ include "locoder.sandboxNamespace" . }}}
+metadata: {name: j0coder-sandboxes, namespace: {{ include "j0coder.sandboxNamespace" . }}}
 spec:
   limits:
     - type: Container
@@ -32,22 +32,22 @@ spec:
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-metadata: {name: default-deny, namespace: {{ include "locoder.sandboxNamespace" . }}}
+metadata: {name: default-deny, namespace: {{ include "j0coder.sandboxNamespace" . }}}
 spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
 ---
 apiVersion: v1
 kind: ServiceAccount
-metadata: {name: locoder-worker, namespace: {{ .Release.Namespace }}}
+metadata: {name: j0coder-worker, namespace: {{ .Release.Namespace }}}
 automountServiceAccountToken: true
 ---
 apiVersion: v1
 kind: ServiceAccount
-metadata: {name: locoder-editor, namespace: {{ .Release.Namespace }}}
+metadata: {name: j0coder-editor, namespace: {{ .Release.Namespace }}}
 automountServiceAccountToken: true
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
-metadata: {name: locoder-sandbox-controller, namespace: {{ include "locoder.sandboxNamespace" . }}}
+metadata: {name: j0coder-sandbox-controller, namespace: {{ include "j0coder.sandboxNamespace" . }}}
 rules:
   - apiGroups: [""]
     resources: [pods]
@@ -61,8 +61,8 @@ rules:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
-metadata: {name: locoder-sandbox-controller, namespace: {{ include "locoder.sandboxNamespace" . }}}
+metadata: {name: j0coder-sandbox-controller, namespace: {{ include "j0coder.sandboxNamespace" . }}}
 subjects:
-  - {kind: ServiceAccount, name: locoder-worker, namespace: {{ .Release.Namespace }}}
-  - {kind: ServiceAccount, name: locoder-editor, namespace: {{ .Release.Namespace }}}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: locoder-sandbox-controller}
+  - {kind: ServiceAccount, name: j0coder-worker, namespace: {{ .Release.Namespace }}}
+  - {kind: ServiceAccount, name: j0coder-editor, namespace: {{ .Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: j0coder-sandbox-controller}

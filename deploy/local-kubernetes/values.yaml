@@ -5,8 +5,8 @@ ingress:
 networkPolicy:
   enabled: false
 existingSecrets:
-  database: {name: locoder-dev, key: DATABASE_URL}
-  valkey: {name: locoder-dev, key: VALKEY_URL}
+  database: {name: j0coder-dev, key: DATABASE_URL}
+  valkey: {name: j0coder-dev, key: VALKEY_URL}
 sandbox:
   runtimeClass: gvisor
 replicas:

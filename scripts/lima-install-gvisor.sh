@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-archive=${1:-/tmp/locoder-gvisor.tar}
+archive=${1:-/tmp/j0coder-gvisor.tar}
 test -f "$archive" || { echo "missing gVisor archive: $archive" >&2; exit 1; }
 
 install -d -m 0755 /usr/local/bin /etc/containerd/conf.d
@@ -10,7 +10,7 @@ test -x /usr/local/bin/runsc
 test -x /usr/local/bin/containerd-shim-runsc-v1
 test -d /usr/local/bin/gvisor-bin
 
-cat >/etc/containerd/conf.d/99-locoder-gvisor.toml <<'EOF'
+cat >/etc/containerd/conf.d/99-j0coder-gvisor.toml <<'EOF'
 version = 2
 
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.gvisor]

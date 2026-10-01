@@ -984,6 +984,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "j0coder"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "axum",
+ "chrono",
+ "futures-util",
+ "hex",
+ "k8s-openapi",
+ "kube",
+ "minijinja",
+ "redis",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1143,32 +1169,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
-]
-
-[[package]]
-name = "locoder"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "axum",
- "chrono",
- "futures-util",
- "hex",
- "k8s-openapi",
- "kube",
- "minijinja",
- "redis",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "sqlx",
- "tokio",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

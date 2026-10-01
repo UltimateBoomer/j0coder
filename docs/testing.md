@@ -45,5 +45,5 @@ For the full runner/browser test, deploy the same test accounts with the rootles
 When finished, stop the test API process, then remove only the test dependencies:
 
 ```sh
-podman rm -f locoder-test-pg locoder-test-valkey
+podman rm -f j0coder-test-pg j0coder-test-valkey
 ```

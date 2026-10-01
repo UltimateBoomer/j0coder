@@ -1,4 +1,4 @@
-name: locoder
+name: j0coder
 services:
   postgres:
     image: docker.io/library/postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be

@@ -5,6 +5,7 @@
  import Fuse from 'fuse.js';
  import DOMPurify from 'dompurify';import {marked} from 'marked';
  import Constraints from './Constraints.svelte';
+ import {readPreference} from './preferences';
  let user:any=null,loading=true,routeLoading=false,error='',username='',password='',allProblems:ProblemSummary[]=[],problems:ProblemSummary[]=[],active:any=null;
  let route:Route=parseRoute(window.location),query='',difficulty='',tag='',Editor:any=null;
  let drafts:any[]=[],draftId='',draftText='',preview:any=null,notice='',newUsername='',newPassword='',loadSequence=0;
@@ -32,15 +33,15 @@
  }
  function resetQuickScroll(){quickScrollTop=0;if(quickScrollElement)quickScrollElement.scrollTop=0}
  type ThemeChoice='system'|'light'|'dark';
- const savedTheme=localStorage.getItem('locoder:theme');
+ const savedTheme=readPreference('theme');
  let themeChoice:ThemeChoice=savedTheme==='light'||savedTheme==='dark'||savedTheme==='system'?savedTheme:'system';
  let systemDark=window.matchMedia('(prefers-color-scheme: dark)').matches;
  $: resolvedTheme=themeChoice==='system'?(systemDark?'dark':'light'):themeChoice;
  $: if(typeof document!=='undefined')document.documentElement.dataset.theme=resolvedTheme;
- function chooseTheme(value:ThemeChoice){themeChoice=value;localStorage.setItem('locoder:theme',value)}
+ function chooseTheme(value:ThemeChoice){themeChoice=value;localStorage.setItem('j0coder:theme',value)}
  const template={schema:3,title:'New problem',statement:'# New problem\n\nDescribe the task.',difficulty:'easy',tags:['arrays'],interface:{kind:'function',name:'solve',params:[{name:'values',ty:{array:'int'}}],returns:'int'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:[[1,2]],expected:3,hidden:false},{args:[[]],expected:0,hidden:true}]};
  const markdown=(s:string)=>DOMPurify.sanitize(marked.parse(s,{async:false}) as string);
- const routeTitle=()=>route.kind==='problem'&&active?`${active.problem.title} · Locoder`:route.kind.startsWith('admin')?'Authoring · Locoder':route.kind==='access-denied'?'Access denied · Locoder':route.kind==='not-found'?'Not found · Locoder':'Problems · Locoder';
+ const routeTitle=()=>route.kind==='problem'&&active?`${active.problem.title} · j0coder`:route.kind.startsWith('admin')?'Authoring · j0coder':route.kind==='access-denied'?'Access denied · j0coder':route.kind==='not-found'?'Not found · j0coder':'Problems · j0coder';
  async function fetchList():Promise<ProblemSummary[]>{
   const items:ProblemSummary[]=[];
   let cursor='';
@@ -135,7 +136,7 @@
 </script>
 <svelte:head><title>{routeTitle()}</title></svelte:head>
 <header>
- <button class="brand" onclick={()=>go('/')}>◈ <span>locoder</span></button>
+ <button class="brand" onclick={()=>go('/')}>◈ <span>j0coder</span></button>
  {#if user}
   <div class="header-search" bind:this={quickRoot} onfocusout={(event)=>{if(!quickRoot?.contains(event.relatedTarget as Node|null))dismissQuickSearch()}}>
    <input bind:this={quickInput} aria-label="Find a problem" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="header-problem-results" aria-expanded={quickOpen} aria-activedescendant={quickOpen&&quickResults.length&&quickActiveIndex>=quickFirst&&quickActiveIndex<quickLast?`header-problem-${quickResults[quickActiveIndex].id}`:undefined} placeholder="Search problems…" value={quickQuery} oninput={(event)=>updateQuickSearch(event.currentTarget.value)} onfocus={()=>{if(quickQuery.trim())quickOpen=true;void loadCatalog().catch(()=>{})}} onkeydown={onQuickKeydown}/>

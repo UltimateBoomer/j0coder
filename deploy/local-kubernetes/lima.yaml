@@ -26,5 +26,5 @@ provision:
     script: |
       #!/bin/sh
       set -eu
-      install -d -m 0755 /etc/locoder
-      printf '%s\n' lima-kubeadm-qemu > /etc/locoder/development-vm
+      install -d -m 0755 /etc/j0coder
+      printf '%s\n' lima-kubeadm-qemu > /etc/j0coder/development-vm

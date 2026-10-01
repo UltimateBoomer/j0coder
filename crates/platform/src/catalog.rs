@@ -700,7 +700,7 @@ mod tests {
     use super::*;
     fn fixture() -> PathBuf {
         let root =
-            std::env::temp_dir().join(format!("locoder-catalog-test-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("j0coder-catalog-test-{}", uuid::Uuid::new_v4()));
         let p = root.join("problems/example");
         fs::create_dir_all(p.join("tests/visible")).unwrap();
         fs::write(p.join("problem.yaml"), "schema: 1\nkey: example/add-one\ntitle: Add One\ndifficulty: easy\ntags: [example]\ninterface:\n  kind: function\n  name: addOne\n  params: [{name: value, ty: int}]\n  returns: int\n").unwrap();
