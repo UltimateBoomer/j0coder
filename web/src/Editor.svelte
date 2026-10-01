@@ -1,10 +1,9 @@
 <script lang="ts">
  import {onMount} from 'svelte';import {api,type ProblemDetail,type User} from './api';import {SolutionSync,type SolutionLanguage,type SaveStatus} from './solution-sync';import DOMPurify from 'dompurify';import {marked} from 'marked';import Constraints from './Constraints.svelte';
  export let problem:ProblemDetail;export let user:User;export let theme:'light'|'dark';export let onerror:(e:string)=>void;
- import {readPreference} from './preferences';
  let host:HTMLDivElement, language:SolutionLanguage='cpp',modelLanguage:SolutionLanguage='cpp',editor:any,monaco:any,semantic='Starting editor…',busy=false,switching=false,history:any[]=[],selected:any=null,alive=true,subscription:any;
  let workspace:HTMLDivElement,resultsSplit:HTMLDivElement;
- let statementWidth=43,resultsHeight=36,historyWidth=30,blindMode=readPreference('blind-mode')==='true',revealedHints=0;
+ let statementWidth=43,resultsHeight=36,historyWidth=30,blindMode=localStorage.getItem('j0coder:blind-mode')==='true',revealedHints=0;
  $: if(monaco)monaco.editor.setTheme(theme==='dark'?'vs-dark':'vs');
  let connection:import('./semantic').Connection|undefined,connectionGeneration=0,retryCount=0,retryTimer:ReturnType<typeof setTimeout>|undefined;
  let saveStatuses:Record<SolutionLanguage,SaveStatus>={cpp:'loading',python:'loading',java:'loading',kotlin:'loading'};

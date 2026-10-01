@@ -5,7 +5,6 @@
  import Fuse from 'fuse.js';
  import DOMPurify from 'dompurify';import {marked} from 'marked';
  import Constraints from './Constraints.svelte';
- import {readPreference} from './preferences';
  let user:any=null,loading=true,routeLoading=false,error='',username='',password='',allProblems:ProblemSummary[]=[],problems:ProblemSummary[]=[],active:any=null;
  let route:Route=parseRoute(window.location),query='',difficulty='',tag='',Editor:any=null;
  let drafts:any[]=[],draftId='',draftText='',preview:any=null,notice='',newUsername='',newPassword='',loadSequence=0;
@@ -33,7 +32,7 @@
  }
  function resetQuickScroll(){quickScrollTop=0;if(quickScrollElement)quickScrollElement.scrollTop=0}
  type ThemeChoice='system'|'light'|'dark';
- const savedTheme=readPreference('theme');
+ const savedTheme=localStorage.getItem('j0coder:theme');
  let themeChoice:ThemeChoice=savedTheme==='light'||savedTheme==='dark'||savedTheme==='system'?savedTheme:'system';
  let systemDark=window.matchMedia('(prefers-color-scheme: dark)').matches;
  $: resolvedTheme=themeChoice==='system'?(systemDark?'dark':'light'):themeChoice;

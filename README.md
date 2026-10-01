@@ -2,8 +2,6 @@
 
 j0coder is a self-hosted coding workspace for authoring and solving programming problems. It combines a Svelte/Monaco frontend, a Rust/Axum API, PostgreSQL, Valkey Streams, and isolated gVisor execution through either rootless Podman or Kubernetes.
 
-Upgrading an existing Locoder installation? Follow the [data-preserving rename migration](docs/rename-migration.md) before starting the renamed stack.
-
 Problems can expose global C++ or top-level Python functions, or stateful data structures. Published versions are immutable, hidden tests remain server-side, and every test runs inside a resource-limited sandbox.
 
 > gVisor is mandatory for untrusted execution. Local development uses rootless Podman for PostgreSQL, Valkey, and sandbox execution, with the project-local patched runsc runtime. Staging and production use Kubernetes with an operator-installed gVisor RuntimeClass.
