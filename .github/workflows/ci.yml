@@ -178,7 +178,6 @@ jobs:
           persist-credentials: false
       - run: bash -n scripts/*.sh
       - run: python3 -m compileall -q scripts tests
-      - run: python3 -m unittest discover -s tests -p 'test_backup_restore.py'
       - run: docker compose -f compose.dev.yaml config -q
       - run: docker compose -f compose.yaml config -q
 

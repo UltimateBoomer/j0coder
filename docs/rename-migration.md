@@ -22,16 +22,19 @@ Replace monitoring queries for `locoder_submissions`, `locoder_executions_total`
    Before switching sandbox labels, remove only leftover containers bearing
    `locoder.editor=true` or `locoder.sandbox=true`; preserve database volumes.
    Do not use `compose down --volumes`.
-2. With the new scripts in the old checkout, back up the stopped old project:
+2. Use the **pre-rename revision's** ordinary backup tools to export the old
+   `locoder_postgres` and `locoder_valkey` volumes and preserve `.env` and
+   `data/config`. For the full Compose stack, its existing backup command is:
 
    ```sh
-   scripts/backup.sh --project-name locoder --compose-file compose.dev.yaml \
-     --leave-stopped "$HOME/backups/locoder-before-j0coder"
+   scripts/backup.sh "$HOME/backups/locoder-before-j0coder"
    ```
 
-   Use `--compose-file compose.yaml` for the full stack. The backup format is
-   unchanged; it includes both volume archives, `.env`, and `data/config`.
-   The leave-stopped option prevents restarting old services during cutover.
+   For native development, stop the native processes first and select the
+   dependency stack with `COMPOSE_FILE=compose.dev.yaml`. The existing backup
+   script restarts its Compose services when finished; stop them again before
+   starting j0coder. The backup format is unchanged. There are no rename-specific
+   upgrade scripts or command-line options.
 3. Clone the renamed app into a fresh sibling `j0coder` directory and the catalog
    into `j0coder-problems`. Restore from the app checkout before configuring it:
 
@@ -39,9 +42,10 @@ Replace monitoring queries for `locoder_submissions`, `locoder_executions_total`
    scripts/restore.sh "$HOME/backups/locoder-before-j0coder"
    ```
 
-   Restore refuses existing `.env`, `data/config`, or destination volumes. Old
-   backups work directly. It creates `j0coder_postgres` and `j0coder_valkey` and
-   preserves the old volumes. Never run both stacks against the same host ports.
+   Restore requires a fresh checkout without `.env` and refuses existing
+   destination volumes. Old backups work directly. It creates `j0coder_postgres`
+   and `j0coder_valkey` and preserves the old volumes. Never run both stacks
+   against the same host ports.
 4. Review the restored `.env` without printing its credentials. Change the old
    socket basename to `j0coder-podman.sock`, update absolute checkout/runtime and
    SSH paths, and select the rebuilt images. Keep passwords and public origin.
@@ -115,9 +119,10 @@ runner, or machine configuration references that contain the old repository name
 Stop j0coder first, including its sandbox containers/Pods and catalog controller.
 If the new installation received no writes, restart the old revision with its old
 configuration and original volumes/services. If it received writes, take a new
-consistent backup and restore it to **fresh** rollback volumes with
-`scripts/restore.sh --project-name ROLLBACK_PROJECT`, then run the old Compose file
-with that project name; never overwrite the original volumes or resume stale
-database/queue copies. For Kubernetes, retain the current external data and
+consistent backup. Manually create `locoder-rollback_postgres` and
+`locoder-rollback_valkey` volumes with Podman, import the latest archives, and run
+the old Compose file with `-p locoder-rollback`. Refuse any pre-existing rollback
+volumes; never overwrite the original volumes or resume stale database/queue
+copies. For Kubernetes, retain the current external data and
 restore the old workload and ingress configuration. Keep paired old app/toolchain
 images; the rename introduces no database changes to reverse.
