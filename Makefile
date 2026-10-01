@@ -10,7 +10,7 @@ TOOLCHAIN_IMAGE ?= localhost/j0coder-toolchain:1
 .DEFAULT_GOAL := help
 
 .PHONY: help configure check build test app-image toolchain-image images pin-images helm-check
-.PHONY: preflight up dev-gvisor dev-up dev-attach dev-down kube-dev-up kube-dev-down
+.PHONY: preflight up down status logs dev-gvisor dev-up dev-attach dev-down kube-dev-up kube-dev-down
 
 # Repository setup
 help:
@@ -32,7 +32,7 @@ help:
 	  '' \
 	  'Runtime:' \
 	  '  preflight       Validate the configured gVisor sandbox' \
-	  '  up              Run preflight, then start the configured stack' \
+	  '  up              Install and start the release-backed stack' \
 	  '  dev-up          Start native services and Compose database/queue dependencies' \
 	  '  dev-attach      Attach to the development tmux session' \
 	  '  dev-down        Stop native services, dependencies, and gVisor controller' \
@@ -78,8 +78,11 @@ pin-images: configure toolchain-image app-image
 preflight:
 	./scripts/preflight.sh
 
-up: preflight
-	$(PODMAN) compose up -d
+up:
+	./scripts/setup.sh up
+
+down status logs:
+	./scripts/setup.sh $@
 
 # Rootless development runtime
 dev-gvisor:

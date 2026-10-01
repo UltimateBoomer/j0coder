@@ -5,7 +5,7 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -74,3 +74,74 @@ jobs:
         run: |
           printf '### %s\n\nTag: `%s:%s`  \nDigest: `%s@%s`\n' \
             '${{ matrix.image }}' "$IMAGE" "$TAG" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save immutable image reference
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: printf '%s@%s' "$IMAGE" "$DIGEST" > image-reference.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.image }}-reference
+          path: image-reference.txt
+
+  deployment:
+    name: Publish complete installation release
+    needs: publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: references
+      - name: Build patched gVisor archive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman uidmap
+          ./scripts/install-gvisor-dev.sh
+      - name: Assemble release assets
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 scripts/package-release.py --version "$RELEASE_TAG" \
+            --app-image "$(cat references/j0coder-app-reference/image-reference.txt)" \
+            --toolchain-image "$(cat references/j0coder-toolchain-reference/image-reference.txt)" \
+            --gvisor-dir .dev/gvisor/current
+      - name: Verify anonymous image pulls
+        run: |
+          mkdir -p /tmp/j0coder-empty-auth
+          printf '{"auths":{}}' > /tmp/j0coder-empty-auth/auth.json
+          for ref in references/*/image-reference.txt; do
+            podman pull --authfile /tmp/j0coder-empty-auth/auth.json "$(cat "$ref")"
+          done
+      - name: Publish archives first
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -qx release-manifest.json; then
+            echo 'Refusing to replace artifacts of an already complete release' >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/deployment.tar.gz release-assets/gvisor-linux-x86_64.tar.gz --clobber
+      - name: Verify anonymous archive downloads
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, urllib.request, hashlib
+          manifest = json.load(open('release-assets/release-manifest.json'))
+          for key in ('bundle', 'gvisor'):
+              asset = manifest[key]
+              with urllib.request.urlopen(asset['url'], timeout=120) as response:
+                  assert hashlib.sha256(response.read()).hexdigest() == asset['sha256']
+          PYCODE
+      - name: Publish completion manifest last
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" release-assets/release-manifest.json --clobber

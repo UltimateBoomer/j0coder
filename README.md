@@ -1,6 +1,6 @@
 # j0coder
 
-j0coder is a private, self-hostable alternative to LeetCode and HackerRank. It gives you a place to practice programming, prepare for interviews, and publish your own coding problems while keeping accounts, solutions, and test data on infrastructure you control.
+j0coder is a self-hostable alternative to LeetCode and HackerRank. It gives you a place to practice programming, prepare for interviews, and publish your own coding problems while keeping accounts, solutions, and test data on infrastructure you control.
 
 Use it as a personal practice workspace or host a shared problem library for a team or class. Learners solve problems in the browser; administrators curate and publish the problems available on their installation.
 
@@ -23,62 +23,56 @@ Choose a single-host Compose installation or Kubernetes. Both require gVisor for
 
 The supplied `compose.yaml` runs the full application, PostgreSQL, Valkey, and a web proxy on one x86_64 Linux host. **The supported container engine is rootless Podman.** Although this is a Compose deployment, the file uses Podman-specific user mappings and a Podman API socket; it is not a drop-in Docker Engine deployment. Docker Engine support would require adapting those settings and providing a compatible sandbox backend.
 
-Install Git, Make, Python 3, Podman, a `podman compose` provider (such as podman-compose), and the host user-namespace helpers. The [gVisor installer](scripts/install-gvisor-dev.sh) uses a containerized builder and requires `crun`, `tar`, and `sha256sum`. Run the following from a checkout as the Linux user that will own the installation:
-
-```sh
-make configure
-make images BUILD_JOBS=2
-make dev-gvisor
-scripts/gvisor-controller.sh start
-```
-
-Configuration generates random database and queue credentials in `.env` and `data/config/`. Image builds pin the application and toolchain image IDs in `.env`. Initial setup requires network access and can take a while.
-
-Before starting, edit `.env` for your deployment:
-
-```dotenv
-PUBLIC_ORIGIN=https://coding.example.com
-COOKIE_SECURE=true
-PORT=8080
-CATALOG_ENABLED=false
-CATALOG_SSH_KEY_PATH=./data/config/catalog-disabled-key
-CATALOG_KNOWN_HOSTS_PATH=./data/config/catalog-disabled-known-hosts
-```
-
-The catalog mount paths are required even when Git import is disabled. Create empty placeholder files for this configuration:
-
-```sh
-touch data/config/catalog-disabled-key data/config/catalog-disabled-known-hosts
-```
-
-To enable Git import, supply a deploy key and known-hosts file instead; follow the [catalog guide](docs/catalog.md).
-
-Place a TLS reverse proxy in front of `127.0.0.1:8080`, forwarding browser traffic and editor WebSockets. Set `PUBLIC_ORIGIN` to the exact browser-facing HTTPS origin. PostgreSQL and Valkey stay on internal container networks; keep the Podman socket private.
+From a checkout, run:
 
 ```sh
 make up
-podman compose ps
-podman compose logs --tail=100 api worker editor
 ```
 
-`make up` checks gVisor and resource-limit enforcement before starting the stack. Once the API is ready, create the first administrator (Bash):
-
-```bash
-read -rsp 'New admin password (12+ characters): ' j0coder_password; echo
-printf '%s\n' "$j0coder_password" | podman compose exec -T api api bootstrap-admin admin
-unset j0coder_password
-```
-
-Sign in as `admin` at your configured public origin and open **Authoring** to publish your first problem. The bootstrap command is for a new database; an existing username causes it to fail.
-
-To stop the installation without deleting its database and queue volumes:
+Or install without Git or a build toolchain:
 
 ```sh
-podman compose down
-scripts/gvisor-controller.sh stop
+curl -fsSL https://raw.githubusercontent.com/UltimateBoomer/j0coder/main/scripts/install.sh | sh
 ```
 
-Arrange for the dedicated Podman controller and Compose stack to start again after host reboots. The setup commands do not install a host startup service.
+To inspect the entry point first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/UltimateBoomer/j0coder/main/scripts/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+The installer requires Python 3.9+, Linux x86_64, rootless Podman with a Compose provider, user namespaces, systemd user services, and cgroup v2. It offers apt/dnf prerequisite installation on Debian/Ubuntu and Fedora, showing commands before running sudo. Package installation and reboot integration are opt-in. Other distributions must install prerequisites themselves.
+
+First setup resolves the latest complete stable release, downloads checksum-verified patched gVisor and deployment archives, pulls immutable application/toolchain images, generates database and queue credentials, runs resource-limit preflight, and waits for readiness. A release becomes installable only after its compatible `release-manifest.json` is published. Older image-only releases cannot be installed this way.
+
+Terminal prompts use `/dev/tty`, including hidden and confirmed administrator password entry, so piped installation works. The default origin is `http://localhost:8080`, with ingress bound to loopback. For a public installation, choose the exact HTTPS browser origin and put your existing TLS reverse proxy in front of the local port; forward editor WebSockets too. Cookie security follows the chosen origin. Git import is disabled by default and placeholder mounts are created automatically. Follow the [catalog guide](docs/catalog.md) to enable import.
+
+The default installation directory is `$HOME/.local/share/j0coder`. Installer arguments include `--install-dir`, `--version`, `--public-origin`, `--port`, `--admin-username`, `--admin-password-file`, `--install-packages`/`--no-install-packages`, and `--autostart`/`--no-autostart`. Environment equivalents are `J0CODER_INSTALL_DIR`, `J0CODER_VERSION`, `PUBLIC_ORIGIN`, `PORT`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD_FILE`. For unattended installation, explicitly choose package installation and autostart, and supply the username and a private password file:
+
+```sh
+sh install.sh --no-install-packages --no-autostart \
+  --public-origin https://coding.example.com --port 8080 \
+  --admin-username admin --admin-password-file /path/to/private/password
+```
+
+The administrator password is sent through stdin and never written to `.env`, process arguments or logs. Usernames accept 1–64 ASCII letters, digits, underscores and hyphens; passwords accept 12–256 bytes. Sign in at the printed URL and open **Authoring** to publish your first problem.
+
+Run lifecycle commands inside the installation directory:
+
+```sh
+make up
+make status
+make logs
+make down
+```
+
+Repeated startup retains release pins, credentials, accounts and persistent volumes. Missing derived configuration is repaired using existing secrets. Incomplete credential configuration is refused; restore the original `.env` before retrying. Failures name the stage; rerun `make up` to resume. `make down` preserves database and queue volumes and stops the user service without disabling it. Restored databases retain their administrators. Existing users with no administrator require deliberate account recovery; setup will not create another account automatically. `api bootstrap-status` and `api bootstrap-admin USERNAME --if-empty` expose the same database-based safeguards locally.
+
+After successful setup you can opt into `j0coder.service`, a systemd user service that supervises the dedicated controller and recreates Compose containers after controller restarts. Reboot startup uses cached pinned artifacts without package installation, upgrades or onboarding. User lingering is needed to start before login; the installer offers the `sudo loginctl enable-linger` command and reports whether reboot setup is complete. Use `systemctl --user disable --now j0coder.service` to disable autostart. One installation per Linux user is supported.
+
+Native development (`make dev-up`) and Kubernetes remain separate workflows. The release publisher builds both images and patched gVisor, verifies anonymous image pulls and archive downloads, and publishes the completion manifest last. GHCR packages must be public for that gate to pass.
 
 ### Production with Kubernetes
 

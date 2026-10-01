@@ -30,6 +30,9 @@ jobs:
         run: |
           python3 -m unittest discover -s .github/scripts -p 'test_*.py'
           python3 .github/scripts/ci_changes.py
+          python3 -m unittest discover -s scripts -p test_setup.py
+          sh -n scripts/install.sh scripts/setup.sh
+          bash -n scripts/gvisor-controller.sh scripts/preflight.sh
 
   rust:
     needs: changes
@@ -128,6 +131,9 @@ jobs:
       - run: cargo build --locked --bin api
       - run: printf '%s\n' 'Integration-password-123' | target/debug/api bootstrap-admin admin
       - run: cargo test --locked --lib queue::integration -- --ignored --test-threads=1
+      - run: cargo test --locked --test bootstrap -- --ignored
+        env:
+          BOOTSTRAP_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
       - run: npm ci --prefix web
       - run: npm run build --prefix web
       - run: cd web && npx playwright install --with-deps chromium

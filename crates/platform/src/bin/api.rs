@@ -14,13 +14,25 @@ async fn main() -> anyhow::Result<()> {
     if j0coder::env("MIGRATE_ON_START", "true") == "true" {
         sqlx::migrate!("../../migrations").run(&db).await?;
     }
+    if args.get(1).is_some_and(|a| a == "bootstrap-status") {
+        println!("{}", api::bootstrap_status(&db).await?);
+        return Ok(());
+    }
     if args.get(1).is_some_and(|a| a == "bootstrap-admin") {
         let username = args.get(2).ok_or_else(|| {
             anyhow::anyhow!("usage: api bootstrap-admin USERNAME; password read from stdin")
         })?;
         let mut password = String::new();
         std::io::stdin().read_line(&mut password)?;
-        api::create_user(&db, username, password.trim_end(), true).await?;
+        let password = password.strip_suffix('\n').unwrap_or(&password);
+        if args.get(3).is_some_and(|a| a == "--if-empty") {
+            println!(
+                "{}",
+                api::bootstrap_if_empty(&db, username, password).await?
+            );
+        } else {
+            api::create_user(&db, username, password, true).await?;
+        }
         return Ok(());
     }
     let app = api::App {

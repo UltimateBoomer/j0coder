@@ -130,6 +130,61 @@ pub async fn create_user(
         .await?;
     Ok(())
 }
+/// Bootstrap state is derived from the database, including restored installations.
+pub async fn bootstrap_status(db: &PgPool) -> anyhow::Result<&'static str> {
+    let (users, admins): (i64, i64) =
+        sqlx::query_as("SELECT count(*), count(*) FILTER (WHERE admin) FROM users")
+            .fetch_one(db)
+            .await?;
+    Ok(if admins > 0 {
+        "administrator-present"
+    } else if users > 0 {
+        "recovery-required"
+    } else {
+        "empty"
+    })
+}
+
+pub async fn bootstrap_if_empty(
+    db: &PgPool,
+    name: &str,
+    password: &str,
+) -> anyhow::Result<&'static str> {
+    let mut tx = db.begin().await?;
+    // Excludes all concurrent user inserts, including ordinary account creation.
+    sqlx::query("LOCK TABLE users IN EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await?;
+    let (users, admins): (i64, i64) =
+        sqlx::query_as("SELECT count(*), count(*) FILTER (WHERE admin) FROM users")
+            .fetch_one(&mut *tx)
+            .await?;
+    if admins > 0 {
+        return Ok("administrator-present");
+    }
+    anyhow::ensure!(
+        users == 0,
+        "recovery required: existing users have no administrator"
+    );
+    anyhow::ensure!(
+        !name.is_empty()
+            && name.len() <= 64
+            && name
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c)),
+        "invalid username"
+    );
+    let hash = hash_password(password)?;
+    sqlx::query("INSERT INTO users(id,username,password,admin) VALUES($1,$2,$3,true)")
+        .bind(Uuid::new_v4())
+        .bind(name)
+        .bind(hash)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok("created")
+}
+
 #[derive(Deserialize)]
 struct Login {
     username: String,
