@@ -1,4 +1,6 @@
 <script lang="ts">
+ import Select from './Select.svelte';
+ import {descriptionMotion} from './description-motion';
  import {onMount} from 'svelte';
  import {api,ApiError,setCsrf,type ProblemSummary} from './api';
  import {parseRoute,problemListUrl,push,replace,type Route} from './router';
@@ -17,6 +19,9 @@
  let route:Route=parseRoute(window.location),query='',difficulty='',tag='',Editor:any=null;
  let drafts:any[]=[],draftId='',draftText='',preview:any=null,notice='',loadSequence=0;
  let catalog:any=null,catalogText='';
+ let catalogMotionPaused=false;
+ try{catalogMotionPaused=localStorage.getItem('j0coder:catalog-motion')==='paused'}catch{}
+ function toggleCatalogMotion(){catalogMotionPaused=!catalogMotionPaused;try{localStorage.setItem('j0coder:catalog-motion',catalogMotionPaused?'paused':'running')}catch{}}
  const rowHeight=88,overscan=5;
  const quickRowHeight=72;
  const searchOptions={keys:[{name:'title',weight:0.65},{name:'summary',weight:0.2},{name:'tags',weight:0.15}],threshold:0.3,ignoreLocation:true,isCaseSensitive:false};
@@ -141,7 +146,7 @@
 </script>
 <svelte:head><title>{routeTitle()}</title></svelte:head>
 <header>
- <button class="brand" onclick={()=>go('/')}>◈ <span>j0coder</span></button>
+ <button class="brand" onclick={()=>go('/')}><span>j0coder</span></button>
  {#if user}
   <div class="header-search" bind:this={quickRoot} onfocusout={(event)=>{if(!quickRoot?.contains(event.relatedTarget as Node|null))dismissQuickSearch()}}>
    <input bind:this={quickInput} aria-label="Find a problem" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="header-problem-results" aria-expanded={quickOpen} aria-activedescendant={quickOpen&&quickResults.length&&quickActiveIndex>=quickFirst&&quickActiveIndex<quickLast?`header-problem-${quickResults[quickActiveIndex].id}`:undefined} placeholder="Search problems…" value={quickQuery} oninput={(event)=>updateQuickSearch(event.currentTarget.value)} onfocus={()=>{if(quickQuery.trim())quickOpen=true;void loadCatalog().catch(()=>{})}} onkeydown={onQuickKeydown}/>
@@ -166,7 +171,7 @@
    {/if}
   </div>
  {/if}
- <nav>{#if user||capabilities.guest_browsing}<button onclick={()=>go('/')}>Problems</button>{/if}{#if user}{#if user.admin}<button onclick={()=>go('/admin/problems')}>Authoring</button>{/if}<details class="user-menu"><summary aria-label="User menu">{user.username} <span aria-hidden="true">⌄</span></summary><div class="user-menu-items"><button onclick={()=>go('/settings')}>Settings</button><button onclick={toggleSemantic}>{preferences.semantic_completion?'Disable':'Enable'} semantic completion</button><label class="theme-control" for="theme">Theme<select id="theme" aria-label="Theme" value={themeChoice} onchange={(e)=>chooseTheme(e.currentTarget.value as ThemeChoice)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><button onclick={logout}>Sign out</button></div></details>{:else}<button onclick={()=>go('/settings')}>Settings</button><button onclick={()=>go('/login')}>Sign in</button>{/if}</nav>
+ <nav>{#if user||capabilities.guest_browsing}<button onclick={()=>go('/')}>Problems</button>{/if}{#if user}{#if user.admin}<button onclick={()=>go('/admin/problems')}>Authoring</button>{/if}<details class="user-menu"><summary aria-label="User menu">{user.username} <span aria-hidden="true">⌄</span></summary><div class="user-menu-items"><button onclick={()=>go('/settings')}>Settings</button><button class="switch-control" aria-label={`${preferences.semantic_completion?'Disable':'Enable'} semantic completion`} aria-pressed={preferences.semantic_completion} onclick={toggleSemantic}><span>Semantic completion</span><span class="switch-track" aria-hidden="true"><span></span></span></button><div class="theme-control">Theme<Select label="Theme" value={themeChoice} onchange={(value)=>chooseTheme(value as ThemeChoice)} options={[{value:'system',label:'System'},{value:'light',label:'Light'},{value:'dark',label:'Dark'}]}/></div><button class="switch-control" aria-pressed={catalogMotionPaused} onclick={toggleCatalogMotion}><span>Pause background animation</span><span class="switch-track" aria-hidden="true"><span></span></span></button><button onclick={logout}>Sign out</button></div></details>{:else}<button onclick={()=>go('/settings')}>Settings</button><button onclick={()=>go('/login')}>Sign in</button>{/if}</nav>
 </header>
 {#if error}<div class="alert" role="alert">{error}<button onclick={()=>error=''} aria-label="Dismiss error">×</button></div>{/if}
 {#if loading}<main><p>Loading workspace…</p></main>
@@ -181,10 +186,18 @@
 {:else if route.kind==='problem'&&active&&Editor}{#key `${user?.id||"guest"}:${active.id}:${active.version}`}<svelte:component this={Editor} problem={active} {user} {preferences} onpreferences={setPreferences} theme={resolvedTheme} onerror={(e:string)=>error=e}/>{/key}
 {:else if route.kind==='problems'}
  <main class="problems-page">
-  <div class="list-heading"><h1>Problems</h1><span class="count">{problems.length} problems</span></div>
+  <svg class="catalog-filter" aria-hidden="true" width="0" height="0"><defs>
+   <filter id="catalog-deband" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="1" seed="17" stitchTiles="stitch" result="noise"/>
+    <feColorMatrix in="noise" type="saturate" values="0" result="monochrome"/>
+    <feComposite in="SourceGraphic" in2="monochrome" operator="arithmetic" k1="0" k2="1" k3="0.032" k4="-0.016"/>
+   </filter>
+  </defs></svg>
+  <div class="catalog-background" class:paused={catalogMotionPaused} aria-hidden="true"><div class="catalog-gradient"></div><div class="catalog-gradient"></div></div>
+  <div class="list-heading"><h1>Problems</h1><div class="catalog-controls"><span class="count">{problems.length} problems</span></div></div>
   <div class="filters">
    <input aria-label="Search problems" placeholder="Search problems…" bind:value={query} oninput={resetListScroll}/>
-   <select aria-label="Difficulty" bind:value={difficulty} onchange={resetListScroll}><option value="">All difficulties</option><option>easy</option><option>medium</option><option>hard</option></select>
+   <Select label="Difficulty" bind:value={difficulty} onchange={resetListScroll} options={[{value:'',label:'All difficulties'},...['easy','medium','hard'].map(value=>({value,label:value}))]}/>
   </div>
   <div class="problem-list">
    <div class="table-heading"><span>PROBLEM</span><span>DIFFICULTY</span></div>
@@ -194,7 +207,7 @@
      {#each problems.slice(firstRow,lastRow) as p,i (p.id)}
       <button class="problem-row" onclick={()=>go(`/problems/${p.id}`)}>
        <span class="number">{String(firstRow+i+1).padStart(2,'0')}</span>
-       <span class="problem-title">{p.title}<small>{p.summary||p.tags.join(' · ')}</small></span>
+       <span class="problem-title">{p.title}<small use:descriptionMotion={p.summary||p.tags.join(' · ')} title={p.summary||p.tags.join(' · ')}><span>{p.summary||p.tags.join(' · ')}</span></small></span>
        <span class={`badge ${p.difficulty}`}>{p.difficulty} · {p.difficulty_score}</span>
        <span class="arrow">↗</span>
       </button>

@@ -1,3 +1,4 @@
+import {selectValue} from './select-helpers';
 import {test,expect} from '../../web/node_modules/@playwright/test/index';
 const defaults={theme:'system',default_language:'cpp',semantic_completion:true,font_size:14,tab_width:4,word_wrap:false,minimap:false,blind_mode:false};
 const id='00000000-0000-4000-8000-000000000001',version='00000000-0000-4000-8000-000000000002';
@@ -12,9 +13,9 @@ test('guest editor remains local and settings persist across reload',async({page
   if(path.endsWith('/problems'))return route.fulfill({json:[]});
   protectedRequests.push(path);return route.fulfill({status:401,json:{error:'authentication required'}});
  });
- await page.goto('/settings');await page.getByLabel('Default language').selectOption('python');await page.getByLabel('Theme',{exact:true}).selectOption('dark');await page.getByRole('button',{name:'Save preferences'}).click();
+ await page.goto('/settings');await selectValue(page.getByRole('combobox',{name:'Default language',exact:true}),'python');await selectValue(page.getByRole('combobox',{name:'Theme',exact:true}),'dark');await page.getByRole('button',{name:'Save preferences'}).click();
  await page.goto('/problems/'+id);await expect(page.getByRole('heading',{name:'Guest sample'})).toBeVisible();
- await expect(page.getByLabel('Language',{exact:true})).toHaveValue('python');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+ await expect(page.getByRole('combobox',{name:'Language',exact:true})).toHaveAttribute('data-value','python');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await expect(page.getByRole('button',{name:'Run',exact:true})).toBeDisabled();
  const source=page.locator('.monaco-editor .view-lines');await expect(source).toContainText('def solve');
  await page.locator('.monaco-editor').click();await page.keyboard.press('Control+a');await page.keyboard.type('def solve(): return 7');
@@ -33,8 +34,8 @@ test('account preferences set editor defaults and disabling semantic cancels ret
   if(path.endsWith('/problems/'+id))return route.fulfill({json:problem});
   return route.fulfill({json:[]});
  });
- await page.goto('/problems/'+id);await expect(page.getByLabel('Language',{exact:true})).toHaveValue('python');await expect(page.locator('.monaco-editor .view-lines')).toContainText('def solve');expect(tickets).toBe(0);
+ await page.goto('/problems/'+id);await expect(page.getByRole('combobox',{name:'Language',exact:true})).toHaveAttribute('data-value','python');await expect(page.locator('.monaco-editor .view-lines')).toContainText('def solve');expect(tickets).toBe(0);
  await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Enable semantic completion'}).click();await expect.poll(()=>tickets).toBeGreaterThan(0);
  await page.getByRole('button',{name:'Disable semantic completion'}).click();const stopped=tickets;await page.waitForTimeout(1600);expect(tickets).toBe(stopped);
- await page.goto('/settings');await page.getByLabel('Default language').selectOption('cpp');await page.getByRole('button',{name:'Save preferences'}).click();await expect(page.getByRole('status')).toContainText('saved to your account');expect(prefs.default_language).toBe('cpp');expect(prefs.semantic_completion).toBe(false);
+ await page.goto('/settings');await selectValue(page.getByRole('combobox',{name:'Default language',exact:true}),'cpp');await page.getByRole('button',{name:'Save preferences'}).click();await expect(page.getByRole('status')).toContainText('saved to your account');expect(prefs.default_language).toBe('cpp');expect(prefs.semantic_completion).toBe(false);
 });

@@ -15,6 +15,16 @@ Use it as a personal practice workspace or host a shared problem library for a t
 - **Create your own library:** author and publish problems through the host CLI or optional private web interface, or maintain an optional Git-managed catalog. Problems can test functions or stateful data structures.
 - **Keep tests private:** hidden inputs and expected outputs stay on the server. Published problem versions are immutable, and code runs in isolated sandboxes with time and memory limits.
 
+## Screenshots
+
+**Problem catalog**
+
+![Problem catalog with search, difficulty filtering, and descriptions](docs/screenshots/catalog.png)
+
+**Coding workspace**
+
+![Coding workspace with statement, C++ editor, run history, and visible-test comparisons](docs/screenshots/editor.png)
+
 ## Set up your own installation
 
 Choose a single-host Compose installation or Kubernetes. Both require gVisor for running submitted code and editor language services.

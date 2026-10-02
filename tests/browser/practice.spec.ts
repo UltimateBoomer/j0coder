@@ -1,3 +1,4 @@
+import {selectValue} from './select-helpers';
 import {test,createProblem,createUser,adminOrigin} from './host-fixtures';
 import {expect} from '../../web/node_modules/@playwright/test/index';
 test('admin publishes sanitized statements and edits both languages',async({page})=>{
@@ -9,7 +10,7 @@ test('admin publishes sanitized statements and edits both languages',async({page
  await page.getByRole('button',{name:'Problems',exact:true}).click();await page.getByLabel('Search problems').fill(title);await page.getByRole('button',{name:new RegExp(title)}).click();await expect(page.getByRole('heading',{name:title})).toBeVisible();await expect(page.locator('body')).not.toContainText('Run examples to explore your solution');await expect(page.locator('.monaco-editor').first()).toBeVisible();await expect(page.getByRole('button',{name:'Run',exact:true})).toBeEnabled({timeout:45000});await expect(page.getByRole('button',{name:/Submit/})).toHaveCount(0);
  const editor=page.locator('.monaco-editor').first();const editorText=async()=>editor.locator('.view-line').allTextContents().then(lines=>lines.join('\n').replaceAll('\u00a0',' '));const clearEditor=async()=>{await editor.click();await page.keyboard.press('ControlOrMeta+A');await page.keyboard.press('Backspace')};
  for(const language of ['python','cpp']){
-  await page.getByLabel('Language',{exact:true}).selectOption(language);await expect(editor).toBeVisible();await expect(page.getByLabel('Language',{exact:true})).toBeEnabled();await expect(page.locator('.filename')).toHaveText(language==='python'?'solution.py':'solution.cpp');
+  await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),language);await expect(editor).toBeVisible();await expect(page.getByRole('combobox',{name:'Language',exact:true})).toBeEnabled();await expect(page.locator('.filename')).toHaveText(language==='python'?'solution.py':'solution.cpp');
   for(const [character,pair] of [['(', '()'],['[','[]'],['{','{}'],["'","''"],[`"`,`""`]]){await clearEditor();await page.keyboard.type(character);await expect.poll(editorText).toContain(pair)}
   await clearEditor();await page.keyboard.type(language==='python'?'if value:':'if (value) {');await page.keyboard.press('Enter');await page.keyboard.type(language==='python'?'pass':'return 0;');await expect.poll(editorText).toContain(language==='python'?'    pass':'    return 0;');
   await clearEditor();await page.keyboard.press('Tab');await page.keyboard.type('value');await expect.poll(editorText).toContain('    value');await page.keyboard.press('Shift+Tab');await expect.poll(editorText).toContain('value');await expect.poll(editorText).not.toContain('    value');
@@ -39,7 +40,7 @@ test('regular user solves in Python and C++ with semantic completion',async({pag
  await expect(page.locator('.suggest-widget.visible')).toContainText('push_back',{timeout:20000});
  await page.keyboard.press('Escape');
  for(const language of ['python','cpp']){
-  await page.getByLabel('Language',{exact:true}).selectOption(language);await expect(page.locator('.semantic')).toHaveAttribute('aria-label','Semantic completion connected',{timeout:120000});
+  await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),language);await expect(page.locator('.semantic')).toHaveAttribute('aria-label','Semantic completion connected',{timeout:120000});
   const editor=page.locator('.monaco-editor').first();
   await editor.click();await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.insertText(language==='python'?'value = "hello"\nvalue.':'#include <vector>\nint main() { std::vector<int> values; values.');

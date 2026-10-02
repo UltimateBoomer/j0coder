@@ -1,3 +1,4 @@
+import {selectValue} from './select-helpers';
 import {test,preferences} from './account-fixtures';
 import {expect,type BrowserContext,type Page} from '../../web/node_modules/@playwright/test/index';
 
@@ -49,14 +50,14 @@ test('saves both languages and restores them in a fresh browser setup',async({br
  await openEditor(page);
  await replaceCode(page,'int solve() { return 7; }');
  await expect.poll(()=>backend.drafts.get(`${firstVersion}:cpp`)).toBe('int solve() { return 7; }');
- await page.getByLabel('Language').selectOption('python');
+ await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),'python');
  await replaceCode(page,'def solve(): return 9');
  await expect.poll(()=>backend.drafts.get(`${firstVersion}:python`)).toBe('def solve(): return 9');
- await page.getByLabel('Language').selectOption('java');
+ await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),'java');
  await expect(page.locator('.semantic')).toHaveAttribute('aria-label',/Basic completion/);
  await replaceCode(page,'class Solution { int solve() { return 11; } }');
  await expect.poll(()=>backend.drafts.get(`${firstVersion}:java`)).toBe('class Solution { int solve() { return 11; } }');
- await page.getByLabel('Language').selectOption('kotlin');
+ await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),'kotlin');
  await replaceCode(page,'fun solve(): Int = 13');
  await expect.poll(()=>backend.drafts.get(`${firstVersion}:kotlin`)).toBe('fun solve(): Int = 13');
  const second=await browser.newContext({baseURL:new URL(page.url()).origin});
@@ -65,12 +66,12 @@ test('saves both languages and restores them in a fresh browser setup',async({br
   const other=await second.newPage();
   await openEditor(other);
   await expect(other.locator('.monaco-editor .view-lines').first()).toContainText('return 7');
-  await other.getByLabel('Language').selectOption('python');
+  await selectValue(other.getByRole('combobox',{name:'Language',exact:true}),'python');
   await expect(other.locator('.monaco-editor .view-lines').first()).toContainText('return 9');
-  await other.getByLabel('Language').selectOption('java');
+  await selectValue(other.getByRole('combobox',{name:'Language',exact:true}),'java');
   await expect(other.locator('.monaco-editor .view-lines').first()).toContainText('return 11');
   await expect(other.locator('.filename')).toContainText('Solution.java');
-  await other.getByLabel('Language').selectOption('kotlin');
+  await selectValue(other.getByRole('combobox',{name:'Language',exact:true}),'kotlin');
   await expect(other.locator('.monaco-editor .view-lines').first()).toContainText('= 13');
   await expect(other.locator('.filename')).toContainText('solution.kt');
  }finally{await second.close()}
@@ -162,8 +163,8 @@ test('does not clear an unsent draft while an older write is in flight',async({p
  await replaceCode(page,'int solve() { return 5; }');
  await firstStarted;
  await replaceCode(page,original);
- await page.getByLabel('Language').selectOption('python');
- await page.getByLabel('Language').selectOption('cpp');
+ await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),'python');
+ await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),'cpp');
  releaseFirst();
  await expect.poll(()=>writes).toBe(2);
  await expect.poll(()=>backend.drafts.get(`${firstVersion}:cpp`)).toBe(original);
@@ -191,7 +192,7 @@ test('submits Java and Kotlin source with basic editor fallback',async({page})=>
  });
  await openEditor(page);
  for(const [language,source] of [['java','class Solution { int solve() { return 7; } }'],['kotlin','fun solve(): Int = 9']] as const){
-  await page.getByLabel('Language').selectOption(language);
+  await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),language);
   await expect(page.locator('.semantic')).toHaveAttribute('aria-label',/Basic completion/);
   await replaceCode(page,source);
   await page.getByRole('button',{name:'Run',exact:true}).click();

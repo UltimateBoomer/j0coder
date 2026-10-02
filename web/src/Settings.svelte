@@ -1,4 +1,5 @@
 <script lang="ts">
+ import Select from './Select.svelte';
  import {onMount} from 'svelte';import {api} from './api';import {defaults,type Preferences} from './preferences';
  export let privateAdmin=false;export let preferences:Preferences;export let signedIn:boolean;export let onpreferences:(p:Preferences)=>void;export let onlogout:()=>void;
  let draft:Preferences={...preferences},busy=false,status='',error='',limits:any=null,currentPassword='',newPassword='',adminPassword='';
@@ -11,11 +12,11 @@
 <main class="settings"><h1>Settings</h1><p class="muted">{signedIn?'Preferences follow your account across devices.':'Guest preferences stay on this browser.'}</p>
  {#if error}<p role="alert">{error}</p>{/if}
  <form onsubmit={(e)=>{e.preventDefault();void save()}}>
- <label>Theme<select aria-label="Theme" bind:value={draft.theme}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
- <label>Default language<select aria-label="Default language" bind:value={draft.default_language}><option value="cpp">C++</option><option value="python">Python</option><option value="java">Java</option><option value="kotlin">Kotlin</option></select></label>
+ <div class="setting-field"><span>Theme</span><Select label="Theme" bind:value={draft.theme} options={[{value:'system',label:'System'},{value:'light',label:'Light'},{value:'dark',label:'Dark'}]}/></div>
+ <div class="setting-field"><span>Default language</span><Select label="Default language" bind:value={draft.default_language} options={[{value:'cpp',label:'C++'},{value:'python',label:'Python'},{value:'java',label:'Java'},{value:'kotlin',label:'Kotlin'}]}/></div>
  <label class="check"><input type="checkbox" bind:checked={draft.semantic_completion} disabled={!signedIn}/>Semantic completion</label><p class="muted small">{signedIn?'Uses an isolated language server. Turning it off releases server resources; basic editing stays available.':'Sign in to use semantic completion.'}</p>
  <label>Font size<input type="number" min="10" max="24" bind:value={draft.font_size}/></label>
- <label>Tab width<select aria-label="Tab width" bind:value={draft.tab_width}><option value={2}>2</option><option value={4}>4</option><option value={8}>8</option></select></label>
+ <div class="setting-field"><span>Tab width</span><Select label="Tab width" bind:value={draft.tab_width} options={[2,4,8].map(value=>({value,label:String(value)}))}/></div>
  <label class="check"><input type="checkbox" bind:checked={draft.word_wrap}/>Word wrap</label><label class="check"><input type="checkbox" bind:checked={draft.minimap}/>Minimap</label><label class="check"><input type="checkbox" bind:checked={draft.blind_mode}/>Hide problem difficulty and tags</label>
  <div class="toolbar"><button class="primary" disabled={busy}>Save preferences</button><button type="button" onclick={()=>{draft={...defaults};status='Defaults selected; save to apply.'}}>Reset to defaults</button></div><p role="status">{status}</p>
  </form>

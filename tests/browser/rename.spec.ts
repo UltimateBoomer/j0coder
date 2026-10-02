@@ -1,3 +1,4 @@
+import {selectValue} from './select-helpers';
 import {test,preferences} from './account-fixtures';
 import {expect} from '../../web/node_modules/@playwright/test/index';
 
@@ -36,7 +37,7 @@ for(const scenario of [
   }
   const nextTheme=scenario.theme==='dark'?'light':'dark';
   await page.getByLabel('User menu').click();
-  await page.getByLabel('Theme').selectOption(nextTheme);
+  await selectValue(page.getByRole('combobox',{name:'Theme',exact:true}),nextTheme);
   await page.getByLabel('User menu').click();
   await blind.click();
   await page.reload();
