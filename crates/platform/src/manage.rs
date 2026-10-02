@@ -185,7 +185,7 @@ pub async fn run(db: &PgPool, args: &[String]) -> Result<()> {
                 let draft = api::create_draft_service(db, p)
                     .await
                     .map_err(|e| anyhow::anyhow!("{}", e.1))?;
-                println!("{}", draft.0);
+                println!("{}", serde_json::to_value(draft.0)?);
                 audit(db, "cli_import_problem", None).await?;
             }
         }
@@ -193,7 +193,7 @@ pub async fn run(db: &PgPool, args: &[String]) -> Result<()> {
             let result = api::publish_service(db, arg(args, 1)?.parse()?)
                 .await
                 .map_err(|e| anyhow::anyhow!("{}", e.1))?;
-            println!("{}", result.0);
+            println!("{}", serde_json::to_value(result.0)?);
             audit(db, "cli_publish", None).await?;
         }
         "catalog" => {

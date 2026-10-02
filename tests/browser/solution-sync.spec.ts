@@ -1,3 +1,4 @@
+import {languageDescriptors} from './language-fixtures';
 import {test,preferences} from './account-fixtures';
 import {expect,type BrowserContext,type Page} from '../../web/node_modules/@playwright/test/index';
 
@@ -12,7 +13,7 @@ async function mockBackend(context:BrowserContext,backend:Backend){
  await context.route('**/api/v1/**',async route=>{
   const request=route.request();
   const path=new URL(request.url()).pathname;
-  if(path.endsWith("/capabilities"))return route.fulfill({json:{guest_browsing:false,registration:"invite",web_admin:false}});
+  if(path.endsWith("/capabilities"))return route.fulfill({json:{languages:languageDescriptors,guest_browsing:false,registration:"invite",web_admin:false}});
   if(path.endsWith("/me/preferences"))return route.fulfill({json:preferences});
   const solution=path.match(/^\/api\/v1\/solutions\/([^/]+)\/(cpp|python|java|kotlin)$/);
   if(solution){
@@ -180,7 +181,7 @@ test('submits Java and Kotlin source with basic editor fallback',async({page})=>
  await page.route('**/api/v1/submissions**',async route=>{
   const request=route.request();
   const path=new URL(request.url()).pathname;
-  if(path.endsWith("/capabilities"))return route.fulfill({json:{guest_browsing:false,registration:"invite",web_admin:false}});
+  if(path.endsWith("/capabilities"))return route.fulfill({json:{languages:languageDescriptors,guest_browsing:false,registration:"invite",web_admin:false}});
   if(path.endsWith("/me/preferences"))return route.fulfill({json:preferences});
   if(request.method()==='POST'){
    const body=request.postDataJSON();submitted.push({language:body.language,source:body.source});

@@ -4,6 +4,19 @@ use crate::contract::Type;
 pub(super) struct Python;
 
 impl LanguageImplementation for Python {
+    fn descriptor(&self) -> crate::contract::LanguageDescriptor {
+        crate::contract::LanguageDescriptor {
+            id: crate::contract::Language::Python,
+            label: "Python".into(),
+            editor_label: "Python 3".into(),
+            monaco_language: "python".into(),
+            file_extension: ".py".into(),
+            line_comment: "#".into(),
+            editor_filename: "solution.py".into(),
+            editor_uri: self.editor_uri().into(),
+        }
+    }
+
     fn identifier(&self) -> &'static str {
         "python"
     }

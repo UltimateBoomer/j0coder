@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use strum::IntoEnumIterator;
 use uuid::Uuid;
 #[derive(Clone)]
 pub struct App {
@@ -352,14 +353,45 @@ async fn problems(
     State(a): State<App>,
     h: HeaderMap,
     Query(f): Query<Filters>,
-) -> Result<Json<Value>> {
+) -> Result<Json<Vec<crate::contract::ProblemSummary>>> {
     browse(&a, &h).await?;
     let limit = f.limit.unwrap_or(100).clamp(1, 100);
     let rows=sqlx::query("SELECT p.id,v.id AS version,v.public FROM problems p JOIN versions v ON v.id=p.current_version WHERE ($1='' OR concat_ws(' ',v.public->>'title',v.public->>'summary',v.public->>'tags') ILIKE '%'||$1||'%') AND ($2='' OR v.public->>'difficulty'=$2) AND ($3='' OR v.public->'tags' ? $3) AND coalesce((v.public->>'difficulty_score')::smallint,CASE v.public->>'difficulty' WHEN 'easy' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END) BETWEEN $4 AND $5 AND ($6='' OR (v.public->>'title',p.id::text)>($6,$7)) ORDER BY v.public->>'title',p.id LIMIT $8")
       .bind(f.q.unwrap_or_default()).bind(f.difficulty.unwrap_or_default()).bind(f.tag.unwrap_or_default()).bind(f.min_score.unwrap_or(1)).bind(f.max_score.unwrap_or(5)).bind(f.cursor.as_deref().and_then(|s|s.rsplit_once('|')).map(|x|x.0).unwrap_or("")).bind(f.cursor.as_deref().and_then(|s|s.rsplit_once('|')).map(|x|x.1).unwrap_or("")).bind(limit).fetch_all(&a.db).await?;
-    Ok(Json(Value::Array(rows.iter().map(|r|{let p:Value=r.get("public");let score=p.get("difficulty_score").and_then(Value::as_u64).unwrap_or(match p["difficulty"].as_str(){Some("easy")=>2,Some("medium")=>3,_=>4});json!({"id":r.get::<Uuid,_>("id"),"version":r.get::<Uuid,_>("version"),"title":p["title"],"summary":p.get("summary").unwrap_or(&Value::Null),"difficulty":Problem::difficulty_band(score as u8),"difficulty_score":score,"tags":p["tags"],"cursor":format!("{}|{}",p["title"].as_str().unwrap_or_default(),r.get::<Uuid,_>("id"))})}).collect())))
+    let summaries = rows
+        .iter()
+        .map(|r| {
+            let p: Value = r.get("public");
+            let score = p.get("difficulty_score").and_then(Value::as_u64).unwrap_or(
+                match p["difficulty"].as_str() {
+                    Some("easy") => 2,
+                    Some("medium") => 3,
+                    _ => 4,
+                },
+            ) as u8;
+            Ok(crate::contract::ProblemSummary {
+                id: r.get("id"),
+                version: r.get("version"),
+                title: serde_json::from_value(p["title"].clone())?,
+                summary: serde_json::from_value(p.get("summary").cloned().unwrap_or(Value::Null))?,
+                difficulty: Problem::difficulty_band(score).into(),
+                difficulty_score: score,
+                tags: serde_json::from_value(p["tags"].clone())?,
+                cursor: format!(
+                    "{}|{}",
+                    p["title"].as_str().unwrap_or_default(),
+                    r.get::<Uuid, _>("id")
+                ),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(Json(summaries))
 }
-async fn problem(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Result<Json<Value>> {
+async fn problem(
+    State(a): State<App>,
+    h: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<crate::contract::ProblemDetail>> {
     browse(&a, &h).await?;
     let r=sqlx::query("SELECT v.id,v.public FROM problems p JOIN versions v ON v.id=p.current_version WHERE p.id=$1").bind(id).fetch_optional(&a.db).await?.ok_or_else(||Error(StatusCode::NOT_FOUND,"problem not found".into()))?;
     let p: Value = r.get("public");
@@ -367,18 +399,17 @@ async fn problem(State(a): State<App>, h: HeaderMap, Path(id): Path<Uuid>) -> Re
     let starter = |language: Language| {
         language.starter_with_definitions(&definition.interface, &definition.type_definitions)
     };
-    Ok(Json(json!({
-        "id": id,
-        "version": r.get::<Uuid, _>("id"),
-        "problem": p,
-        "starters": {
-            "cpp": starter(Language::Cpp)?,
-            "python": starter(Language::Python)?,
-            "java": starter(Language::Java)?,
-            "kotlin": starter(Language::Kotlin)?,
-        }
-    })))
+    let starters = Language::iter()
+        .map(|language| Ok((language, starter(language)?)))
+        .collect::<anyhow::Result<_>>()?;
+    Ok(Json(crate::contract::ProblemDetail {
+        id,
+        version: r.get("id"),
+        problem: definition,
+        starters,
+    }))
 }
+
 #[derive(Deserialize)]
 struct SolutionDraft {
     source: String,
@@ -386,14 +417,11 @@ struct SolutionDraft {
 async fn get_solution(
     State(a): State<App>,
     h: HeaderMap,
-    Path((version, language)): Path<(Uuid, String)>,
+    Path((version, language)): Path<(Uuid, Language)>,
 ) -> Result<Response> {
     let u = user(&a, &h, false).await?;
-    if !["cpp", "python", "java", "kotlin"].contains(&language.as_str()) {
-        return Err(bad("invalid language"));
-    }
     let row = sqlx::query("SELECT source,updated_at FROM solution_drafts WHERE user_id=$1 AND version_id=$2 AND language=$3")
-        .bind(u.id).bind(version).bind(language).fetch_optional(&a.db).await?;
+        .bind(u.id).bind(version).bind(language.identifier()).fetch_optional(&a.db).await?;
     let Some(row) = row else {
         return Ok((
             [(header::CACHE_CONTROL, "no-store")],
@@ -409,13 +437,10 @@ async fn get_solution(
 async fn put_solution(
     State(a): State<App>,
     h: HeaderMap,
-    Path((version, language)): Path<(Uuid, String)>,
+    Path((version, language)): Path<(Uuid, Language)>,
     Json(draft): Json<SolutionDraft>,
 ) -> Result<StatusCode> {
     let u = user(&a, &h, true).await?;
-    if !["cpp", "python", "java", "kotlin"].contains(&language.as_str()) {
-        return Err(bad("invalid language"));
-    }
     if draft.source.len() > 100000 {
         return Err(bad("source exceeds 100000 bytes"));
     }
@@ -427,32 +452,43 @@ async fn put_solution(
         return Err(Error(StatusCode::NOT_FOUND, "version not found".into()));
     }
     sqlx::query("INSERT INTO solution_drafts(user_id,version_id,language,source) VALUES($1,$2,$3,$4) ON CONFLICT(user_id,version_id,language) DO UPDATE SET source=excluded.source,updated_at=now()")
-        .bind(u.id).bind(version).bind(language).bind(draft.source).execute(&a.db).await?;
+        .bind(u.id).bind(version).bind(language.identifier()).bind(draft.source).execute(&a.db).await?;
     Ok(StatusCode::NO_CONTENT)
 }
-async fn drafts(State(a): State<App>, h: HeaderMap) -> Result<Json<Value>> {
+async fn drafts(State(a): State<App>, h: HeaderMap) -> Result<Json<Vec<CatalogDraft>>> {
     admin(&a, &h, false).await?;
     let rows = sqlx::query("SELECT p.id,p.draft,p.current_version,(i.problem_id IS NOT NULL) AS managed FROM problems p LEFT JOIN problem_imports i ON i.problem_id=p.id ORDER BY p.draft->>'title'")
             .fetch_all(&a.db)
             .await?;
-    Ok(Json(json!(rows.iter().map(|r|json!({"id":r.get::<Uuid,_>("id"),"draft":r.get::<Value,_>("draft"),"version":r.get::<Option<Uuid>,_>("current_version"),"managed":r.get::<bool,_>("managed")})).collect::<Vec<_>>())))
+    Ok(Json(
+        rows.iter()
+            .map(|r| {
+                Ok(CatalogDraft {
+                    id: r.get("id"),
+                    draft: serde_json::from_value(r.get("draft"))?,
+                    version: r.get("current_version"),
+                    managed: r.get("managed"),
+                })
+            })
+            .collect::<anyhow::Result<_>>()?,
+    ))
 }
 pub(crate) async fn new_draft(
     State(a): State<App>,
     h: HeaderMap,
     Json(p): Json<Problem>,
-) -> Result<Json<Value>> {
+) -> Result<Json<CreatedProblem>> {
     admin(&a, &h, true).await?;
     create_draft_service(&a.db, p).await
 }
-pub async fn create_draft_service(db: &PgPool, p: Problem) -> Result<Json<Value>> {
+pub async fn create_draft_service(db: &PgPool, p: Problem) -> Result<Json<CreatedProblem>> {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO problems(id,draft) VALUES($1,$2)")
         .bind(id)
         .bind(json!(p))
         .execute(db)
         .await?;
-    Ok(Json(json!({"id":id})))
+    Ok(Json(CreatedProblem { id }))
 }
 pub(crate) async fn save_draft(
     State(a): State<App>,
@@ -490,11 +526,14 @@ pub(crate) async fn validate_definition(
     State(a): State<App>,
     h: HeaderMap,
     Json(p): Json<Problem>,
-) -> Result<Json<Value>> {
+) -> Result<Json<ValidatedDefinition>> {
     admin(&a, &h, true).await?;
     let bytes = serde_json::to_vec(&p).map_err(anyhow::Error::from)?;
     let (_, hash) = crate::catalog::validate_problem(&bytes).map_err(|e| bad(&e.to_string()))?;
-    Ok(Json(json!({"valid":true,"content_hash":hash})))
+    Ok(Json(ValidatedDefinition {
+        valid: true,
+        content_hash: hash,
+    }))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -581,11 +620,11 @@ pub(crate) async fn publish(
     State(a): State<App>,
     h: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<Value>> {
+) -> Result<Json<PublishedProblem>> {
     admin(&a, &h, true).await?;
     publish_service(&a.db, id).await
 }
-pub async fn publish_service(db: &PgPool, id: Uuid) -> Result<Json<Value>> {
+pub async fn publish_service(db: &PgPool, id: Uuid) -> Result<Json<PublishedProblem>> {
     if sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM problem_imports WHERE problem_id=$1)",
     )
@@ -624,7 +663,7 @@ pub async fn publish_service(db: &PgPool, id: Uuid) -> Result<Json<Value>> {
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(Json(json!({"version":version})))
+    Ok(Json(PublishedProblem { version }))
 }
 #[derive(Deserialize, Serialize)]
 struct Submit {

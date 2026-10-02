@@ -1,31 +1,18 @@
-use crate::contract::{Language, Problem};
+use crate::contract::{AuthoringProblem, Language, Problem};
 use anyhow::{Context, Result, ensure};
 use serde::{
-    Deserialize, Serialize,
+    Deserialize,
     de::{self, MapAccess, SeqAccess, Visitor},
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fmt, fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
+use strum::IntoEnumIterator;
 
-pub const MANIFEST_FILE: &str = "catalog.json";
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ReleaseManifest {
-    pub schema: u8,
-    pub problems: Vec<ManifestProblem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManifestProblem {
-    pub key: String,
-    pub path: String,
-    pub sha256: String,
-}
 #[derive(Debug)]
 pub struct ValidatedProblem {
     pub key: String,
@@ -58,18 +45,6 @@ pub fn validate_problem(bytes: &[u8]) -> Result<(Problem, String)> {
     let hash = problem_hash(&problem)?;
     Ok((problem, hash))
 }
-fn safe_relative(value: &str) -> Result<PathBuf> {
-    let path = Path::new(value);
-    ensure!(
-        !value.is_empty() && !path.is_absolute(),
-        "artifact path must be relative"
-    );
-    ensure!(
-        path.components().all(|c| matches!(c, Component::Normal(_))),
-        "artifact path contains traversal"
-    );
-    Ok(path.to_owned())
-}
 fn files(root: &Path, dir: &Path, out: &mut HashSet<PathBuf>) -> Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -90,106 +65,11 @@ fn files(root: &Path, dir: &Path, out: &mut HashSet<PathBuf>) -> Result<()> {
     Ok(())
 }
 pub fn validate_release(root: &Path) -> Result<ValidatedRelease> {
-    if root.join(MANIFEST_FILE).exists() {
-        ensure!(
-            !root
-                .join("problems")
-                .read_dir()?
-                .any(|e| e.is_ok_and(|e| e.path().is_dir())),
-            "mixed legacy and directory catalog"
-        );
-        validate_legacy_release(root)
-    } else {
-        validate_directory_release(root)
-    }
-}
-fn validate_legacy_release(root: &Path) -> Result<ValidatedRelease> {
-    let manifest_path = root.join(MANIFEST_FILE);
     ensure!(
-        !fs::symlink_metadata(&manifest_path)?
-            .file_type()
-            .is_symlink(),
-        "manifest may not be a symlink"
+        !root.join("catalog.json").exists(),
+        "legacy catalog.json is unsupported"
     );
-    let bytes = fs::read(&manifest_path).context("read catalog.json")?;
-    let manifest: ReleaseManifest = serde_json::from_slice(&bytes).context("parse catalog.json")?;
-    ensure!(
-        manifest.schema == 1,
-        "unsupported catalog schema {}",
-        manifest.schema
-    );
-    ensure!(
-        !manifest.problems.is_empty(),
-        "catalog contains no problems"
-    );
-    let mut keys = HashSet::new();
-    let mut declared = HashSet::from([PathBuf::from(MANIFEST_FILE)]);
-    let mut validated = Vec::new();
-    for item in manifest.problems {
-        ensure!(
-            item.key.len() >= 3
-                && item.key.len() <= 200
-                && item
-                    .key
-                    .bytes()
-                    .enumerate()
-                    .all(|(i, c)| c.is_ascii_lowercase()
-                        || c.is_ascii_digit()
-                        || (i > 0 && b"._:/-".contains(&c))),
-            "invalid catalog key {}",
-            item.key
-        );
-        ensure!(
-            keys.insert(item.key.clone()),
-            "duplicate catalog key {}",
-            item.key
-        );
-        ensure!(
-            item.sha256.len() == 64 && item.sha256.bytes().all(|c| c.is_ascii_hexdigit()),
-            "invalid checksum for {}",
-            item.key
-        );
-        let relative = safe_relative(&item.path)?;
-        ensure!(
-            declared.insert(relative.clone()),
-            "duplicate artifact path {}",
-            item.path
-        );
-        let path = root.join(&relative);
-        let metadata =
-            fs::symlink_metadata(&path).with_context(|| format!("inspect {}", item.path))?;
-        ensure!(
-            metadata.is_file() && !metadata.file_type().is_symlink(),
-            "artifact is not a regular file: {}",
-            item.path
-        );
-        let artifact = fs::read(path)?;
-        let actual = sha256(&artifact);
-        ensure!(
-            actual.eq_ignore_ascii_case(&item.sha256),
-            "checksum mismatch for {}",
-            item.path
-        );
-        let (problem, _) = validate_problem(&artifact)
-            .with_context(|| format!("invalid artifact {}", item.path))?;
-        validated.push(ValidatedProblem {
-            key: item.key,
-            path: item.path,
-            hash: actual,
-            problem,
-            reference: None,
-        });
-    }
-    let mut actual = HashSet::new();
-    files(root, root, &mut actual)?;
-    ensure!(
-        actual == declared,
-        "release contains files not declared by manifest"
-    );
-    Ok(ValidatedRelease {
-        source_checksum: sha256(&bytes),
-        problems: validated,
-    })
+    validate_directory_release(root)
 }
 
 fn yaml_json(bytes: &[u8], path: &Path) -> Result<Value> {
@@ -410,17 +290,18 @@ fn validate_directory_release(root: &Path) -> Result<ValidatedRelease> {
             dir.display()
         );
         let metadata = dir.join("problem.yaml");
-        let mut data = read_data(&metadata)?;
-        let object = data
-            .as_object_mut()
-            .context("problem.yaml must be a mapping")?;
-        ensure!(
-            object.remove("schema") == Some(json!(1)),
-            "{}: source schema must be 1",
-            metadata.display()
-        );
-        let key: String =
-            serde_json::from_value(object.remove("key").context("missing catalog key")?)?;
+        for legacy in ["statement.md", "hints", "tests"] {
+            ensure!(
+                !dir.join(legacy).exists(),
+                "{}: legacy {legacy} layout is unsupported",
+                dir.display()
+            );
+        }
+        let input: AuthoringProblem = serde_json::from_value(read_data(&metadata)?)
+            .with_context(|| format!("parse {}", metadata.display()))?;
+        let (key, problem) = input
+            .assemble()
+            .with_context(|| format!("assemble {}", metadata.display()))?;
         ensure!(
             key.len() >= 3
                 && key.len() <= 200
@@ -430,140 +311,16 @@ fn validate_directory_release(root: &Path) -> Result<ValidatedRelease> {
             "invalid catalog key {key}"
         );
         ensure!(keys.insert(key.clone()), "duplicate catalog key {key}");
-        object.insert("schema".into(), json!(3));
-        if let Some(difficulty) = object.get("difficulty")
-            && difficulty.is_number()
-        {
-            ensure!(
-                !object.contains_key("difficulty_score"),
-                "{}: integer difficulty cannot have difficulty_score",
-                metadata.display()
-            );
-            let score = difficulty
-                .as_u64()
-                .filter(|score| (1..=5).contains(score))
-                .with_context(|| {
-                    format!(
-                        "{}: difficulty must be an integer from 1 to 5",
-                        metadata.display()
-                    )
-                })?;
-            object.insert(
-                "difficulty".into(),
-                json!(Problem::difficulty_band(score as u8)),
-            );
-            object.insert("difficulty_score".into(), json!(score));
-        }
         let mut expected = HashSet::from([PathBuf::from("problem.yaml")]);
-        let statement_path = dir.join("statement.md");
-        if object.contains_key("statement") {
-            ensure!(
-                !statement_path.exists(),
-                "{}: statement is defined in both problem.yaml and statement.md",
-                dir.display()
-            );
-        } else {
-            object.insert(
-                "statement".into(),
-                json!(read_text(&statement_path, 100_000)?),
-            );
-            expected.insert(PathBuf::from("statement.md"));
-        }
-        let hint_dir = dir.join("hints");
-        if object.contains_key("hints") {
-            ensure!(
-                !hint_dir.exists(),
-                "{}: hints are defined in both problem.yaml and hints/",
-                dir.display()
-            );
-        } else {
-            let mut hints = Vec::new();
-            if hint_dir.exists() {
-                for path in sorted_files(&hint_dir, "md")? {
-                    expected.insert(path.strip_prefix(&dir)?.to_owned());
-                    hints.push(read_text(&path, 10_000)?);
-                }
-            }
-            object.insert("hints".into(), json!(hints));
-        }
-        let mut cases = Vec::new();
-        let mut case_paths = Vec::new();
-        if let Some(inline) = object.remove("tests") {
-            ensure!(
-                !dir.join("tests").exists(),
-                "{}: tests are defined in both problem.yaml and tests/",
-                dir.display()
-            );
-            let groups = inline.as_object().with_context(|| {
-                format!(
-                    "{}: tests must have visible and hidden lists",
-                    metadata.display()
+        let refs = Language::iter()
+            .map(|language| {
+                (
+                    format!("reference{}", language.descriptor().file_extension),
+                    language,
                 )
-            })?;
-            ensure!(
-                groups.keys().all(|key| key == "visible" || key == "hidden"),
-                "{}: unknown tests group",
-                metadata.display()
-            );
-            for (visibility, hidden) in [("visible", false), ("hidden", true)] {
-                let Some(group) = groups.get(visibility) else {
-                    continue;
-                };
-                let entries = group.as_array().with_context(|| {
-                    format!("{}: tests.{visibility} must be a list", metadata.display())
-                })?;
-                for (index, source_case) in entries.iter().enumerate() {
-                    let path = PathBuf::from(format!(
-                        "{}:tests.{visibility}[{index}]",
-                        metadata.display()
-                    ));
-                    let mut case = source_case.clone();
-                    let map = case
-                        .as_object_mut()
-                        .with_context(|| format!("{}: case must be mapping", path.display()))?;
-                    ensure!(
-                        !map.contains_key("hidden"),
-                        "{}: visibility comes from tests group",
-                        path.display()
-                    );
-                    map.insert("hidden".into(), json!(hidden));
-                    cases.push(case);
-                    case_paths.push(path);
-                }
-            }
-        } else {
-            for (visibility, hidden) in [("visible", false), ("hidden", true)] {
-                let test_dir = dir.join("tests").join(visibility);
-                if !test_dir.exists() {
-                    continue;
-                }
-                for path in sorted_data_files(&test_dir)? {
-                    expected.insert(path.strip_prefix(&dir)?.to_owned());
-                    let mut case = read_data(&path)?;
-                    let map = case
-                        .as_object_mut()
-                        .with_context(|| format!("{}: case must be mapping", path.display()))?;
-                    ensure!(
-                        !map.contains_key("hidden"),
-                        "{}: visibility comes from directory",
-                        path.display()
-                    );
-                    map.insert("hidden".into(), json!(hidden));
-                    cases.push(case);
-                    case_paths.push(path);
-                }
-            }
-        }
-        object.insert("tests".into(), json!(cases));
-        let refs = [
-            ("reference.py", Language::Python),
-            ("reference.cpp", Language::Cpp),
-            ("reference.java", Language::Java),
-            ("reference.kt", Language::Kotlin),
-        ]
-        .into_iter()
-        .filter(|(name, _)| dir.join(name).exists())
-        .collect::<Vec<_>>();
+            })
+            .filter(|(name, _)| dir.join(name).exists())
+            .collect::<Vec<_>>();
         ensure!(
             refs.len() <= 1,
             "{}: only one reference solution allowed",
@@ -595,26 +352,6 @@ fn validate_directory_release(root: &Path) -> Result<ValidatedRelease> {
             dir.display(),
             actual.symmetric_difference(&expected).collect::<Vec<_>>()
         );
-        let problem: Problem =
-            serde_json::from_value(data).with_context(|| format!("assemble {}", dir.display()))?;
-        for (case, path) in problem.tests.iter().zip(&case_paths) {
-            problem
-                .validate_case(case)
-                .with_context(|| format!("validate {}", path.display()))?;
-            if matches!(
-                problem.interface,
-                crate::contract::Interface::Function { .. }
-            ) {
-                ensure!(
-                    case.expected.is_some(),
-                    "{}: function test needs expected",
-                    path.display()
-                );
-            }
-        }
-        problem
-            .validate()
-            .with_context(|| format!("validate {}", dir.display()))?;
         ensure!(
             titles.insert(problem.title.trim().to_lowercase()),
             "duplicate title {}",
@@ -646,40 +383,6 @@ fn validate_directory_release(root: &Path) -> Result<ValidatedRelease> {
     })
 }
 
-fn sorted_files(dir: &Path, extension: &str) -> Result<Vec<PathBuf>> {
-    let mut paths = fs::read_dir(dir)?
-        .map(|e| e.map(|x| x.path()))
-        .collect::<std::io::Result<Vec<_>>>()?;
-    paths.sort();
-    for path in &paths {
-        ensure!(
-            path.extension().and_then(|x| x.to_str()) == Some(extension)
-                && path.is_file()
-                && !fs::symlink_metadata(path)?.file_type().is_symlink(),
-            "unexpected file {}",
-            path.display()
-        );
-    }
-    Ok(paths)
-}
-fn sorted_data_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = fs::read_dir(dir)?
-        .map(|e| e.map(|x| x.path()))
-        .collect::<std::io::Result<Vec<_>>>()?;
-    paths.sort();
-    for path in &paths {
-        ensure!(
-            matches!(
-                path.extension().and_then(|x| x.to_str()),
-                Some("json" | "yaml")
-            ) && path.is_file()
-                && !fs::symlink_metadata(path)?.file_type().is_symlink(),
-            "unexpected case file {}",
-            path.display()
-        );
-    }
-    Ok(paths)
-}
 pub fn validate_repository_url(url: &str) -> Result<()> {
     let ssh = url
         .strip_prefix("ssh://")
@@ -695,188 +398,99 @@ pub fn validate_repository_url(url: &str) -> Result<()> {
     );
     Ok(())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     fn fixture() -> PathBuf {
         let root =
             std::env::temp_dir().join(format!("j0coder-catalog-test-{}", uuid::Uuid::new_v4()));
         let p = root.join("problems/example");
-        fs::create_dir_all(p.join("tests/visible")).unwrap();
-        fs::write(p.join("problem.yaml"), "schema: 1\nkey: example/add-one\ntitle: Add One\ndifficulty: easy\ntags: [example]\ninterface:\n  kind: function\n  name: addOne\n  params: [{name: value, ty: int}]\n  returns: int\n").unwrap();
-        fs::write(p.join("statement.md"), "Add one.").unwrap();
-        fs::write(p.join("tests/visible/01.yaml"), "args: [2]\nexpected: 3\n").unwrap();
+        fs::create_dir_all(&p).unwrap();
+        fs::write(p.join("problem.yaml"), "schema: 1\nkey: example/add-one\ntitle: Add One\ndifficulty: 2\nstatement: Add one.\nhints: []\ntags: [example]\ninterface:\n  kind: function\n  name: addOne\n  params: [{name: value, ty: int}]\n  returns: int\ntests:\n  visible: [{args: [2], expected: 3}]\n  hidden: [{args: [4], expected: 5}]\n").unwrap();
         root
     }
     #[test]
-    fn directory_reference_changes_do_not_change_problem_identity() {
+    fn inline_assembly_preserves_order_and_reference_identity() {
         let root = fixture();
         let first = validate_release(&root).unwrap();
-        fs::write(
-            root.join("problems/example/reference.py"),
-            "def addOne(value): return value + 1\n",
-        )
-        .unwrap();
-        let second = validate_release(&root).unwrap();
-        assert_eq!(first.problems[0].hash, second.problems[0].hash);
-        assert_ne!(first.source_checksum, second.source_checksum);
-        assert!(second.problems[0].reference.is_some());
-        fs::remove_file(root.join("problems/example/reference.py")).unwrap();
-        fs::write(
-            root.join("problems/example/reference.cpp"),
-            "int addOne(int value) { return value + 1; }\n",
-        )
-        .unwrap();
-        let cpp = validate_release(&root).unwrap();
-        assert_eq!(first.problems[0].hash, cpp.problems[0].hash);
-        assert_eq!(
-            cpp.problems[0].reference.as_ref().unwrap().language,
-            Language::Cpp
-        );
-        fs::remove_file(root.join("problems/example/reference.cpp")).unwrap();
-        for (filename, source, language) in [
-            (
-                "reference.java",
-                "class Solution { public Integer addOne(Integer value) { return value + 1; } }",
-                Language::Java,
-            ),
-            (
-                "reference.kt",
-                "fun addOne(value: Int): Int = value + 1",
-                Language::Kotlin,
-            ),
-        ] {
-            let path = root.join("problems/example").join(filename);
-            fs::write(&path, source).unwrap();
-            let release = validate_release(&root).unwrap();
-            assert_eq!(first.problems[0].hash, release.problems[0].hash);
+        let p = &first.problems[0].problem;
+        assert_eq!(p.schema, 3);
+        assert_eq!(p.difficulty, "easy");
+        assert_eq!(p.difficulty_score, Some(2));
+        assert!(!p.tests[0].hidden);
+        assert!(p.tests[1].hidden);
+        assert_eq!(p.tests[0].expected, Some(json!(3)));
+        for language in Language::iter() {
+            let file = root
+                .join("problems/example")
+                .join(format!("reference{}", language.descriptor().file_extension));
+            fs::write(&file, "reference source").unwrap();
+            let next = validate_release(&root).unwrap();
+            assert_eq!(next.problems[0].hash, first.problems[0].hash);
+            assert_ne!(next.source_checksum, first.source_checksum);
             assert_eq!(
-                release.problems[0].reference.as_ref().unwrap().language,
+                next.problems[0].reference.as_ref().unwrap().language,
                 language
             );
-            fs::remove_file(path).unwrap();
+            fs::remove_file(file).unwrap();
         }
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    fn directory_hints_and_cases_change_problem_identity() {
+    fn rejects_legacy_layouts_even_when_empty() {
         let root = fixture();
-        let p = root.join("problems/example");
-        let original = validate_release(&root).unwrap().problems[0].hash.clone();
-        fs::create_dir(p.join("hints")).unwrap();
-        fs::write(p.join("hints/01.md"), "Add one.\n").unwrap();
-        let hinted = validate_release(&root).unwrap().problems[0].hash.clone();
-        assert_ne!(original, hinted);
-        fs::write(p.join("tests/visible/01.yaml"), "args: [4]\nexpected: 5\n").unwrap();
-        let changed_case = validate_release(&root).unwrap().problems[0].hash.clone();
-        assert_ne!(hinted, changed_case);
-        fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
-    fn directory_supports_inline_paragraphs_multiple_hints_and_integer_difficulty() {
-        let root = fixture();
-        let p = root.join("problems/example");
-        fs::remove_file(p.join("statement.md")).unwrap();
-        fs::write(
-            p.join("problem.yaml"),
-            "schema: 1\nkey: example/add-one\ntitle: Add One\ndifficulty: 2\nstatement: |\n  First paragraph.\n\n  Second paragraph.\n\n  * A Markdown list item.\nhints:\n  - |\n    First hint.\n  - |\n    Second hint.\ntags: [example]\ninterface:\n  kind: function\n  name: addOne\n  params: [{name: value, ty: int}]\n  returns: int\n",
-        )
-        .unwrap();
-        let release = validate_release(&root).unwrap();
-        let problem = &release.problems[0].problem;
-        assert_eq!(
-            problem.statement,
-            "First paragraph.\n\nSecond paragraph.\n\n* A Markdown list item.\n"
-        );
-        assert_eq!(problem.hints, ["First hint.\n", "Second hint.\n"]);
-        assert_eq!(problem.difficulty, "easy");
-        assert_eq!(problem.difficulty_score, Some(2));
-
-        fs::write(p.join("statement.md"), "Conflicting statement.\n").unwrap();
+        let dir = root.join("problems/example");
+        for legacy in ["hints", "tests", "tests/visible", "tests/hidden"] {
+            fs::create_dir_all(dir.join(legacy)).unwrap();
+            assert!(validate_release(&root).is_err(), "{legacy}");
+            fs::remove_dir_all(dir.join(legacy.split('/').next().unwrap())).unwrap();
+        }
+        fs::write(dir.join("statement.md"), "statement").unwrap();
         assert!(validate_release(&root).is_err());
-        fs::remove_file(p.join("statement.md")).unwrap();
-        fs::create_dir(p.join("hints")).unwrap();
-        fs::write(p.join("hints/01.md"), "Conflicting hint.\n").unwrap();
-        assert!(validate_release(&root).is_err());
-        fs::remove_dir_all(p.join("hints")).unwrap();
-        let source = fs::read_to_string(p.join("problem.yaml")).unwrap();
-        fs::write(
-            p.join("problem.yaml"),
-            source.replace("difficulty: 2\n", "difficulty: 2\ndifficulty_score: 2\n"),
-        )
-        .unwrap();
-        let error = validate_release(&root).unwrap_err();
-        assert!(format!("{error:#}").contains("integer difficulty cannot have difficulty_score"));
-        fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
-    fn directory_supports_inline_visible_and_hidden_cases() {
-        let root = fixture();
-        let p = root.join("problems/example");
-        fs::create_dir_all(p.join("tests/hidden")).unwrap();
-        fs::write(p.join("tests/hidden/01.yaml"), "args: [4]\nexpected: 5\n").unwrap();
-        let original_hash = validate_release(&root).unwrap().problems[0].hash.clone();
-        fs::remove_dir_all(p.join("tests")).unwrap();
-        let source = fs::read_to_string(p.join("problem.yaml")).unwrap();
-        let source = format!(
-            "{source}tests:\n  visible:\n    - args: [2]\n      expected: 3\n  hidden:\n    - args: [4]\n      expected: 5\n"
-        );
-        fs::write(p.join("problem.yaml"), &source).unwrap();
-        let release = validate_release(&root).unwrap();
-        assert_eq!(release.problems[0].hash, original_hash);
-        let cases = &release.problems[0].problem.tests;
-        assert_eq!(cases.len(), 2);
-        assert!(!cases[0].hidden);
-        assert!(cases[1].hidden);
-        assert_eq!(cases[0].expected, Some(json!(3)));
-        assert_eq!(cases[1].expected, Some(json!(5)));
-
-        fs::create_dir_all(p.join("tests/visible")).unwrap();
-        fs::write(p.join("tests/visible/01.yaml"), "args: [2]\nexpected: 3\n").unwrap();
-        assert!(validate_release(&root).is_err());
-        fs::remove_dir_all(p.join("tests")).unwrap();
-        fs::write(
-            p.join("problem.yaml"),
-            source.replace("expected: 3\n", "expected: 3\n      hidden: true\n"),
-        )
-        .unwrap();
-        let error = validate_release(&root).unwrap_err();
-        assert!(format!("{error:#}").contains("visibility comes from tests group"));
-        fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
-    fn directory_rejects_ambiguous_cases_and_unknown_files() {
-        let root = fixture();
-        let p = root.join("problems/example");
-        fs::write(
-            p.join("tests/visible/01.yaml"),
-            "args: [2]\nexpected: 3\nexpected: 4\n",
-        )
-        .unwrap();
-        assert!(validate_release(&root).is_err());
-        fs::write(
-            p.join("tests/visible/01.yaml"),
-            "args: [&shared 2]\nexpected: 3\n",
-        )
-        .unwrap();
-        assert!(validate_release(&root).is_err());
-        fs::write(p.join("tests/visible/01.yaml"), "args: [2]\nexpected: 3\n").unwrap();
-        fs::write(p.join("extra.txt"), "unexpected").unwrap();
+        fs::remove_file(dir.join("statement.md")).unwrap();
+        fs::write(root.join("catalog.json"), "{}").unwrap();
         assert!(validate_release(&root).is_err());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    fn directory_rejects_duplicate_json_keys_at_any_depth() {
+    fn rejects_invalid_inline_inputs() {
         let root = fixture();
-        let path = root.join("problems/example/tests/visible/01.json");
-        fs::remove_file(root.join("problems/example/tests/visible/01.yaml")).unwrap();
+        let path = root.join("problems/example/problem.yaml");
+        let source = fs::read_to_string(&path).unwrap();
+        for invalid in [
+            source.replace("schema: 1", "schema: 3"),
+            source.replace("difficulty: 2", "difficulty: easy"),
+            source.replace("difficulty: 2", "difficulty: 0"),
+            source.replace("difficulty: 2", "difficulty: 6"),
+            source.replace("difficulty: 2", "difficulty: 2.5"),
+            format!("{source}difficulty_score: 2\n"),
+            format!("{source}unknown: true\n"),
+            source.replace("expected: 3}", "expected: 3, hidden: false}"),
+            source.replace("expected: 3}", "expected: 3, constructor_args: []}"),
+            source.replace("expected: 3}", "expected: 3, expected: 4}"),
+            source.replace("args: [2]", "args: [&shared 2]"),
+            source.replace("visible: [{args: [2], expected: 3}]", "visible: []"),
+        ] {
+            fs::write(&path, &invalid).unwrap();
+            assert!(validate_release(&root).is_err(), "{invalid}");
+        }
+        fs::write(&path, &source).unwrap();
+        fs::write(root.join("problems/example/extra.txt"), "unknown").unwrap();
+        assert!(validate_release(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn rejects_duplicate_json_keys_at_any_depth() {
+        let root = fixture();
+        let path = root.join("data.json");
         for contents in [
             r#"{"args":[2],"expected":3,"expected":4}"#,
-            r#"{"args":[{"value":2,"value":3}],"expected":3}"#,
+            r#"{"args":[{"value":2,"value":3}]}"#,
         ] {
             fs::write(&path, contents).unwrap();
-            let error = validate_release(&root).unwrap_err();
-            assert!(format!("{error:#}").contains("duplicate key"), "{error:#}");
+            assert!(format!("{:#}", read_data(&path).unwrap_err()).contains("duplicate key"));
         }
         fs::remove_dir_all(root).unwrap();
     }
@@ -884,9 +498,5 @@ mod tests {
     fn ssh_only() {
         assert!(validate_repository_url("git@example.com:a/b.git").is_ok());
         assert!(validate_repository_url("https://example.com/a").is_err());
-    }
-    #[test]
-    fn no_traversal() {
-        assert!(safe_relative("../x").is_err());
     }
 }

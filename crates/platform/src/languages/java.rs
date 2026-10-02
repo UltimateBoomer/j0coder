@@ -3,6 +3,19 @@ use crate::contract::Type;
 
 pub(super) struct Java;
 impl LanguageImplementation for Java {
+    fn descriptor(&self) -> crate::contract::LanguageDescriptor {
+        crate::contract::LanguageDescriptor {
+            id: crate::contract::Language::Java,
+            label: "Java".into(),
+            editor_label: "Java 21".into(),
+            monaco_language: "java".into(),
+            file_extension: ".java".into(),
+            line_comment: "//".into(),
+            editor_filename: "Solution.java".into(),
+            editor_uri: self.editor_uri().into(),
+        }
+    }
+
     fn identifier(&self) -> &'static str {
         "java"
     }

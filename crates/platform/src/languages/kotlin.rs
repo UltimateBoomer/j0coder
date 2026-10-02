@@ -3,6 +3,19 @@ use crate::contract::Type;
 
 pub(super) struct Kotlin;
 impl LanguageImplementation for Kotlin {
+    fn descriptor(&self) -> crate::contract::LanguageDescriptor {
+        crate::contract::LanguageDescriptor {
+            id: crate::contract::Language::Kotlin,
+            label: "Kotlin".into(),
+            editor_label: "Kotlin/JVM".into(),
+            monaco_language: "kotlin".into(),
+            file_extension: ".kt".into(),
+            line_comment: "//".into(),
+            editor_filename: "solution.kt".into(),
+            editor_uri: self.editor_uri().into(),
+        }
+    }
+
     fn identifier(&self) -> &'static str {
         "kotlin"
     }

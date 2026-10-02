@@ -17,6 +17,7 @@ pub struct Execution {
 }
 
 trait LanguageImplementation {
+    fn descriptor(&self) -> crate::contract::LanguageDescriptor;
     fn identifier(&self) -> &'static str;
     fn type_spelling(&self, ty: &Type) -> String;
     fn execution(&self) -> Execution;
@@ -486,6 +487,10 @@ impl Language {
             }
         }
         out
+    }
+
+    pub fn descriptor(self) -> crate::contract::LanguageDescriptor {
+        self.implementation().descriptor()
     }
 
     pub fn execution(self) -> Execution {

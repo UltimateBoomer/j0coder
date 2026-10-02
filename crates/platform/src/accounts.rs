@@ -1,3 +1,4 @@
+use crate::contract::{Capabilities, Language};
 use crate::{
     api::{self, App, Error, User},
     security,
@@ -11,12 +12,13 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use strum::IntoEnumIterator;
 use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Preferences {
     pub theme: String,
-    pub default_language: String,
+    pub default_language: Language,
     pub semantic_completion: bool,
     pub font_size: i32,
     pub tab_width: i32,
@@ -28,7 +30,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             theme: "system".into(),
-            default_language: "cpp".into(),
+            default_language: Language::Cpp,
             semantic_completion: true,
             font_size: 14,
             tab_width: 4,
@@ -42,7 +44,6 @@ impl Preferences {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             ["system", "light", "dark"].contains(&self.theme.as_str())
-                && ["cpp", "python", "java", "kotlin"].contains(&self.default_language.as_str())
                 && (10..=24).contains(&self.font_size)
                 && [2, 4, 8].contains(&self.tab_width),
             "invalid preferences"
@@ -97,7 +98,7 @@ pub async fn update_preferences(
     p.validate()
         .map_err(|_| Error(StatusCode::BAD_REQUEST, "invalid preferences".into()))?;
     sqlx::query("INSERT INTO user_preferences(user_id,theme,default_language,semantic_completion,font_size,tab_width,word_wrap,minimap,blind_mode) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(user_id) DO UPDATE SET theme=$2,default_language=$3,semantic_completion=$4,font_size=$5,tab_width=$6,word_wrap=$7,minimap=$8,blind_mode=$9")
- .bind(u.id).bind(&p.theme).bind(&p.default_language).bind(p.semantic_completion).bind(p.font_size).bind(p.tab_width).bind(p.word_wrap).bind(p.minimap).bind(p.blind_mode).execute(&mut *tx).await?;
+ .bind(u.id).bind(&p.theme).bind(p.default_language.identifier()).bind(p.semantic_completion).bind(p.font_size).bind(p.tab_width).bind(p.word_wrap).bind(p.minimap).bind(p.blind_mode).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(p))
 }
@@ -105,10 +106,13 @@ pub async fn limits(State(a): State<App>, h: HeaderMap) -> Result<Json<security:
     let u = api::user(&a, &h, false).await?;
     Ok(Json(security::Policy::load(&a.db, u.id).await?))
 }
-pub async fn capabilities(State(a): State<App>) -> Json<Value> {
-    Json(
-        json!({"registration":crate::env("REGISTRATION_MODE","invite"),"guest_browsing":!a.private && crate::env("GUEST_BROWSING_ENABLED","false")=="true","web_admin":a.private}),
-    )
+pub async fn capabilities(State(a): State<App>) -> Json<Capabilities> {
+    Json(Capabilities {
+        registration: crate::env("REGISTRATION_MODE", "invite"),
+        guest_browsing: !a.private && crate::env("GUEST_BROWSING_ENABLED", "false") == "true",
+        web_admin: a.private,
+        languages: Language::iter().map(Language::descriptor).collect(),
+    })
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

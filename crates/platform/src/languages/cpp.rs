@@ -4,6 +4,19 @@ use crate::contract::Type;
 pub(super) struct Cpp;
 
 impl LanguageImplementation for Cpp {
+    fn descriptor(&self) -> crate::contract::LanguageDescriptor {
+        crate::contract::LanguageDescriptor {
+            id: crate::contract::Language::Cpp,
+            label: "C++".into(),
+            editor_label: "C++20".into(),
+            monaco_language: "cpp".into(),
+            file_extension: ".cpp".into(),
+            line_comment: "//".into(),
+            editor_filename: "solution.cpp".into(),
+            editor_uri: self.editor_uri().into(),
+        }
+    }
+
     fn identifier(&self) -> &'static str {
         "cpp"
     }

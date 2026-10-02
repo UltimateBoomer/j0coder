@@ -1,38 +1,21 @@
 #!/usr/bin/env python3
 """Versioned REST schema. Regenerate checked-in TypeScript with npm run generate:api."""
 import json
+import subprocess
 ref=lambda n:{'$ref':'#/components/schemas/'+n}
 obj=lambda p,required=None:{'type':'object','properties':p,'required':required or list(p)}
 string={'type':'string'};uuid={'type':'string','format':'uuid'};boolean={'type':'boolean'}
 array=lambda x:{'type':'array','items':x}
 schemas={
-'Type':{'oneOf':[{'type':'string','enum':['void','int','int64','float','bool','string']},obj({'array':ref('Type')}),obj({'nullable':ref('Type')}),obj({'named':string})]},
-'Parameter':obj({'name':string,'ty':ref('Type'),'constraints':{'type':'string','description':'Optional display-only Markdown; at most 1000 UTF-8 bytes'}},['name','ty']),
-'Field':obj({'name':string,'ty':ref('Type')}),
-'TypeDefinition':obj({'name':string,'codec':{'type':'string','enum':['record','singly_linked_list','binary_tree','nary_tree','object_graph']},'fields':array(ref('Field'))},['name']),
-'Comparison':obj({'array':{'type':'string','enum':['ordered','set','multiset']},'absolute_tolerance':{'type':'number'},'relative_tolerance':{'type':'number'}},[]),
-'Limits':obj({'time_ms':{'type':'integer'},'memory_mib':{'type':'integer'},'output_bytes':{'type':'integer'}}),
-'FunctionInterface':obj({'kind':{'const':'function'},'name':string,'params':array(ref('Parameter')),'returns':ref('Type')}),
-'Constructor':obj({'params':array(ref('Parameter'))}),
-'Method':obj({'name':string,'params':array(ref('Parameter')),'returns':ref('Type')}),
-'DataStructureInterface':obj({'kind':{'const':'data_structure'},'name':string,'constructor':ref('Constructor'),'methods':array(ref('Method'))}),
-'Interface':{'oneOf':[ref('FunctionInterface'),ref('DataStructureInterface')]},
-'FunctionCase':obj({'args':array({}),'expected':{},'hidden':boolean},['args','expected']),
-'Operation':obj({'method':string,'args':array({}),'expected':{}},['method','args','expected']),
-'StatefulCase':obj({'constructor_args':array({}),'operations':array(ref('Operation')),'hidden':boolean},['constructor_args','operations']),
-'Case':{'oneOf':[ref('FunctionCase'),ref('StatefulCase')]},
-'Problem':obj({'schema':{'type':'integer','enum':[3]},'title':string,'statement':string,'hints':array(string),'difficulty':{'type':'string','enum':['easy','medium','hard']},'tags':array(string),'interface':ref('Interface'),'type_definitions':array(ref('TypeDefinition')),'comparison':ref('Comparison'),'limits':ref('Limits'),'tests':array(ref('Case'))},['schema','title','statement','difficulty','tags','interface','limits','tests']),
 'User':obj({'id':uuid,'username':string,'admin':boolean,'csrf':string}),
 'Credentials':obj({'username':string,'password':{'type':'string','maxLength':256}}),
-'Language':{'type':'string','enum':['cpp','python','java','kotlin']},
 'Verdict':{'type':'string','enum':['accepted','wrong_answer','compilation_error','runtime_error','time_limit','memory_limit','output_limit','infrastructure_failure','cancelled']},
 'Outcome':obj({'elapsed_ms':{'type':'integer'},'verdict':ref('Verdict'),'passed':{'type':'integer'},'total':{'type':'integer'},'cases':array(obj({'hidden':boolean,'verdict':{'anyOf':[ref('Verdict'),{'type':'null'}]},'output':{},'log':string})),'diagnostic':{'type':['string','null']} }),
 'Submission':obj({'id':uuid,'version':uuid,'status':{'type':'string','enum':['queued','running','completed']},'result':{'anyOf':[ref('Outcome'),{'type':'null'}]}}),
-'Submit':obj({'version':uuid,'language':ref('Language'),'source':{'type':'string','maxLength':100000},'mode':{'type':'string','enum':['run','submit']},'cases':array(ref('Case'))},['version','language','source','mode']),
-'ProblemDetail':obj({'id':uuid,'version':uuid,'problem':ref('Problem'),'starters':obj({'cpp':string,'python':string,'java':string,'kotlin':string})}),
-'ProblemSummary':obj({'id':uuid,'version':uuid,'title':string,'summary':string,'difficulty':string,'difficulty_score':{'type':'integer','minimum':1,'maximum':5},'tags':array(string)}),
+'Submit':obj({'version':uuid,'language':ref('Language'),'source':{'type':'string','maxLength':100000},'mode':{'type':'string','enum':['run','submit']},'cases':array(ref('CaseInput'))},['version','language','source','mode']),
 'SolutionDraft':obj({'source':string,'updated_at':{'type':'string','format':'date-time'}}),
 'Error':obj({'error':string,'reason':string},['error'])}
+schemas.update(json.loads(subprocess.check_output(["cargo", "run", "--locked", "--quiet", "--bin", "schema-export", "--", "api-components"])))
 paths={}
 def endpoint(path,method,name,response,body=None,code='200',params=None):
  op={'operationId':name,'responses':{code:{'description':'Success','content':{'application/json':{'schema':response}}},**{str(c):{'description':d,'content':{'application/json':{'schema':ref('Error')}}}for c,d in [(400,'Invalid request'),(401,'Login required'),(403,'Forbidden'),(409,'Idempotency conflict'),(429,'Capacity exceeded'),(500,'Service unavailable')]}},'security':[{'session':[]}]}
@@ -50,13 +33,13 @@ solution_params=[{'name':'version','in':'path','required':True,'schema':uuid},{'
 endpoint('/solutions/{version}/{language}','get','getSolution',ref('SolutionDraft'),params=solution_params.copy())
 endpoint('/solutions/{version}/{language}','put','putSolution',{},obj({'source':{'type':'string','description':'At most 100000 UTF-8 bytes'}}),'204',solution_params.copy())
 
-endpoint('/admin/problems','get','listDrafts',array(obj({'id':uuid,'draft':ref('Problem'),'version':{'type':['string','null']},'managed':boolean})))
-endpoint('/admin/problems','post','createDraft',obj({'id':uuid}),ref('Problem'))
-endpoint('/admin/problems/validate','post','validateProblem',obj({'valid':boolean,'content_hash':string}),ref('Problem'))
+endpoint('/admin/problems','get','listDrafts',array(ref('CatalogDraft')))
+endpoint('/admin/problems','post','createDraft',ref('CreatedProblem'),ref('ProblemInput'))
+endpoint('/admin/problems/validate','post','validateProblem',ref('ValidatedDefinition'),ref('ProblemInput'))
 endpoint('/admin/catalog','get','getCatalogStatus',{})
 
-endpoint('/admin/problems/{id}','put','saveDraft',{},ref('Problem'),'204')
-endpoint('/admin/problems/{id}/publish','post','publish',obj({'version':uuid}))
+endpoint('/admin/problems/{id}','put','saveDraft',{},ref('ProblemInput'),'204')
+endpoint('/admin/problems/{id}/publish','post','publish',ref('PublishedProblem'))
 endpoint('/submissions','post','submit',obj({'id':uuid}),ref('Submit'),'202',[{'name':'Idempotency-Key','in':'header','required':True,'schema':string}])
 endpoint('/submissions','get','history',array({}),params=[{'name':'version','in':'query','required':True,'schema':uuid}])
 endpoint('/submissions/{id}','get','getSubmission',ref('Submission'))
@@ -64,7 +47,7 @@ endpoint('/editor-ticket','post','editorTicket',obj({'ticket':string,'path':stri
 prefs={'theme':{'enum':['system','light','dark']},'default_language':ref('Language'),'semantic_completion':boolean,'font_size':{'type':'integer','minimum':10,'maximum':24},'tab_width':{'enum':[2,4,8]},'word_wrap':boolean,'minimap':boolean,'blind_mode':boolean}
 schemas['Preferences']=obj(prefs)
 schemas['Preferences']['additionalProperties']=False
-endpoint('/capabilities','get','capabilities',obj({'registration':{'enum':['invite','closed']},'guest_browsing':boolean,'web_admin':boolean}))
+endpoint('/capabilities','get','capabilities',ref('Capabilities'))
 endpoint('/register','post','register',{},obj({'token':string,'username':string,'password':{'type':'string','minLength':15,'maxLength':256}}),'201')
 endpoint('/reset-password','post','resetPassword',obj({'ok':boolean}),obj({'token':string,'password':{'type':'string','minLength':15,'maxLength':256}}))
 endpoint('/me/preferences','get','getPreferences',ref('Preferences'))

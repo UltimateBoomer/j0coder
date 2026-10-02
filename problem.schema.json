@@ -1,0 +1,517 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "ArrayComparison": {
+      "enum": [
+        "ordered",
+        "set",
+        "multiset"
+      ],
+      "type": "string"
+    },
+    "Attribution": {
+      "additionalProperties": false,
+      "properties": {
+        "notice": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "source_url"
+      ],
+      "type": "object"
+    },
+    "AuthoringCase": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "args": {
+              "items": true,
+              "type": "array"
+            },
+            "expected": true
+          },
+          "required": [
+            "args",
+            "expected"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "constructor_args": {
+              "items": true,
+              "type": "array"
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/Operation"
+              },
+              "maxItems": 200,
+              "type": "array"
+            }
+          },
+          "required": [
+            "constructor_args",
+            "operations"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AuthoringTests": {
+      "additionalProperties": false,
+      "properties": {
+        "hidden": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/AuthoringCase"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "visible": {
+          "items": {
+            "$ref": "#/definitions/AuthoringCase"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "visible"
+      ],
+      "type": "object"
+    },
+    "Codec": {
+      "enum": [
+        "record",
+        "singly_linked_list",
+        "binary_tree",
+        "nary_tree",
+        "object_graph"
+      ],
+      "type": "string"
+    },
+    "Comparison": {
+      "additionalProperties": false,
+      "properties": {
+        "absolute_tolerance": {
+          "default": 0.0,
+          "format": "double",
+          "minimum": 0,
+          "type": "number"
+        },
+        "array": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ArrayComparison"
+            }
+          ],
+          "default": "ordered"
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Comparison"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "relative_tolerance": {
+          "default": 0.0,
+          "format": "double",
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "Constructor": {
+      "additionalProperties": false,
+      "properties": {
+        "params": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Parameter"
+          },
+          "maxItems": 16,
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Field": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "ty": {
+          "$ref": "#/definitions/Type"
+        }
+      },
+      "required": [
+        "name",
+        "ty"
+      ],
+      "type": "object"
+    },
+    "Interface": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "function",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "params": {
+              "default": [],
+              "items": {
+                "$ref": "#/definitions/Parameter"
+              },
+              "maxItems": 16,
+              "type": "array"
+            },
+            "returns": {
+              "$ref": "#/definitions/Type"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "returns"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "constructor": {
+              "$ref": "#/definitions/Constructor"
+            },
+            "kind": {
+              "const": "data_structure",
+              "type": "string"
+            },
+            "methods": {
+              "items": {
+                "$ref": "#/definitions/Method"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "constructor",
+            "methods"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "memory_mib": {
+          "format": "uint64",
+          "minimum": 32,
+          "type": "integer"
+        },
+        "output_bytes": {
+          "format": "uint64",
+          "maximum": 1048576,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "time_ms": {
+          "format": "uint64",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "time_ms",
+        "memory_mib",
+        "output_bytes"
+      ],
+      "type": "object"
+    },
+    "Method": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "params": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Parameter"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "returns": {
+          "$ref": "#/definitions/Type"
+        }
+      },
+      "required": [
+        "name",
+        "returns"
+      ],
+      "type": "object"
+    },
+    "Operation": {
+      "additionalProperties": false,
+      "properties": {
+        "args": true,
+        "expected": true,
+        "method": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "args",
+        "expected"
+      ],
+      "type": "object"
+    },
+    "Parameter": {
+      "additionalProperties": false,
+      "properties": {
+        "constraints": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "ty": {
+          "$ref": "#/definitions/Type"
+        }
+      },
+      "required": [
+        "name",
+        "ty"
+      ],
+      "type": "object"
+    },
+    "Type": {
+      "oneOf": [
+        {
+          "enum": [
+            "void",
+            "int",
+            "int64",
+            "float",
+            "bool",
+            "string"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "array": {
+              "$ref": "#/definitions/Type"
+            }
+          },
+          "required": [
+            "array"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "nullable": {
+              "$ref": "#/definitions/Type"
+            }
+          },
+          "required": [
+            "nullable"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "named": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TypeDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "codec": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Codec"
+            }
+          ],
+          "default": "record"
+        },
+        "fields": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Field"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Current inline YAML authoring input; semantic validation follows assembly.",
+  "properties": {
+    "attribution": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Attribution"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "comparison": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Comparison"
+        }
+      ],
+      "default": {
+        "absolute_tolerance": 0.0,
+        "array": "ordered",
+        "items": null,
+        "relative_tolerance": 0.0
+      }
+    },
+    "difficulty": {
+      "format": "uint8",
+      "maximum": 5,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "hints": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "interface": {
+      "$ref": "#/definitions/Interface"
+    },
+    "key": {
+      "pattern": "^[a-z0-9][a-z0-9._:/-]{2,199}$",
+      "type": "string"
+    },
+    "limits": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Limits"
+        }
+      ],
+      "default": {
+        "memory_mib": 256,
+        "output_bytes": 1048576,
+        "time_ms": 2000
+      }
+    },
+    "schema": {
+      "format": "uint8",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "statement": {
+      "type": "string"
+    },
+    "summary": {
+      "default": "",
+      "maxLength": 300,
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "tests": {
+      "$ref": "#/definitions/AuthoringTests"
+    },
+    "title": {
+      "type": "string"
+    },
+    "type_definitions": {
+      "default": [],
+      "items": {
+        "$ref": "#/definitions/TypeDefinition"
+      },
+      "maxItems": 32,
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "key",
+    "title",
+    "difficulty",
+    "statement",
+    "tags",
+    "interface",
+    "tests"
+  ],
+  "title": "AuthoringProblem",
+  "type": "object"
+}

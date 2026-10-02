@@ -7,6 +7,7 @@ mod languages;
 pub mod manage;
 pub mod queue;
 pub mod sandbox;
+pub mod schema;
 pub mod security;
 pub mod shutdown;
 pub fn env(key: &str, default: &str) -> String {

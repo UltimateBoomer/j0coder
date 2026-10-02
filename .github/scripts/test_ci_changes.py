@@ -10,9 +10,13 @@ class ChangesTest(unittest.TestCase):
 
     def test_backend_changes(self):
         self.assertEqual(checks_for("crates/platform/src/api.rs"),
-                         {"rust", "integration", "app_image"})
+                         {"rust", "web", "integration", "app_image"})
         self.assertEqual(checks_for("migrations/001.sql"),
                          {"rust", "integration", "app_image"})
+
+    def test_contract_changes(self):
+        for path in ["crates/platform/src/contract.rs", "crates/platform/src/languages/java.rs", "crates/platform/src/schema.rs", "problem.schema.json"]:
+            self.assertIn("web", checks_for(path))
 
     def test_web_changes(self):
         self.assertEqual(checks_for("web/src/App.svelte"),

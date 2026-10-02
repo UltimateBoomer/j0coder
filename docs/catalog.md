@@ -11,4 +11,6 @@ RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0code
 RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0coder-problems --check-references
 ```
 
-Reference checks require the same configured gVisor sandbox and toolchain image as learner submissions. The controller never executes catalog source. During transition it also accepts a legacy `catalog.json` release; mixed releases are rejected. The manifest builder has been retired for the directory catalog.
+Reference checks require the same configured gVisor sandbox and toolchain image as learner submissions. The controller never executes catalog source. Legacy `catalog.json` releases are rejected. The manifest builder has been retired for the directory catalog.
+
+Rust contracts generate OpenAPI, TypeScript, and the draft-07 editor schema. Run `make generate-contracts` after changing contracts. Update the catalog editor schema and `.j0coder-revision` together after delivering the application commit. Catalog CI validates against that exact full commit SHA; cross-field, byte-length, filesystem, and typed-case rules remain enforced by Rust.

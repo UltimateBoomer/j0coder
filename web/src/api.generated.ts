@@ -336,96 +336,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        Type: ("void" | "int" | "int64" | "float" | "bool" | "string") | {
-            array: components["schemas"]["Type"];
-        } | {
-            nullable: components["schemas"]["Type"];
-        } | {
-            named: string;
-        };
-        Parameter: {
-            name: string;
-            ty: components["schemas"]["Type"];
-            /** @description Optional display-only Markdown; at most 1000 UTF-8 bytes */
-            constraints?: string;
-        };
-        Field: {
-            name: string;
-            ty: components["schemas"]["Type"];
-        };
-        TypeDefinition: {
-            name: string;
-            /** @enum {string} */
-            codec?: "record" | "singly_linked_list" | "binary_tree" | "nary_tree" | "object_graph";
-            fields?: components["schemas"]["Field"][];
-        };
-        Comparison: {
-            /** @enum {string} */
-            array: "ordered" | "set" | "multiset";
-            absolute_tolerance: number;
-            relative_tolerance: number;
-        };
-        Limits: {
-            time_ms: number;
-            memory_mib: number;
-            output_bytes: number;
-        };
-        FunctionInterface: {
-            /** @constant */
-            kind: "function";
-            name: string;
-            params: components["schemas"]["Parameter"][];
-            returns: components["schemas"]["Type"];
-        };
-        Constructor: {
-            params: components["schemas"]["Parameter"][];
-        };
-        Method: {
-            name: string;
-            params: components["schemas"]["Parameter"][];
-            returns: components["schemas"]["Type"];
-        };
-        DataStructureInterface: {
-            /** @constant */
-            kind: "data_structure";
-            name: string;
-            constructor: {
-                params: components["schemas"]["Parameter"][];
-            };
-            methods: components["schemas"]["Method"][];
-        };
-        Interface: components["schemas"]["FunctionInterface"] | components["schemas"]["DataStructureInterface"];
-        FunctionCase: {
-            args: unknown[];
-            expected: unknown;
-            hidden?: boolean;
-        };
-        Operation: {
-            method: string;
-            args: unknown[];
-            expected: unknown;
-        };
-        StatefulCase: {
-            constructor_args: unknown[];
-            operations: components["schemas"]["Operation"][];
-            hidden?: boolean;
-        };
-        Case: components["schemas"]["FunctionCase"] | components["schemas"]["StatefulCase"];
-        Problem: {
-            /** @enum {integer} */
-            schema: 3;
-            title: string;
-            statement: string;
-            hints?: string[];
-            /** @enum {string} */
-            difficulty: "easy" | "medium" | "hard";
-            tags: string[];
-            interface: components["schemas"]["Interface"];
-            type_definitions?: components["schemas"]["TypeDefinition"][];
-            comparison?: components["schemas"]["Comparison"];
-            limits: components["schemas"]["Limits"];
-            tests: components["schemas"]["Case"][];
-        };
         User: {
             /** Format: uuid */
             id: string;
@@ -437,8 +347,6 @@ export interface components {
             username: string;
             password: string;
         };
-        /** @enum {string} */
-        Language: "cpp" | "python" | "java" | "kotlin";
         /** @enum {string} */
         Verdict: "accepted" | "wrong_answer" | "compilation_error" | "runtime_error" | "time_limit" | "memory_limit" | "output_limit" | "infrastructure_failure" | "cancelled";
         Outcome: {
@@ -470,31 +378,7 @@ export interface components {
             source: string;
             /** @enum {string} */
             mode: "run" | "submit";
-            cases?: components["schemas"]["Case"][];
-        };
-        ProblemDetail: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            version: string;
-            problem: components["schemas"]["Problem"];
-            starters: {
-                cpp: string;
-                python: string;
-                java: string;
-                kotlin: string;
-            };
-        };
-        ProblemSummary: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            version: string;
-            title: string;
-            summary: string;
-            difficulty: string;
-            difficulty_score: number;
-            tags: string[];
+            cases?: components["schemas"]["CaseInput"][];
         };
         SolutionDraft: {
             source: string;
@@ -504,6 +388,355 @@ export interface components {
         Error: {
             error: string;
             reason?: string;
+        };
+        /** @enum {string} */
+        ArrayComparison: "ordered" | "set" | "multiset";
+        /** @enum {string} */
+        ArrayComparisonInput: "ordered" | "set" | "multiset";
+        Attribution: {
+            /** @default null */
+            notice: string | null;
+            provider: string;
+            source_url: string;
+        };
+        AttributionInput: {
+            /** @default null */
+            notice?: string | null;
+            provider: string;
+            source_url: string;
+        };
+        /** Capabilities */
+        Capabilities: {
+            guest_browsing: boolean;
+            languages: components["schemas"]["LanguageDescriptor"][];
+            registration: string;
+            web_admin: boolean;
+        };
+        Case: {
+            /** @default null */
+            args: unknown;
+            /** @default null */
+            constructor_args: unknown;
+            /** @default null */
+            expected: unknown;
+            /** @default false */
+            hidden: boolean;
+            /** @default null */
+            operations: components["schemas"]["Operation"][] | null;
+        };
+        /** Case */
+        CaseInput: {
+            /** @default null */
+            args?: unknown;
+            /** @default null */
+            constructor_args?: unknown;
+            /** @default null */
+            expected?: unknown;
+            /** @default false */
+            hidden?: boolean;
+            /** @default null */
+            operations?: components["schemas"]["OperationInput"][] | null;
+        };
+        /** CatalogDraft */
+        CatalogDraft: {
+            draft: components["schemas"]["Problem"];
+            /** Format: uuid */
+            id: string;
+            managed: boolean;
+            /** Format: uuid */
+            version: string | null;
+        };
+        /** @enum {string} */
+        Codec: "record" | "singly_linked_list" | "binary_tree" | "nary_tree" | "object_graph";
+        /** @enum {string} */
+        CodecInput: "record" | "singly_linked_list" | "binary_tree" | "nary_tree" | "object_graph";
+        Comparison: {
+            /**
+             * Format: double
+             * @default 0
+             */
+            absolute_tolerance: number;
+            /** @default ordered */
+            array: components["schemas"]["ArrayComparison"];
+            /** @default null */
+            items: components["schemas"]["Comparison"] | null;
+            /**
+             * Format: double
+             * @default 0
+             */
+            relative_tolerance: number;
+        };
+        ComparisonInput: {
+            /**
+             * Format: double
+             * @default 0
+             */
+            absolute_tolerance?: number;
+            /** @default ordered */
+            array?: components["schemas"]["ArrayComparisonInput"];
+            /** @default null */
+            items?: components["schemas"]["ComparisonInput"] | null;
+            /**
+             * Format: double
+             * @default 0
+             */
+            relative_tolerance?: number;
+        };
+        Constructor: {
+            /** @default [] */
+            params: components["schemas"]["Parameter"][];
+        };
+        ConstructorInput: {
+            /** @default [] */
+            params?: components["schemas"]["ParameterInput"][];
+        };
+        /** CreatedProblem */
+        CreatedProblem: {
+            /** Format: uuid */
+            id: string;
+        };
+        Field: {
+            name: string;
+            ty: components["schemas"]["Type"];
+        };
+        FieldInput: {
+            name: string;
+            ty: components["schemas"]["TypeInput"];
+        };
+        Interface: {
+            /** @constant */
+            kind: "function";
+            name: string;
+            /** @default [] */
+            params: components["schemas"]["Parameter"][];
+            returns: components["schemas"]["Type"];
+        } | {
+            constructor: {
+                /** @default [] */
+                params: components["schemas"]["Parameter"][];
+            };
+            /** @constant */
+            kind: "data_structure";
+            methods: components["schemas"]["Method"][];
+            name: string;
+        };
+        InterfaceInput: {
+            /** @constant */
+            kind: "function";
+            name: string;
+            /** @default [] */
+            params?: components["schemas"]["ParameterInput"][];
+            returns: components["schemas"]["TypeInput"];
+        } | {
+            constructor: {
+                /** @default [] */
+                params?: components["schemas"]["ParameterInput"][];
+            };
+            /** @constant */
+            kind: "data_structure";
+            methods: components["schemas"]["MethodInput"][];
+            name: string;
+        };
+        /**
+         * Language
+         * @enum {string}
+         */
+        Language: "cpp" | "python" | "java" | "kotlin";
+        /** @description Metadata shared by API consumers and the editor. Execution filenames are separate. */
+        LanguageDescriptor: {
+            editor_filename: string;
+            editor_label: string;
+            editor_uri: string;
+            file_extension: string;
+            id: components["schemas"]["Language"];
+            label: string;
+            line_comment: string;
+            monaco_language: string;
+        };
+        Limits: {
+            /** Format: uint64 */
+            memory_mib: number;
+            /** Format: uint64 */
+            output_bytes: number;
+            /** Format: uint64 */
+            time_ms: number;
+        };
+        LimitsInput: {
+            /** Format: uint64 */
+            memory_mib: number;
+            /** Format: uint64 */
+            output_bytes: number;
+            /** Format: uint64 */
+            time_ms: number;
+        };
+        Method: {
+            name: string;
+            /** @default [] */
+            params: components["schemas"]["Parameter"][];
+            returns: components["schemas"]["Type"];
+        };
+        MethodInput: {
+            name: string;
+            /** @default [] */
+            params?: components["schemas"]["ParameterInput"][];
+            returns: components["schemas"]["TypeInput"];
+        };
+        Operation: {
+            args: unknown;
+            expected: unknown;
+            method: string;
+        };
+        OperationInput: {
+            args: unknown;
+            expected: unknown;
+            method: string;
+        };
+        Parameter: {
+            constraints?: string | null;
+            name: string;
+            ty: components["schemas"]["Type"];
+        };
+        ParameterInput: {
+            constraints?: string | null;
+            name: string;
+            ty: components["schemas"]["TypeInput"];
+        };
+        Problem: {
+            /** @default null */
+            attribution: components["schemas"]["Attribution"] | null;
+            /** @default {
+             *       "absolute_tolerance": 0,
+             *       "array": "ordered",
+             *       "items": null,
+             *       "relative_tolerance": 0
+             *     } */
+            comparison: components["schemas"]["Comparison"];
+            difficulty: string;
+            /**
+             * Format: uint8
+             * @default null
+             */
+            difficulty_score: number | null;
+            hints?: string[];
+            interface: components["schemas"]["Interface"];
+            /** @default {
+             *       "memory_mib": 256,
+             *       "output_bytes": 1048576,
+             *       "time_ms": 2000
+             *     } */
+            limits: components["schemas"]["Limits"];
+            /** Format: uint8 */
+            schema: number;
+            statement: string;
+            /** @default  */
+            summary: string;
+            tags: string[];
+            tests: components["schemas"]["Case"][];
+            title: string;
+            /** @default [] */
+            type_definitions: components["schemas"]["TypeDefinition"][];
+        };
+        /** ProblemDetail */
+        ProblemDetail: {
+            /** Format: uuid */
+            id: string;
+            problem: components["schemas"]["Problem"];
+            starters: {
+                cpp?: string;
+                java?: string;
+                kotlin?: string;
+                python?: string;
+            };
+            /** Format: uuid */
+            version: string;
+        };
+        /** Problem */
+        ProblemInput: {
+            /** @default null */
+            attribution?: components["schemas"]["AttributionInput"] | null;
+            /** @default {
+             *       "absolute_tolerance": 0,
+             *       "array": "ordered",
+             *       "items": null,
+             *       "relative_tolerance": 0
+             *     } */
+            comparison?: components["schemas"]["ComparisonInput"];
+            difficulty: string;
+            /**
+             * Format: uint8
+             * @default null
+             */
+            difficulty_score?: number | null;
+            hints?: string[];
+            interface: components["schemas"]["InterfaceInput"];
+            /** @default {
+             *       "memory_mib": 256,
+             *       "output_bytes": 1048576,
+             *       "time_ms": 2000
+             *     } */
+            limits?: components["schemas"]["LimitsInput"];
+            /** Format: uint8 */
+            schema: number;
+            statement: string;
+            /** @default  */
+            summary?: string;
+            tags: string[];
+            tests: components["schemas"]["CaseInput"][];
+            title: string;
+            /** @default [] */
+            type_definitions?: components["schemas"]["TypeDefinitionInput"][];
+        };
+        /** ProblemSummary */
+        ProblemSummary: {
+            cursor: string;
+            difficulty: string;
+            /** Format: uint8 */
+            difficulty_score: number;
+            /** Format: uuid */
+            id: string;
+            summary: string | null;
+            tags: string[];
+            title: string;
+            /** Format: uuid */
+            version: string;
+        };
+        /** PublishedProblem */
+        PublishedProblem: {
+            /** Format: uuid */
+            version: string;
+        };
+        Type: ("void" | "int" | "int64" | "float" | "bool" | "string") | {
+            array: components["schemas"]["Type"];
+        } | {
+            nullable: components["schemas"]["Type"];
+        } | {
+            named: string;
+        };
+        TypeDefinition: {
+            /** @default record */
+            codec: components["schemas"]["Codec"];
+            /** @default [] */
+            fields: components["schemas"]["Field"][];
+            name: string;
+        };
+        TypeDefinitionInput: {
+            /** @default record */
+            codec?: components["schemas"]["CodecInput"];
+            /** @default [] */
+            fields?: components["schemas"]["FieldInput"][];
+            name: string;
+        };
+        TypeInput: ("void" | "int" | "int64" | "float" | "bool" | "string") | {
+            array: components["schemas"]["TypeInput"];
+        } | {
+            nullable: components["schemas"]["TypeInput"];
+        } | {
+            named: string;
+        };
+        /** ValidatedDefinition */
+        ValidatedDefinition: {
+            content_hash: string;
+            valid: boolean;
         };
         Preferences: {
             /** @enum {unknown} */
@@ -1175,13 +1408,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        draft: components["schemas"]["Problem"];
-                        version: string | null;
-                        managed: boolean;
-                    }[];
+                    "application/json": components["schemas"]["CatalogDraft"][];
                 };
             };
             /** @description Invalid request */
@@ -1263,7 +1490,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Problem"];
+                "application/json": components["schemas"]["ProblemInput"];
             };
         };
         responses: {
@@ -1273,10 +1500,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                    };
+                    "application/json": components["schemas"]["CreatedProblem"];
                 };
             };
             /** @description Invalid request */
@@ -1358,7 +1582,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Problem"];
+                "application/json": components["schemas"]["ProblemInput"];
             };
         };
         responses: {
@@ -1368,10 +1592,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        valid: boolean;
-                        content_hash: string;
-                    };
+                    "application/json": components["schemas"]["ValidatedDefinition"];
                 };
             };
             /** @description Invalid request */
@@ -1540,7 +1761,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Problem"];
+                "application/json": components["schemas"]["ProblemInput"];
             };
         };
         responses: {
@@ -1640,10 +1861,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        version: string;
-                    };
+                    "application/json": components["schemas"]["PublishedProblem"];
                 };
             };
             /** @description Invalid request */
@@ -2095,12 +2313,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** @enum {unknown} */
-                        registration: "invite" | "closed";
-                        guest_browsing: boolean;
-                        web_admin: boolean;
-                    };
+                    "application/json": components["schemas"]["Capabilities"];
                 };
             };
             /** @description Invalid request */

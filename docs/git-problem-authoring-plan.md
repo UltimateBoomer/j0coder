@@ -12,7 +12,7 @@ problems/between-the-markers/
 
 `problem.yaml` has source `schema: 1`, a stable `key`, integer `difficulty` from 1 to 5, a Markdown `statement`, an ordered list of Markdown `hints`, `tests.visible` and `tests.hidden` case lists, and the problem's metadata, interface, and limits. Use a YAML literal block (`|`) for paragraph-form statements and multiline hints. The loader derives the easy, medium, or hard band from the integer when assembling the schema-3 problem. It finds one directory per problem directly under `problems/`. Tests use the existing case shape without `hidden`; their list supplies visibility. Cases retain list order, with visible cases before hidden cases. A problem may have zero hints and at most one reference source. `example-problem/` is outside `problems/` and never published.
 
-The older `statement.md`, ordered `hints/*.md`, string `difficulty` with optional `difficulty_score`, and case files under `tests/visible/` or `tests/hidden/` still load during migration. A statement, hints, or tests must come from one location, not both.
+The loader rejects `statement.md`, `hints/`, `tests/` (including empty directories), string `difficulty`, and authoring `difficulty_score`. Statements, hints, and cases belong in `problem.yaml`.
 
 Each interface parameter can have an optional `constraints` Markdown string. The learner UI and admin preview display these strings in a separate Constraints section, ordered by the function, constructor, or method interface. A present string must be nonblank and at most 1,000 UTF-8 bytes. These constraints describe valid inputs; they do not add machine-enforced checks to cases or submissions.
 
@@ -20,7 +20,7 @@ YAML is restricted to JSON-compatible values. Duplicate keys, custom tags, alias
 
 ## Publication and references
 
-The controller accepts the old `catalog.json` release during deployment transition, but a release cannot mix formats. Directory releases use the assembled schema-3 problem as the learner version identity. The transition compares semantic content with existing drafts; an unchanged problem keeps its version and saved solutions. Statements, hints, interface, or case changes publish a new immutable version. Reference-only changes create or bind a private reference revision without changing the learner version.
+The controller rejects old `catalog.json` releases. Directory releases use the assembled schema-3 problem as the learner version identity. The transition compares semantic content with existing drafts; an unchanged problem keeps its version and saved solutions. Statements, hints, interface, or case changes publish a new immutable version. Reference-only changes create or bind a private reference revision without changing the learner version.
 
 References are optional for migrated problems and never appear in learner API responses or public version JSON. `catalog-validate --check-references` runs every present reference against visible and hidden cases using the same gVisor sandbox, wrappers, limits, and comparison rules as submissions. The controller does not execute repository code. Catalog CI must run this check before changes reach the tracked branch; pinned commits need the same check before selection. A future arbitrary-input feature can execute the bound reference revision to obtain typed expected outputs without exposing source.
 
@@ -36,3 +36,5 @@ RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0code
 ```
 
 The second command needs the configured gVisor sandbox and toolchain image. Author changes through a normal Git branch and pull request. Catalog CI must pass before merge.
+
+Rust contracts generate OpenAPI, TypeScript, and the draft-07 editor schema. Run `make generate-contracts` after changing contracts. Update the catalog editor schema and `.j0coder-revision` together after delivering the application commit. Catalog CI validates against that exact full commit SHA; cross-field, byte-length, filesystem, and typed-case rules remain enforced by Rust.

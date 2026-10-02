@@ -117,3 +117,9 @@ kube-dev-up: configure helm-check toolchain-image app-image
 
 kube-dev-down:
 	LIMA_INSTANCE='$(LIMA_INSTANCE)' ./scripts/kube-dev-down.sh
+
+.PHONY: generate-contracts
+generate-contracts:
+	python3 scripts/generate-openapi.py
+	npm run generate:api --prefix web
+	cargo run --locked --quiet --bin schema-export -- authoring > problem.schema.json

@@ -1,15 +1,18 @@
 import {api,ApiError} from './api';
 
-export type SolutionLanguage='cpp'|'python'|'java'|'kotlin';
+export type SolutionLanguage=import('./languages').Language;
 export type SaveStatus='loading'|'pending'|'saving'|'saved'|'retrying'|'unavailable';
 type SaveState={timer?:ReturnType<typeof setTimeout>;inFlight?:Promise<boolean>;retryMs:number};
 
 export class SolutionSync {
- private states:Record<SolutionLanguage,SaveState>={cpp:{retryMs:1000},python:{retryMs:1000},java:{retryMs:1000},kotlin:{retryMs:1000}};
- private statuses:Record<SolutionLanguage,SaveStatus>={cpp:'loading',python:'loading',java:'loading',kotlin:'loading'};
+ private states:Record<SolutionLanguage,SaveState>;
+ private statuses:Record<SolutionLanguage,SaveStatus>;
  private disposed=false;
 
- constructor(private userId:string,private version:string,private starters:Record<SolutionLanguage,string>,private onStatus?:(language:SolutionLanguage,status:SaveStatus)=>void){}
+ constructor(private userId:string,private version:string,private starters:Partial<Record<SolutionLanguage,string>>,private onStatus?:(language:SolutionLanguage,status:SaveStatus)=>void){
+  this.states=Object.fromEntries(Object.keys(starters).map(id=>[id,{retryMs:1000}])) as Record<SolutionLanguage,SaveState>;
+  this.statuses=Object.fromEntries(Object.keys(starters).map(id=>[id,'loading'])) as Record<SolutionLanguage,SaveStatus>;
+ }
 
  private setStatus(language:SolutionLanguage,status:SaveStatus){
   if(this.statuses[language]===status)return;
@@ -48,7 +51,7 @@ export class SolutionSync {
     this.setStatus(language,'retrying');
     this.schedule(language,this.states[language].retryMs);
    }else this.setStatus(language,'unavailable');
-   return local??this.starters[language];
+   return local??this.starters[language]!;
   }
  }
 
@@ -105,6 +108,6 @@ export class SolutionSync {
   }else this.setStatus(language,'saved');
  }
 
- flushAll(){for(const language of ['cpp','python','java','kotlin'] as const)void this.flush(language)}
- dispose(){this.disposed=true;for(const language of ['cpp','python','java','kotlin'] as const){const timer=this.states[language].timer;if(timer)clearTimeout(timer)}this.flushAll()}
+ flushAll(){for(const language of Object.keys(this.starters) as SolutionLanguage[])void this.flush(language)}
+ dispose(){this.disposed=true;for(const language of Object.keys(this.starters) as SolutionLanguage[]){const timer=this.states[language].timer;if(timer)clearTimeout(timer)}this.flushAll()}
 }

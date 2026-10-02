@@ -1,10 +1,12 @@
 use anyhow::{Result, ensure};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
+use strum::IntoEnumIterator;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Type {
     Void,
@@ -82,12 +84,13 @@ impl Type {
         }
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Field {
     pub name: String,
     pub ty: Type,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Codec {
     #[default]
@@ -97,12 +100,14 @@ pub enum Codec {
     NaryTree,
     ObjectGraph,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TypeDefinition {
     pub name: String,
     #[serde(default)]
     pub codec: Codec,
     #[serde(default)]
+    #[schemars(length(max = 32))]
     pub fields: Vec<Field>,
 }
 impl TypeDefinition {
@@ -242,39 +247,46 @@ fn check_graph(
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Parameter {
     pub name: String,
     pub ty: Type,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constraints: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Constructor {
     #[serde(default)]
+    #[schemars(length(max = 16))]
     pub params: Vec<Parameter>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Method {
     pub name: String,
     #[serde(default)]
+    #[schemars(length(max = 16))]
     pub params: Vec<Parameter>,
     pub returns: Type,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Interface {
     Function {
         name: String,
         #[serde(default)]
+        #[schemars(length(max = 16))]
         params: Vec<Parameter>,
         returns: Type,
     },
     DataStructure {
         name: String,
         constructor: Constructor,
+        #[schemars(length(min = 1, max = 32))]
         methods: Vec<Method>,
     },
 }
@@ -379,14 +391,7 @@ pub fn identifier(s: &str) -> bool {
         && s.bytes()
             .enumerate()
             .all(|(i, c)| c.is_ascii_alphabetic() || (i > 0 && (c.is_ascii_digit() || c == b'_')))
-        && [
-            Language::Cpp,
-            Language::Python,
-            Language::Java,
-            Language::Kotlin,
-        ]
-        .iter()
-        .all(|l| !l.is_reserved(s))
+        && Language::iter().all(|l| !l.is_reserved(s))
 }
 fn type_refs(t: &Type, known: &HashSet<&str>) -> Result<()> {
     match t {
@@ -397,7 +402,19 @@ fn type_refs(t: &Type, known: &HashSet<&str>) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    strum::EnumIter,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Language {
     Cpp,
@@ -405,10 +422,14 @@ pub enum Language {
     Java,
     Kotlin,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Limits {
+    #[schemars(range(min = 1))]
     pub time_ms: u64,
+    #[schemars(range(min = 32))]
     pub memory_mib: u64,
+    #[schemars(range(min = 1, max = 1048576))]
     pub output_bytes: u64,
 }
 impl Default for Limits {
@@ -420,7 +441,7 @@ impl Default for Limits {
         }
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Case {
     #[serde(default)]
@@ -434,21 +455,22 @@ pub struct Case {
     #[serde(default)]
     pub operations: Option<Vec<Operation>>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Operation {
     pub method: String,
     pub args: Value,
     pub expected: Value,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Attribution {
     pub provider: String,
     pub source_url: String,
     #[serde(default)]
     pub notice: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ArrayComparison {
     #[default]
@@ -456,13 +478,16 @@ pub enum ArrayComparison {
     Set,
     Multiset,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Comparison {
     #[serde(default)]
     pub array: ArrayComparison,
     #[serde(default)]
+    #[schemars(range(min = 0))]
     pub absolute_tolerance: f64,
     #[serde(default)]
+    #[schemars(range(min = 0))]
     pub relative_tolerance: f64,
     #[serde(default)]
     pub items: Option<Box<Comparison>>,
@@ -539,12 +564,13 @@ fn compare(p: &Comparison, t: &Type, a: &Value, b: &Value) -> bool {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Problem {
     pub schema: u8,
     pub title: String,
     #[serde(default)]
+    #[schemars(length(max = 300))]
     pub summary: String,
     pub statement: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -738,7 +764,7 @@ fn args_match(args: &[Value], params: &[Parameter], defs: &[TypeDefinition]) -> 
             .zip(params)
             .all(|(v, p)| p.ty.valid_with(v, defs))
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Job {
     #[serde(default)]
     pub attempt_base: u32,
@@ -755,7 +781,7 @@ pub struct Job {
     #[serde(default)]
     pub comparison: Comparison,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
     Accepted,
@@ -768,14 +794,14 @@ pub enum Verdict {
     InfrastructureFailure,
     Cancelled,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CaseResult {
     pub hidden: bool,
     pub verdict: Option<Verdict>,
     pub output: Option<Value>,
     pub log: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Outcome {
     #[serde(default)]
     pub elapsed_ms: u64,
@@ -785,7 +811,7 @@ pub struct Outcome {
     pub cases: Vec<CaseResult>,
     pub diagnostic: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Event {
     pub generation: Uuid,
     pub schema: u8,
@@ -793,4 +819,175 @@ pub struct Event {
     pub token: String,
     pub attempt: u32,
     pub outcome: Option<Outcome>,
+}
+
+/// Metadata shared by API consumers and the editor. Execution filenames are separate.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LanguageDescriptor {
+    pub id: Language,
+    pub label: String,
+    pub editor_label: String,
+    pub monaco_language: String,
+    pub file_extension: String,
+    pub line_comment: String,
+    pub editor_filename: String,
+    pub editor_uri: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Capabilities {
+    pub registration: String,
+    pub guest_browsing: bool,
+    pub web_admin: bool,
+    pub languages: Vec<LanguageDescriptor>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProblemDetail {
+    pub id: Uuid,
+    pub version: Uuid,
+    pub problem: Problem,
+    pub starters: std::collections::BTreeMap<Language, String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProblemSummary {
+    pub id: Uuid,
+    pub version: Uuid,
+    pub title: String,
+    pub summary: Option<String>,
+    pub difficulty: String,
+    pub difficulty_score: u8,
+    pub tags: Vec<String>,
+    pub cursor: String,
+}
+
+/// Current inline YAML authoring input; semantic validation follows assembly.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoringProblem {
+    #[schemars(range(min = 1, max = 1))]
+    pub schema: u8,
+    #[schemars(regex(pattern = "^[a-z0-9][a-z0-9._:/-]{2,199}$"))]
+    pub key: String,
+    pub title: String,
+    #[serde(default)]
+    #[schemars(length(max = 300))]
+    pub summary: String,
+    #[schemars(range(min = 1, max = 5))]
+    pub difficulty: u8,
+    pub statement: String,
+    #[serde(default)]
+    #[schemars(length(max = 20))]
+    pub hints: Vec<String>,
+    #[schemars(length(max = 20))]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub attribution: Option<Attribution>,
+    #[serde(default)]
+    #[schemars(length(max = 32))]
+    pub type_definitions: Vec<TypeDefinition>,
+    #[serde(default)]
+    pub comparison: Comparison,
+    pub interface: Interface,
+    #[serde(default)]
+    pub limits: Limits,
+    pub tests: AuthoringTests,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoringTests {
+    #[schemars(length(min = 1, max = 200))]
+    pub visible: Vec<AuthoringCase>,
+    #[serde(default)]
+    #[schemars(length(max = 200))]
+    pub hidden: Vec<AuthoringCase>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum AuthoringCase {
+    Function {
+        args: Vec<Value>,
+        expected: Value,
+    },
+    Stateful {
+        constructor_args: Vec<Value>,
+        #[schemars(length(max = 200))]
+        operations: Vec<Operation>,
+    },
+}
+impl AuthoringCase {
+    fn assemble(self, hidden: bool) -> Case {
+        match self {
+            Self::Function { args, expected } => Case {
+                args: Some(Value::Array(args)),
+                expected: Some(expected),
+                hidden,
+                constructor_args: None,
+                operations: None,
+            },
+            Self::Stateful {
+                constructor_args,
+                operations,
+            } => Case {
+                args: None,
+                expected: None,
+                hidden,
+                constructor_args: Some(Value::Array(constructor_args)),
+                operations: Some(operations),
+            },
+        }
+    }
+}
+impl AuthoringProblem {
+    pub fn assemble(self) -> Result<(String, Problem)> {
+        ensure!(self.schema == 1, "source schema must be 1");
+        ensure!(
+            (1..=5).contains(&self.difficulty),
+            "difficulty must be an integer from 1 to 5"
+        );
+        let tests = self
+            .tests
+            .visible
+            .into_iter()
+            .map(|c| c.assemble(false))
+            .chain(self.tests.hidden.into_iter().map(|c| c.assemble(true)))
+            .collect();
+        let problem = Problem {
+            schema: 3,
+            title: self.title,
+            summary: self.summary,
+            statement: self.statement,
+            hints: self.hints,
+            difficulty: Problem::difficulty_band(self.difficulty).into(),
+            difficulty_score: Some(self.difficulty),
+            tags: self.tags,
+            attribution: self.attribution,
+            type_definitions: self.type_definitions,
+            comparison: self.comparison,
+            interface: self.interface,
+            limits: self.limits,
+            tests,
+        };
+        problem.validate()?;
+        Ok((self.key, problem))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CatalogDraft {
+    pub id: Uuid,
+    pub draft: Problem,
+    pub version: Option<Uuid>,
+    pub managed: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CreatedProblem {
+    pub id: Uuid,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PublishedProblem {
+    pub version: Uuid,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ValidatedDefinition {
+    pub valid: bool,
+    pub content_hash: String,
 }

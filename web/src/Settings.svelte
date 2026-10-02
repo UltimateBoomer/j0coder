@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {languages} from "./languages";
  import {onMount} from 'svelte';import {api} from './api';import {defaults,type Preferences} from './preferences';
  export let privateAdmin=false;export let preferences:Preferences;export let signedIn:boolean;export let onpreferences:(p:Preferences)=>void;export let onlogout:()=>void;
  let draft:Preferences={...preferences},busy=false,status='',error='',limits:any=null,currentPassword='',newPassword='',adminPassword='';
@@ -12,7 +13,7 @@
  {#if error}<p role="alert">{error}</p>{/if}
  <form onsubmit={(e)=>{e.preventDefault();void save()}}>
  <label>Theme<select aria-label="Theme" bind:value={draft.theme}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
- <label>Default language<select aria-label="Default language" bind:value={draft.default_language}><option value="cpp">C++</option><option value="python">Python</option><option value="java">Java</option><option value="kotlin">Kotlin</option></select></label>
+ <label>Default language<select aria-label="Default language" bind:value={draft.default_language}>{#each languages() as language}<option value={language.id}>{language.label}</option>{/each}</select></label>
  <label class="check"><input type="checkbox" bind:checked={draft.semantic_completion} disabled={!signedIn}/>Semantic completion</label><p class="muted small">{signedIn?'Uses an isolated language server. Turning it off releases server resources; basic editing stays available.':'Sign in to use semantic completion.'}</p>
  <label>Font size<input type="number" min="10" max="24" bind:value={draft.font_size}/></label>
  <label>Tab width<select aria-label="Tab width" bind:value={draft.tab_width}><option value={2}>2</option><option value={4}>4</option><option value={8}>8</option></select></label>

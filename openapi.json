@@ -901,31 +901,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "format": "uuid"
-                      },
-                      "draft": {
-                        "$ref": "#/components/schemas/Problem"
-                      },
-                      "version": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "managed": {
-                        "type": "boolean"
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "draft",
-                      "version",
-                      "managed"
-                    ]
+                    "$ref": "#/components/schemas/CatalogDraft"
                   }
                 }
               }
@@ -1026,16 +1002,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "format": "uuid"
-                    }
-                  },
-                  "required": [
-                    "id"
-                  ]
+                  "$ref": "#/components/schemas/CreatedProblem"
                 }
               }
             }
@@ -1147,7 +1114,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Problem"
+                "$ref": "#/components/schemas/ProblemInput"
               }
             }
           }
@@ -1164,19 +1131,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "valid": {
-                      "type": "boolean"
-                    },
-                    "content_hash": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "valid",
-                    "content_hash"
-                  ]
+                  "$ref": "#/components/schemas/ValidatedDefinition"
                 }
               }
             }
@@ -1288,7 +1243,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Problem"
+                "$ref": "#/components/schemas/ProblemInput"
               }
             }
           }
@@ -1524,7 +1479,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Problem"
+                "$ref": "#/components/schemas/ProblemInput"
               }
             }
           }
@@ -1541,16 +1496,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "version": {
-                      "type": "string",
-                      "format": "uuid"
-                    }
-                  },
-                  "required": [
-                    "version"
-                  ]
+                  "$ref": "#/components/schemas/PublishedProblem"
                 }
               }
             }
@@ -2192,26 +2138,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "registration": {
-                      "enum": [
-                        "invite",
-                        "closed"
-                      ]
-                    },
-                    "guest_browsing": {
-                      "type": "boolean"
-                    },
-                    "web_admin": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "registration",
-                    "guest_browsing",
-                    "web_admin"
-                  ]
+                  "$ref": "#/components/schemas/Capabilities"
                 }
               }
             }
@@ -3390,391 +3317,6 @@
   },
   "components": {
     "schemas": {
-      "Type": {
-        "oneOf": [
-          {
-            "type": "string",
-            "enum": [
-              "void",
-              "int",
-              "int64",
-              "float",
-              "bool",
-              "string"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "array": {
-                "$ref": "#/components/schemas/Type"
-              }
-            },
-            "required": [
-              "array"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "nullable": {
-                "$ref": "#/components/schemas/Type"
-              }
-            },
-            "required": [
-              "nullable"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "named": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "named"
-            ]
-          }
-        ]
-      },
-      "Parameter": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "ty": {
-            "$ref": "#/components/schemas/Type"
-          },
-          "constraints": {
-            "type": "string",
-            "description": "Optional display-only Markdown; at most 1000 UTF-8 bytes"
-          }
-        },
-        "required": [
-          "name",
-          "ty"
-        ]
-      },
-      "Field": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "ty": {
-            "$ref": "#/components/schemas/Type"
-          }
-        },
-        "required": [
-          "name",
-          "ty"
-        ]
-      },
-      "TypeDefinition": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "codec": {
-            "type": "string",
-            "enum": [
-              "record",
-              "singly_linked_list",
-              "binary_tree",
-              "nary_tree",
-              "object_graph"
-            ]
-          },
-          "fields": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Field"
-            }
-          }
-        },
-        "required": [
-          "name"
-        ]
-      },
-      "Comparison": {
-        "type": "object",
-        "properties": {
-          "array": {
-            "type": "string",
-            "enum": [
-              "ordered",
-              "set",
-              "multiset"
-            ]
-          },
-          "absolute_tolerance": {
-            "type": "number"
-          },
-          "relative_tolerance": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "array",
-          "absolute_tolerance",
-          "relative_tolerance"
-        ]
-      },
-      "Limits": {
-        "type": "object",
-        "properties": {
-          "time_ms": {
-            "type": "integer"
-          },
-          "memory_mib": {
-            "type": "integer"
-          },
-          "output_bytes": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "time_ms",
-          "memory_mib",
-          "output_bytes"
-        ]
-      },
-      "FunctionInterface": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "const": "function"
-          },
-          "name": {
-            "type": "string"
-          },
-          "params": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Parameter"
-            }
-          },
-          "returns": {
-            "$ref": "#/components/schemas/Type"
-          }
-        },
-        "required": [
-          "kind",
-          "name",
-          "params",
-          "returns"
-        ]
-      },
-      "Constructor": {
-        "type": "object",
-        "properties": {
-          "params": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Parameter"
-            }
-          }
-        },
-        "required": [
-          "params"
-        ]
-      },
-      "Method": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "params": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Parameter"
-            }
-          },
-          "returns": {
-            "$ref": "#/components/schemas/Type"
-          }
-        },
-        "required": [
-          "name",
-          "params",
-          "returns"
-        ]
-      },
-      "DataStructureInterface": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "const": "data_structure"
-          },
-          "name": {
-            "type": "string"
-          },
-          "constructor": {
-            "$ref": "#/components/schemas/Constructor"
-          },
-          "methods": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Method"
-            }
-          }
-        },
-        "required": [
-          "kind",
-          "name",
-          "constructor",
-          "methods"
-        ]
-      },
-      "Interface": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FunctionInterface"
-          },
-          {
-            "$ref": "#/components/schemas/DataStructureInterface"
-          }
-        ]
-      },
-      "FunctionCase": {
-        "type": "object",
-        "properties": {
-          "args": {
-            "type": "array",
-            "items": {}
-          },
-          "expected": {},
-          "hidden": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "args",
-          "expected"
-        ]
-      },
-      "Operation": {
-        "type": "object",
-        "properties": {
-          "method": {
-            "type": "string"
-          },
-          "args": {
-            "type": "array",
-            "items": {}
-          },
-          "expected": {}
-        },
-        "required": [
-          "method",
-          "args",
-          "expected"
-        ]
-      },
-      "StatefulCase": {
-        "type": "object",
-        "properties": {
-          "constructor_args": {
-            "type": "array",
-            "items": {}
-          },
-          "operations": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Operation"
-            }
-          },
-          "hidden": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "constructor_args",
-          "operations"
-        ]
-      },
-      "Case": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FunctionCase"
-          },
-          {
-            "$ref": "#/components/schemas/StatefulCase"
-          }
-        ]
-      },
-      "Problem": {
-        "type": "object",
-        "properties": {
-          "schema": {
-            "type": "integer",
-            "enum": [
-              3
-            ]
-          },
-          "title": {
-            "type": "string"
-          },
-          "statement": {
-            "type": "string"
-          },
-          "hints": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "difficulty": {
-            "type": "string",
-            "enum": [
-              "easy",
-              "medium",
-              "hard"
-            ]
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "interface": {
-            "$ref": "#/components/schemas/Interface"
-          },
-          "type_definitions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TypeDefinition"
-            }
-          },
-          "comparison": {
-            "$ref": "#/components/schemas/Comparison"
-          },
-          "limits": {
-            "$ref": "#/components/schemas/Limits"
-          },
-          "tests": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Case"
-            }
-          }
-        },
-        "required": [
-          "schema",
-          "title",
-          "statement",
-          "difficulty",
-          "tags",
-          "interface",
-          "limits",
-          "tests"
-        ]
-      },
       "User": {
         "type": "object",
         "properties": {
@@ -3813,15 +3355,6 @@
         "required": [
           "username",
           "password"
-        ]
-      },
-      "Language": {
-        "type": "string",
-        "enum": [
-          "cpp",
-          "python",
-          "java",
-          "kotlin"
         ]
       },
       "Verdict": {
@@ -3961,7 +3494,7 @@
           "cases": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Case"
+              "$ref": "#/components/schemas/CaseInput"
             }
           }
         },
@@ -3970,93 +3503,6 @@
           "language",
           "source",
           "mode"
-        ]
-      },
-      "ProblemDetail": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "version": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "problem": {
-            "$ref": "#/components/schemas/Problem"
-          },
-          "starters": {
-            "type": "object",
-            "properties": {
-              "cpp": {
-                "type": "string"
-              },
-              "python": {
-                "type": "string"
-              },
-              "java": {
-                "type": "string"
-              },
-              "kotlin": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "cpp",
-              "python",
-              "java",
-              "kotlin"
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "version",
-          "problem",
-          "starters"
-        ]
-      },
-      "ProblemSummary": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "version": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "title": {
-            "type": "string"
-          },
-          "summary": {
-            "type": "string"
-          },
-          "difficulty": {
-            "type": "string"
-          },
-          "difficulty_score": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 5
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "id",
-          "version",
-          "title",
-          "summary",
-          "difficulty",
-          "difficulty_score",
-          "tags"
         ]
       },
       "SolutionDraft": {
@@ -4088,6 +3534,1197 @@
         "required": [
           "error"
         ]
+      },
+      "ArrayComparison": {
+        "enum": [
+          "ordered",
+          "set",
+          "multiset"
+        ],
+        "type": "string"
+      },
+      "ArrayComparisonInput": {
+        "enum": [
+          "ordered",
+          "set",
+          "multiset"
+        ],
+        "type": "string"
+      },
+      "Attribution": {
+        "additionalProperties": false,
+        "properties": {
+          "notice": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "source_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "source_url",
+          "notice"
+        ],
+        "type": "object"
+      },
+      "AttributionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "notice": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "source_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "source_url"
+        ],
+        "type": "object"
+      },
+      "Capabilities": {
+        "properties": {
+          "guest_browsing": {
+            "type": "boolean"
+          },
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/LanguageDescriptor"
+            },
+            "type": "array"
+          },
+          "registration": {
+            "type": "string"
+          },
+          "web_admin": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "registration",
+          "guest_browsing",
+          "web_admin",
+          "languages"
+        ],
+        "title": "Capabilities",
+        "type": "object"
+      },
+      "Case": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "default": null
+          },
+          "constructor_args": {
+            "default": null
+          },
+          "expected": {
+            "default": null
+          },
+          "hidden": {
+            "default": false,
+            "type": "boolean"
+          },
+          "operations": {
+            "default": null,
+            "items": {
+              "$ref": "#/components/schemas/Operation"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "args",
+          "expected",
+          "hidden",
+          "constructor_args",
+          "operations"
+        ],
+        "type": "object"
+      },
+      "CaseInput": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "default": null
+          },
+          "constructor_args": {
+            "default": null
+          },
+          "expected": {
+            "default": null
+          },
+          "hidden": {
+            "default": false,
+            "type": "boolean"
+          },
+          "operations": {
+            "default": null,
+            "items": {
+              "$ref": "#/components/schemas/OperationInput"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "title": "Case",
+        "type": "object"
+      },
+      "CatalogDraft": {
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/Problem"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "managed": {
+            "type": "boolean"
+          },
+          "version": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "draft",
+          "version",
+          "managed"
+        ],
+        "title": "CatalogDraft",
+        "type": "object"
+      },
+      "Codec": {
+        "enum": [
+          "record",
+          "singly_linked_list",
+          "binary_tree",
+          "nary_tree",
+          "object_graph"
+        ],
+        "type": "string"
+      },
+      "CodecInput": {
+        "enum": [
+          "record",
+          "singly_linked_list",
+          "binary_tree",
+          "nary_tree",
+          "object_graph"
+        ],
+        "type": "string"
+      },
+      "Comparison": {
+        "additionalProperties": false,
+        "properties": {
+          "absolute_tolerance": {
+            "default": 0.0,
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          },
+          "array": {
+            "$ref": "#/components/schemas/ArrayComparison",
+            "default": "ordered"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Comparison"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "relative_tolerance": {
+            "default": 0.0,
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "array",
+          "absolute_tolerance",
+          "relative_tolerance",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ComparisonInput": {
+        "additionalProperties": false,
+        "properties": {
+          "absolute_tolerance": {
+            "default": 0.0,
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          },
+          "array": {
+            "$ref": "#/components/schemas/ArrayComparisonInput",
+            "default": "ordered"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComparisonInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "relative_tolerance": {
+            "default": 0.0,
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "Constructor": {
+        "additionalProperties": false,
+        "properties": {
+          "params": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Parameter"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "type": "object"
+      },
+      "ConstructorInput": {
+        "additionalProperties": false,
+        "properties": {
+          "params": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ParameterInput"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "CreatedProblem": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "CreatedProblem",
+        "type": "object"
+      },
+      "Field": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "ty": {
+            "$ref": "#/components/schemas/Type"
+          }
+        },
+        "required": [
+          "name",
+          "ty"
+        ],
+        "type": "object"
+      },
+      "FieldInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "ty": {
+            "$ref": "#/components/schemas/TypeInput"
+          }
+        },
+        "required": [
+          "name",
+          "ty"
+        ],
+        "type": "object"
+      },
+      "Interface": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "function",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "params": {
+                "default": [],
+                "items": {
+                  "$ref": "#/components/schemas/Parameter"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              "returns": {
+                "$ref": "#/components/schemas/Type"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "params",
+              "returns"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "constructor": {
+                "$ref": "#/components/schemas/Constructor"
+              },
+              "kind": {
+                "const": "data_structure",
+                "type": "string"
+              },
+              "methods": {
+                "items": {
+                  "$ref": "#/components/schemas/Method"
+                },
+                "maxItems": 32,
+                "minItems": 1,
+                "type": "array"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "constructor",
+              "methods"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "InterfaceInput": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "function",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "params": {
+                "default": [],
+                "items": {
+                  "$ref": "#/components/schemas/ParameterInput"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              "returns": {
+                "$ref": "#/components/schemas/TypeInput"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "returns"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "constructor": {
+                "$ref": "#/components/schemas/ConstructorInput"
+              },
+              "kind": {
+                "const": "data_structure",
+                "type": "string"
+              },
+              "methods": {
+                "items": {
+                  "$ref": "#/components/schemas/MethodInput"
+                },
+                "maxItems": 32,
+                "minItems": 1,
+                "type": "array"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "constructor",
+              "methods"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Language": {
+        "enum": [
+          "cpp",
+          "python",
+          "java",
+          "kotlin"
+        ],
+        "title": "Language",
+        "type": "string"
+      },
+      "LanguageDescriptor": {
+        "description": "Metadata shared by API consumers and the editor. Execution filenames are separate.",
+        "properties": {
+          "editor_filename": {
+            "type": "string"
+          },
+          "editor_label": {
+            "type": "string"
+          },
+          "editor_uri": {
+            "type": "string"
+          },
+          "file_extension": {
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "label": {
+            "type": "string"
+          },
+          "line_comment": {
+            "type": "string"
+          },
+          "monaco_language": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "editor_label",
+          "monaco_language",
+          "file_extension",
+          "line_comment",
+          "editor_filename",
+          "editor_uri"
+        ],
+        "type": "object"
+      },
+      "Limits": {
+        "additionalProperties": false,
+        "properties": {
+          "memory_mib": {
+            "format": "uint64",
+            "minimum": 32,
+            "type": "integer"
+          },
+          "output_bytes": {
+            "format": "uint64",
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "time_ms": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "time_ms",
+          "memory_mib",
+          "output_bytes"
+        ],
+        "type": "object"
+      },
+      "LimitsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "memory_mib": {
+            "format": "uint64",
+            "minimum": 32,
+            "type": "integer"
+          },
+          "output_bytes": {
+            "format": "uint64",
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "time_ms": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "time_ms",
+          "memory_mib",
+          "output_bytes"
+        ],
+        "type": "object"
+      },
+      "Method": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Parameter"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "returns": {
+            "$ref": "#/components/schemas/Type"
+          }
+        },
+        "required": [
+          "name",
+          "params",
+          "returns"
+        ],
+        "type": "object"
+      },
+      "MethodInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ParameterInput"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "returns": {
+            "$ref": "#/components/schemas/TypeInput"
+          }
+        },
+        "required": [
+          "name",
+          "returns"
+        ],
+        "type": "object"
+      },
+      "Operation": {
+        "additionalProperties": false,
+        "properties": {
+          "args": true,
+          "expected": true,
+          "method": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "args",
+          "expected"
+        ],
+        "type": "object"
+      },
+      "OperationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "args": true,
+          "expected": true,
+          "method": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "args",
+          "expected"
+        ],
+        "type": "object"
+      },
+      "Parameter": {
+        "additionalProperties": false,
+        "properties": {
+          "constraints": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "ty": {
+            "$ref": "#/components/schemas/Type"
+          }
+        },
+        "required": [
+          "name",
+          "ty"
+        ],
+        "type": "object"
+      },
+      "ParameterInput": {
+        "additionalProperties": false,
+        "properties": {
+          "constraints": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "ty": {
+            "$ref": "#/components/schemas/TypeInput"
+          }
+        },
+        "required": [
+          "name",
+          "ty"
+        ],
+        "type": "object"
+      },
+      "Problem": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Attribution"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison",
+            "default": {
+              "absolute_tolerance": 0.0,
+              "array": "ordered",
+              "items": null,
+              "relative_tolerance": 0.0
+            }
+          },
+          "difficulty": {
+            "type": "string"
+          },
+          "difficulty_score": {
+            "default": null,
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "interface": {
+            "$ref": "#/components/schemas/Interface"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/Limits",
+            "default": {
+              "memory_mib": 256,
+              "output_bytes": 1048576,
+              "time_ms": 2000
+            }
+          },
+          "schema": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/Case"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type_definitions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TypeDefinition"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema",
+          "title",
+          "summary",
+          "statement",
+          "difficulty",
+          "difficulty_score",
+          "tags",
+          "attribution",
+          "type_definitions",
+          "comparison",
+          "interface",
+          "limits",
+          "tests"
+        ],
+        "type": "object"
+      },
+      "ProblemDetail": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/Problem"
+          },
+          "starters": {
+            "additionalProperties": false,
+            "properties": {
+              "cpp": {
+                "type": "string"
+              },
+              "java": {
+                "type": "string"
+              },
+              "kotlin": {
+                "type": "string"
+              },
+              "python": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "version": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "problem",
+          "starters"
+        ],
+        "title": "ProblemDetail",
+        "type": "object"
+      },
+      "ProblemInput": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttributionInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/ComparisonInput",
+            "default": {
+              "absolute_tolerance": 0.0,
+              "array": "ordered",
+              "items": null,
+              "relative_tolerance": 0.0
+            }
+          },
+          "difficulty": {
+            "type": "string"
+          },
+          "difficulty_score": {
+            "default": null,
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "interface": {
+            "$ref": "#/components/schemas/InterfaceInput"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/LimitsInput",
+            "default": {
+              "memory_mib": 256,
+              "output_bytes": 1048576,
+              "time_ms": 2000
+            }
+          },
+          "schema": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/CaseInput"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type_definitions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TypeDefinitionInput"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema",
+          "title",
+          "statement",
+          "difficulty",
+          "tags",
+          "interface",
+          "tests"
+        ],
+        "title": "Problem",
+        "type": "object"
+      },
+      "ProblemSummary": {
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "difficulty": {
+            "type": "string"
+          },
+          "difficulty_score": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "title",
+          "summary",
+          "difficulty",
+          "difficulty_score",
+          "tags",
+          "cursor"
+        ],
+        "title": "ProblemSummary",
+        "type": "object"
+      },
+      "PublishedProblem": {
+        "properties": {
+          "version": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "PublishedProblem",
+        "type": "object"
+      },
+      "Type": {
+        "oneOf": [
+          {
+            "enum": [
+              "void",
+              "int",
+              "int64",
+              "float",
+              "bool",
+              "string"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "array": {
+                "$ref": "#/components/schemas/Type"
+              }
+            },
+            "required": [
+              "array"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "nullable": {
+                "$ref": "#/components/schemas/Type"
+              }
+            },
+            "required": [
+              "nullable"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "named": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "named"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "TypeDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "codec": {
+            "$ref": "#/components/schemas/Codec",
+            "default": "record"
+          },
+          "fields": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "codec",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "TypeDefinitionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "codec": {
+            "$ref": "#/components/schemas/CodecInput",
+            "default": "record"
+          },
+          "fields": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FieldInput"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "TypeInput": {
+        "oneOf": [
+          {
+            "enum": [
+              "void",
+              "int",
+              "int64",
+              "float",
+              "bool",
+              "string"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "array": {
+                "$ref": "#/components/schemas/TypeInput"
+              }
+            },
+            "required": [
+              "array"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "nullable": {
+                "$ref": "#/components/schemas/TypeInput"
+              }
+            },
+            "required": [
+              "nullable"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "named": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "named"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ValidatedDefinition": {
+        "properties": {
+          "content_hash": {
+            "type": "string"
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "content_hash"
+        ],
+        "title": "ValidatedDefinition",
+        "type": "object"
       },
       "Preferences": {
         "type": "object",

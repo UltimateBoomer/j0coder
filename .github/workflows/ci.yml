@@ -67,10 +67,8 @@ jobs:
       - run: npm run build --prefix web
       - name: Verify generated API types
         run: |
-          python3 scripts/generate-openapi.py
-          git diff --exit-code -- openapi.json
-          npm run generate:api --prefix web
-          git diff --exit-code -- web/src/api.generated.ts
+          make generate-contracts
+          git diff --exit-code -- openapi.json web/src/api.generated.ts problem.schema.json
       - run: cd web && npx playwright install --with-deps chromium
       - name: Run browser tests with mocked API
         env:
