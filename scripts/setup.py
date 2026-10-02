@@ -112,7 +112,7 @@ def progress(label):
     frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     def draw(frame):
         with OUTPUT_LOCK:
-            stream.write(f'\r\033[2K{frames[frame % len(frames)]} {label} · {int(time.monotonic() - started)}s')
+            stream.write(f'\r\033[2K{frames[frame % len(frames)]} {label}')
             stream.flush()
     def update():
         frame = 0
