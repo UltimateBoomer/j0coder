@@ -33,7 +33,6 @@ Copy `example-problem/` to `problems/<slug>/`, edit its key, metadata, statement
 ```sh
 RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0coder-problems
 RUSTC_WRAPPER= cargo run --locked -p j0coder --bin catalog-validate -- ../j0coder-problems --check-references
-python3 scripts/check-catalog-quality.py ../j0coder-problems
 ```
 
 The second command needs the configured gVisor sandbox and toolchain image. Author changes through a normal Git branch and pull request. Catalog CI must pass before merge.
