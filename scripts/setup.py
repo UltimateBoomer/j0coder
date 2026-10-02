@@ -239,6 +239,17 @@ def validate_origin(origin):
     return origin.rstrip('/')
 
 
+def validate_catalog_repository(repository):
+    if re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+        return f"git@github.com:{repository.removesuffix('.git')}.git"
+    ssh = repository.startswith('ssh://') and '@' in repository[6:] and '/' in repository[6:]
+    host, separator, path = repository.partition(':')
+    scp = '://' not in repository and separator and '@' in host and path
+    if not (ssh or scp) or any(c.isspace() for c in repository):
+        raise ValueError('catalog repository must be owner/repository or an SSH Git URL')
+    return repository
+
+
 def field(value, label, default, validator):
     if value is not None:
         result = validator(value)
@@ -362,10 +373,11 @@ def configure(root, args, manifest):
         say('The proxy listens on loopback. Choose its local port; use an HTTPS public origin when an external proxy terminates TLS.')
         port = field(args.port, 'Local port (--port)', env.get('PORT', '8080'), validate_port)
         origin = field(args.public_origin, 'Public origin (--public-origin)', env.get('PUBLIC_ORIGIN', f'http://localhost:{port}'), validate_origin)
+        repository = field(getattr(args, 'catalog_repository', None), 'Problem Git repository (--catalog-repository; owner/repository or SSH URL)', env.get('CATALOG_REPOSITORY_URL', 'j0team/j0coder-problems'), validate_catalog_repository)
         parsed = urllib.parse.urlsplit(origin)
         env.setdefault('POSTGRES_PASSWORD', secrets.token_hex(32))
         env.setdefault('VALKEY_PASSWORD', secrets.token_hex(32))
-        env.update(PUBLIC_ORIGIN=origin.rstrip('/'), PORT=str(port), COOKIE_SECURE=str(parsed.scheme == 'https').lower())
+        env.update(PUBLIC_ORIGIN=origin.rstrip('/'), PORT=str(port), COOKIE_SECURE=str(parsed.scheme == 'https').lower(), CATALOG_REPOSITORY_URL=repository)
     # Restrict secret alphabets to values safe in URLs, Valkey directives and dotenv.
     for key in ('POSTGRES_PASSWORD', 'VALKEY_PASSWORD'):
         if not re.fullmatch('[A-Za-z0-9_-]+', env[key]):
@@ -619,6 +631,7 @@ def main():
     parser.add_argument('--version', default=os.environ.get('J0CODER_VERSION'))
     for key in ('public-origin', 'port', 'admin-username', 'admin-password-file'):
         parser.add_argument('--' + key, default=os.environ.get(key.replace('-', '_').upper()))
+    parser.add_argument('--catalog-repository', default=os.environ.get('CATALOG_REPOSITORY_URL'), help='problem catalog: GitHub owner/repository or SSH Git URL')
     parser.add_argument('--install-packages', action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument('--autostart', action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument('--action', dest='installer_action', choices=['install', 'modify', 'upgrade', 'uninstall'], help='downloadable installer operation')

@@ -15,8 +15,29 @@ class SetupTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='setup with spaces ')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.args = argparse.Namespace(port='8080', public_origin='https://practice.example', version=None)
+        self.args = argparse.Namespace(port='8080', public_origin='https://practice.example', version=None, catalog_repository='j0team/j0coder-problems')
         self.manifest = dict(version='v1', installer_version=1, app_image='ghcr.io/example/app@sha256:' + 'a' * 64, toolchain_image='ghcr.io/example/toolchain@sha256:' + 'b' * 64, bundle=dict(sha256='c' * 64), gvisor=dict(sha256='d' * 64))
+
+    def test_catalog_repository_prompt_and_preservation(self):
+        self.args.catalog_repository = None
+        with patch.object(setup, 'prompt', return_value='j0team/j0coder-problems') as prompt:
+            env = setup.configure(self.root, self.args, self.manifest)
+        self.assertEqual(prompt.call_args.args[1], 'j0team/j0coder-problems')
+        self.assertEqual(env['CATALOG_REPOSITORY_URL'], 'git@github.com:j0team/j0coder-problems.git')
+        self.assertEqual(env['CATALOG_ENABLED'], 'false')
+        with patch.object(setup, 'prompt', side_effect=AssertionError('unexpected prompt')):
+            self.assertEqual(setup.configure(self.root, self.args, self.manifest)['CATALOG_REPOSITORY_URL'], env['CATALOG_REPOSITORY_URL'])
+        self.args.action = 'modify'
+        with patch.object(setup, 'prompt', return_value='git@example.com:team/catalog.git'):
+            env = setup.configure(self.root, self.args, self.manifest)
+        self.assertEqual(env['CATALOG_REPOSITORY_URL'], 'git@example.com:team/catalog.git')
+
+    def test_catalog_repository_validation(self):
+        self.assertEqual(setup.validate_catalog_repository('j0team/j0coder-problems.git'), 'git@github.com:j0team/j0coder-problems.git')
+        self.assertEqual(setup.validate_catalog_repository('ssh://git@example.com/team/catalog.git'), 'ssh://git@example.com/team/catalog.git')
+        for invalid in ['https://github.com/j0team/j0coder-problems', 'bad repository', '']:
+            with self.assertRaises(ValueError):
+                setup.validate_catalog_repository(invalid)
 
     def test_modify_preserves_secrets_and_updates_cookie(self):
         before = setup.configure(self.root, self.args, self.manifest)
@@ -286,7 +307,7 @@ class SetupTests(unittest.TestCase):
 
     def test_interrupted_install_resumes_and_reuses_cached_release(self):
         from contextlib import ExitStack
-        args = ['setup.py', 'install', '--install-dir', str(self.root), '--public-origin', 'http://localhost:8080', '--port', '8080']
+        args = ['setup.py', 'install', '--install-dir', str(self.root), '--public-origin', 'http://localhost:8080', '--port', '8080', '--catalog-repository', 'j0team/j0coder-problems']
         def extract(asset, destination):
             if asset == self.manifest['bundle']:
                 for name in ('compose.yaml', 'Makefile', 'deploy/nginx.conf', 'scripts/setup.py', 'scripts/setup.sh', 'scripts/install.sh', 'scripts/preflight.sh', 'scripts/gvisor-controller.sh'):
