@@ -622,11 +622,53 @@ def uninstall(root, args, env):
     say('Services uninstalled. ' + ('Persistent volumes and configuration deleted.' if args.purge else 'Data, configuration, and installation files retained; make setup reinstalls.'))
 
 
+def choose_action(root, env, deployment=False):
+    manifest_path = root / '.release.json'
+    configured = bool(env) and manifest_path.exists()
+    if configured:
+        manifest = json.loads(manifest_path.read_text())
+        say(f"Installation status: configured ({manifest.get('version', 'unknown release')})")
+        say('Mode: ' + ('release deployment' if (root / '.deployment-installation').exists() else 'source checkout'))
+        if shutil.which('podman') and (root / 'compose.yaml').exists():
+            try:
+                result = subprocess.run(['podman', 'compose', '-f', str(root / 'compose.yaml'), 'ps'],
+                                        cwd=root, env={**os.environ, **env}, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    say('Current services:\n' + (result.stdout.strip() or 'No services reported.'))
+                else:
+                    say('Service status unavailable; saved installation configuration found.')
+            except (OSError, subprocess.TimeoutExpired):
+                say('Service status unavailable; saved installation configuration found.')
+        else:
+            say('Service status unavailable (Podman or Compose configuration missing).')
+    elif env or manifest_path.exists():
+        say('Installation status: incomplete installation; install can resume setup.')
+    else:
+        say('Installation status: no saved installation found.')
+    say('Choose an action: install, uninstall (preserve data), modify config, update, or cancel.')
+    choices = {'1':'install', 'install':'install', '2':'uninstall', 'uninstall':'uninstall',
+               '3':'modify', 'modify':'modify', 'modify config':'modify',
+               '4':'upgrade', 'update':'upgrade', 'upgrade':'upgrade', '5':'cancel', 'cancel':'cancel'}
+    while True:
+        answer = prompt('Action (1 install / 2 uninstall / 3 modify / 4 update / 5 cancel)', 'modify' if configured else 'install').strip().lower()
+        action = choices.get(answer)
+        if action is None:
+            say('Invalid action; choose install, uninstall, modify, update, or cancel.')
+            continue
+        if action in ('modify', 'upgrade', 'uninstall') and not configured:
+            say('No configured installation found; choose install or cancel.')
+            continue
+        if action == 'upgrade' and not (root / '.deployment-installation').exists():
+            say('This is a source checkout; update it with Git, then choose install to refresh setup.')
+            continue
+        return 'install' if action == 'install' and deployment else 'setup' if action == 'install' else action
+
+
 def main():
     global REPORTER
     REPORTER = None
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', nargs='?', default='setup', choices=['setup', 'up', 'install', 'modify', 'upgrade', 'uninstall', 'down', 'status', 'logs', 'supervise'])
+    parser.add_argument('action', nargs='?', default='setup', choices=['menu', 'setup', 'up', 'install', 'modify', 'upgrade', 'uninstall', 'down', 'status', 'logs', 'supervise'])
     parser.add_argument('--install-dir', default=os.environ.get('J0CODER_INSTALL_DIR', str(Path.home() / '.local/share/j0coder')))
     parser.add_argument('--version', default=os.environ.get('J0CODER_VERSION'))
     for key in ('public-origin', 'port', 'admin-username', 'admin-password-file'):
@@ -639,7 +681,7 @@ def main():
     parser.add_argument('--verbose', action='store_true', help='stream diagnostic output; private logs are always saved for setup')
     parser.add_argument('--yes', action='store_true', help='confirm uninstall without a prompt')
     args = parser.parse_args()
-    downloadable = args.action == 'install'
+    downloadable = args.action in ('install', 'menu')
     if args.installer_action:
         args.action = args.installer_action
     if args.purge and args.action != 'uninstall':
@@ -667,6 +709,13 @@ def main():
         with open(root / '.setup.lock', 'a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             env = read_env(root / '.env')
+            if args.action in ('setup', 'menu'):
+                stage = 'installation status and action selection'
+                args.action = choose_action(root, env, deployment=downloadable)
+                if args.action == 'cancel':
+                    say('Setup cancelled.')
+                    return
+                say('Selected action: ' + args.action)
             if args.port is not None:
                 validate_port(args.port)
             if args.public_origin is not None:

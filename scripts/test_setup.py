@@ -303,7 +303,7 @@ class SetupTests(unittest.TestCase):
         curl.write_text('#!/bin/sh\ncp "$INSTALL_TEST_COORDINATOR" "$4"\n')
         curl.chmod(0o755)
         result = subprocess.run(['sh', str(Path(__file__).parent / 'install.sh'), '--install-dir', str(self.root / 'install with spaces'), '--no-install-packages', '--no-autostart'], input='', text=True, capture_output=True, check=True, env={**setup.os.environ, 'PATH': str(fake_bin) + ':' + setup.os.environ['PATH'], 'INSTALL_TEST_COORDINATOR': str(stub)})
-        self.assertEqual(json.loads(result.stdout), ['install', '--install-dir', str(self.root / 'install with spaces'), '--no-install-packages', '--no-autostart'])
+        self.assertEqual(json.loads(result.stdout), ['menu', '--install-dir', str(self.root / 'install with spaces'), '--no-install-packages', '--no-autostart'])
 
     def test_interrupted_install_resumes_and_reuses_cached_release(self):
         from contextlib import ExitStack
@@ -368,8 +368,39 @@ class SetupTests(unittest.TestCase):
                 setup.configure(self.root, self.args, self.manifest)
         self.assertFalse((self.root / '.env').exists())
 
+    def test_action_menu_checks_status_before_prompt(self):
+        events = []
+        setup.atomic(self.root / '.release.json', json.dumps(self.manifest))
+        (self.root / 'compose.yaml').write_text('services: {}')
+        with patch.object(setup.shutil, 'which', return_value='/bin/podman'), patch.object(setup.subprocess, 'run', side_effect=lambda *a, **k: events.append('status') or argparse.Namespace(returncode=0, stdout='api running')), patch.object(setup, 'prompt', side_effect=lambda *a: events.append('prompt') or 'modify'):
+            self.assertEqual(setup.choose_action(self.root, {'PORT':'8080'}), 'modify')
+        self.assertEqual(events, ['status', 'prompt'])
+
+    def test_action_menu_new_and_incomplete_installations(self):
+        for env in ({}, {'PORT':'8080'}):
+            with patch.object(setup, 'prompt', side_effect=['update', 'uninstall', 'bad', '1']) as prompt:
+                self.assertEqual(setup.choose_action(self.root, env, deployment=True), 'install')
+            self.assertEqual(prompt.call_args.args[1], 'install')
+        with patch.object(setup, 'prompt', return_value='install'):
+            self.assertEqual(setup.choose_action(self.root, {}), 'setup')
+
+    def test_action_menu_update_and_source_checkout(self):
+        setup.atomic(self.root / '.release.json', json.dumps(self.manifest))
+        with patch.object(setup, 'prompt', side_effect=['update', 'cancel']):
+            self.assertEqual(setup.choose_action(self.root, {'PORT':'8080'}), 'cancel')
+        (self.root / '.deployment-installation').write_text('v1')
+        with patch.object(setup, 'prompt', return_value='4'):
+            self.assertEqual(setup.choose_action(self.root, {'PORT':'8080'}), 'upgrade')
+
+    def test_interactive_setup_cancel_does_not_install(self):
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py']), patch.object(setup, 'prompt', return_value='cancel'), patch.object(setup, 'prerequisites') as prerequisites, patch.object(setup, 'uninstall') as uninstall:
+            setup.main()
+        prerequisites.assert_not_called()
+        uninstall.assert_not_called()
+        self.assertFalse((self.root / '.env').exists())
+
     def test_setup_keeps_interactive_choices_unspecified(self):
-        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'setup']), patch.object(setup, 'prerequisites', side_effect=ValueError('prerequisites reached')) as prerequisites:
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'setup']), patch.object(setup, 'choose_action', return_value='setup'), patch.object(setup, 'prerequisites', side_effect=ValueError('prerequisites reached')) as prerequisites:
             with self.assertRaisesRegex(SystemExit, 'prerequisites reached'):
                 setup.main()
         self.assertIsNone(prerequisites.call_args.args[0].install_packages)

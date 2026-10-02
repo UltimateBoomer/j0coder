@@ -47,4 +47,4 @@ source_url=https://raw.githubusercontent.com/UltimateBoomer/j0coder/main/scripts
 printf 'Downloading setup coordinator: %s\n' "$source_url" >&2
 curl -fsSL "$source_url" -o "$tmp/setup.py" || { printf 'Coordinator download failed: %s\n' "$source_url" >&2; exit 1; }
 echo 'Starting setup coordinator; missing answers will be requested through /dev/tty.' >&2
-python3 "$tmp/setup.py" install "$@"
+python3 "$tmp/setup.py" menu "$@"
