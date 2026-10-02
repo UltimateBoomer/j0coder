@@ -732,7 +732,15 @@ def main():
             REPORTER = Reporter(root, args.verbose)
             REPORTER.secrets.update(value for key, value in read_env(root / '.env').items() if 'PASSWORD' in key)
             pinned = json.loads((root / '.release.json').read_text()).get('version') if (root / '.release.json').exists() else None
-            say("\n╭────────────────────────────╮\n│          j0coder           │\n╰────────────────────────────╯\n")
+            say("""
+    #   ###    ####   ###   ####   #####  ####
+    #  #   #  #      #   #  #   #  #      #   #
+    #  #  ##  #      #   #  #   #  #      #   #
+    #  # # #  #      #   #  #   #  ####   ####
+#   #  ##  #  #      #   #  #   #  #      # #
+#   #  #   #  #      #   #  #   #  #      #  #
+ ###    ###    ####   ###   ####   #####  #   #
+""")
             say(f"Action: {args.action}\nInstallation: {root}\nRelease: {args.version or pinned or 'latest compatible stable'}\nLog: {REPORTER.path}")
         stage = 'installation lock'
         if args.action == 'supervise':
