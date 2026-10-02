@@ -29,13 +29,16 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class Reporter:
-    def __init__(self, root, verbose=False):
-        directory = root / '.dev/setup-logs'
-        directory.mkdir(parents=True, exist_ok=True)
-        directory.chmod(0o700)
-        self.path = directory / (time.strftime('%Y%m%d-%H%M%S') + '-' + secrets.token_hex(6) + '.log')
-        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        self.log = os.fdopen(fd, 'w')
+    def __init__(self, root=None, verbose=False):
+        self.path = None
+        self.log = None
+        if root is not None:
+            directory = root / '.dev/setup-logs'
+            directory.mkdir(parents=True, exist_ok=True)
+            directory.chmod(0o700)
+            self.path = directory / (time.strftime('%Y%m%d-%H%M%S') + '-' + secrets.token_hex(6) + '.log')
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            self.log = os.fdopen(fd, 'w')
         self.verbose = verbose
         self.secrets = set()
         self.lines = []
@@ -49,14 +52,17 @@ class Reporter:
 
     def say(self, value):
         value = self.clean(value)
-        self.log.write(value + '\n')
-        self.log.flush()
+        self.write_log(value)
         print(value, flush=True)
+
+    def write_log(self, value):
+        if self.log is not None:
+            self.log.write(self.clean(value) + '\n')
+            self.log.flush()
 
     def diagnostic(self, value):
         value = self.clean(value)
-        self.log.write(value + '\n')
-        self.log.flush()
+        self.write_log(value)
         self.lines.extend(value.splitlines())
         self.lines = self.lines[-30:]
         if self.verbose:
@@ -639,7 +645,11 @@ def main():
         if args.action == 'supervise':
             # Supervision must start while onboarding holds its installation lock.
             stage = 'service supervision'
-            supervise(root, read_env(root / '.env'))
+            env = read_env(root / '.env')
+            # Stream redacted diagnostics to the journal without creating setup logs.
+            REPORTER = Reporter(verbose=True)
+            REPORTER.secrets.update(value for key, value in env.items() if 'PASSWORD' in key)
+            supervise(root, env)
             return
         with open(root / '.setup.lock', 'a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -773,7 +783,8 @@ def main():
             recovery += ['--version', version]
         message = f'{stage} failed: {cause}{details}'
         if REPORTER:
-            message += '\nRecent diagnostics:\n' + '\n'.join(REPORTER.lines) + f'\nFull log: {REPORTER.path}'
+            message += '\nRecent diagnostics:\n' + '\n'.join(REPORTER.lines)
+            message += f'\nFull log: {REPORTER.path}' if REPORTER.path else '\nJournal: journalctl --user -u j0coder.service'
             message = REPORTER.clean(message)
         if args.purge:
             recovery.append('--purge')
@@ -787,15 +798,17 @@ def main():
             recovery_text = 'curl -fsSL https://raw.githubusercontent.com/UltimateBoomer/j0coder/main/scripts/install.sh | sh -s -- ' + shlex.join(recovery[2:])
         else:
             recovery_text = shlex.join(recovery)
+        if args.action == 'supervise':
+            recovery_text = 'systemctl --user restart j0coder.service'
         message += '\nRecovery: ' + recovery_text
         if REPORTER:
             message = REPORTER.clean(message)
-            REPORTER.log.write(message + '\n')
-            REPORTER.log.flush()
+            REPORTER.write_log(message)
         raise SystemExit(message)
     finally:
         if REPORTER:
-            REPORTER.log.close()
+            if REPORTER.log is not None:
+                REPORTER.log.close()
             REPORTER = None
 
 

@@ -583,6 +583,40 @@ class SetupTests(unittest.TestCase):
         self.assertIn('Recovery:', str(failure.exception))
         self.assertIsNone(setup.REPORTER)
 
+    def test_supervision_redacts_streamed_credentials_without_setup_logs(self):
+        import contextlib
+        import sys
+        setup.write_env(self.root / '.env', {'POSTGRES_PASSWORD': 'journal-db-secret', 'VALKEY_PASSWORD': 'journal-queue-secret'})
+        def service(root, env):
+            setup.run([sys.executable, '-c', "import sys; print('DATABASE_URL=postgres://journal-db-secret@postgres'); print('VALKEY_URL=redis://journal-queue-secret@valkey', file=sys.stderr)"])
+            private = setup.run([sys.executable, '-c', "print('private-inspection')"], capture_output=True)
+            self.assertEqual(private.stdout, 'private-inspection\n')
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'supervise']), patch.object(setup, 'supervise', side_effect=service), patch.object(setup, 'prompt', side_effect=AssertionError('unexpected prompt')), contextlib.redirect_stdout(io.StringIO()) as output:
+            setup.main()
+        text = output.getvalue()
+        self.assertIn('DATABASE_URL=postgres://[REDACTED]@postgres', text)
+        self.assertIn('VALKEY_URL=redis://[REDACTED]@valkey', text)
+        for private in ('journal-db-secret', 'journal-queue-secret', 'private-inspection', 'INPUT REQUIRED'):
+            self.assertNotIn(private, text)
+        self.assertFalse((self.root / '.dev/setup-logs').exists())
+        self.assertIsNone(setup.REPORTER)
+
+    def test_supervision_failure_redacts_credentials_and_points_to_journal(self):
+        setup.write_env(self.root / '.env', {'POSTGRES_PASSWORD': 'journal-db-secret'})
+        def service(*args):
+            setup.REPORTER.diagnostic('error journal-db-secret')
+            raise setup.subprocess.CalledProcessError(17, ['podman', 'journal-db-secret'])
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'supervise']), patch.object(setup, 'supervise', side_effect=service):
+            with self.assertRaises(SystemExit) as failure:
+                setup.main()
+        text = str(failure.exception)
+        self.assertNotIn('journal-db-secret', text)
+        self.assertIn('error [REDACTED]', text)
+        self.assertIn('Exit code: 17', text)
+        self.assertIn('Journal: journalctl --user -u j0coder.service', text)
+        self.assertIn('Recovery: systemctl --user restart j0coder.service', text)
+        self.assertIsNone(setup.REPORTER)
+
 
 if __name__ == '__main__':
     unittest.main()
