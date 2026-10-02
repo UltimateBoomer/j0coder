@@ -695,7 +695,8 @@ def main():
             REPORTER = Reporter(root, args.verbose)
             REPORTER.secrets.update(value for key, value in read_env(root / '.env').items() if 'PASSWORD' in key)
             pinned = json.loads((root / '.release.json').read_text()).get('version') if (root / '.release.json').exists() else None
-            say(f"j0coder — {args.action}\nInstallation: {root}\nRelease: {args.version or pinned or 'latest compatible stable'}\nLog: {REPORTER.path}\nSetup pauses for missing answers. Enter accepts displayed defaults.")
+            say("\n╭────────────────────────────╮\n│          j0coder           │\n╰────────────────────────────╯\n")
+            say(f"Action: {args.action}\nInstallation: {root}\nRelease: {args.version or pinned or 'latest compatible stable'}\nLog: {REPORTER.path}")
         stage = 'installation lock'
         if args.action == 'supervise':
             # Supervision must start while onboarding holds its installation lock.
