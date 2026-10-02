@@ -13,6 +13,9 @@ import secrets
 import shlex
 import shutil
 import signal
+import selectors
+import codecs
+import threading
 import subprocess
 import tarfile
 import tempfile
@@ -25,15 +28,137 @@ REPO = 'UltimateBoomer/j0coder'
 ROOT = Path(__file__).resolve().parent.parent
 
 
+class Reporter:
+    def __init__(self, root, verbose=False):
+        directory = root / '.dev/setup-logs'
+        directory.mkdir(parents=True, exist_ok=True)
+        directory.chmod(0o700)
+        self.path = directory / (time.strftime('%Y%m%d-%H%M%S') + '-' + secrets.token_hex(6) + '.log')
+        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        self.log = os.fdopen(fd, 'w')
+        self.verbose = verbose
+        self.secrets = set()
+        self.lines = []
+        self.stage = 'initialization'
+
+    def clean(self, value):
+        for secret in sorted(self.secrets, key=len, reverse=True):
+            if secret:
+                value = value.replace(secret, '[REDACTED]')
+        return value
+
+    def say(self, value):
+        value = self.clean(value)
+        self.log.write(value + '\n')
+        self.log.flush()
+        print(value, flush=True)
+
+    def diagnostic(self, value):
+        value = self.clean(value)
+        self.log.write(value + '\n')
+        self.log.flush()
+        self.lines.extend(value.splitlines())
+        self.lines = self.lines[-30:]
+        if self.verbose:
+            print(value, flush=True)
+
+    def begin(self, number, title):
+        self.stage = title
+        self.lines = []
+        self.say(f'\n[{number}/8] {title}')
+
+    def done(self, outcome):
+        self.say('DONE — ' + outcome)
+
+
+REPORTER = None
+
+
+def say(value):
+    if REPORTER:
+        REPORTER.say(value)
+    else:
+        print(value, flush=True)
+
+
+@contextlib.contextmanager
+def progress(label):
+    stopped = threading.Event()
+    started = time.monotonic()
+    def update():
+        while not stopped.wait(10):
+            say(f'{label}: {int(time.monotonic() - started)} seconds elapsed')
+    thread = threading.Thread(target=update, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join()
+
+
 def run(args, **kwargs):
-    return subprocess.run(args, check=True, text=True, **kwargs)
+    if REPORTER is None:
+        return subprocess.run(args, check=True, text=True, **kwargs)
+    captured = kwargs.pop('capture_output', False)
+    suppressed = kwargs.pop('stdout', None) == subprocess.DEVNULL
+    kwargs.pop('stderr', None)
+    input_value = kwargs.pop('input', None)
+    # Captured stdout is a private machine-readable channel, never a diagnostic.
+    with tempfile.TemporaryFile(mode='w+') as private:
+        process = subprocess.Popen(args, text=True, stdout=private if captured else subprocess.DEVNULL if suppressed else subprocess.PIPE,
+                                   stderr=subprocess.PIPE, stdin=subprocess.PIPE if input_value is not None else None, **kwargs)
+        if input_value is not None:
+            process.stdin.write(input_value)
+            process.stdin.close()
+        selector = selectors.DefaultSelector()
+        buffers = {}
+        decoders = {}
+        for stream in (process.stderr, None if captured or suppressed else process.stdout):
+            if stream:
+                selector.register(stream, selectors.EVENT_READ)
+                buffers[stream] = ''
+                decoders[stream] = codecs.getincrementaldecoder('utf-8')('replace')
+        try:
+            with progress('Command running'):
+                while selector.get_map():
+                    for key, _ in selector.select(timeout=1):
+                        stream = key.fileobj
+                        chunk = os.read(stream.fileno(), 65536)
+                        buffers[stream] += decoders[stream].decode(chunk, final=not chunk)
+                        while '\n' in buffers[stream]:
+                            line, buffers[stream] = buffers[stream].split('\n', 1)
+                            if not captured:
+                                REPORTER.diagnostic(line.rstrip('\r'))
+                        if not chunk:
+                            if buffers[stream] and not captured:
+                                REPORTER.diagnostic(buffers[stream])
+                            selector.unregister(stream)
+                            stream.close()
+                code = process.wait()
+        finally:
+            selector.close()
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+        if code:
+            raise subprocess.CalledProcessError(code, args)
+        private.seek(0)
+        return subprocess.CompletedProcess(args, code, stdout=private.read() if captured else None)
 
 
 def download(url):
     if urllib.parse.urlsplit(url).scheme != 'https':
         raise ValueError('downloads require HTTPS')
-    with urllib.request.urlopen(url, timeout=60) as response:
-        return response.read()
+    say('Downloading: ' + url)
+    with progress('Download'), urllib.request.urlopen(url, timeout=60) as response:
+        data = response.read()
+    say('DONE — Downloaded ' + url)
+    return data
 
 
 def atomic(path, content, mode=0o600):
@@ -69,21 +194,56 @@ def write_env(path, env):
 
 
 def prompt(message, default=None):
-    with open('/dev/tty', 'r+') as tty:
-        tty.write(message + (f' [{default}]' if default else '') + ': ')
-        tty.flush()
-        answer = tty.readline()
-        if not answer:
-            raise ValueError('terminal input closed')
-        return answer.strip() or default
-
-
-def interactive():
+    say('\nINPUT REQUIRED — ' + message)
+    say(f'Press Enter to use {default}.' if default is not None else 'Enter the requested answer.')
     try:
-        with open('/dev/tty', 'r+'):
-            return True
-    except OSError:
-        return False
+        with open('/dev/tty', 'r') as reader, open('/dev/tty', 'w') as tty:
+            tty.write('> ' + message + (f' [{default}]' if default is not None else '') + ': ')
+            tty.flush()
+            answer = reader.readline()
+            if not answer:
+                raise ValueError('terminal input closed')
+            return answer.strip() or default
+    except OSError as error:
+        raise OSError(f'{message} requires /dev/tty input; supply the corresponding command-line option: {error}') from error
+
+
+def yesno(message, default='no'):
+    while True:
+        answer = prompt(message + ' (yes/y or no/n)', default).lower()
+        if answer in ('yes', 'y', 'no', 'n'):
+            return answer in ('yes', 'y')
+        say('Invalid answer; enter yes/y or no/n.')
+
+
+def validate_port(port):
+    if not str(port).isdigit() or not 1024 <= int(port) <= 65535:
+        raise ValueError('local port must be between 1024 and 65535')
+    return str(port)
+
+
+def validate_origin(origin):
+    parsed = urllib.parse.urlsplit(origin)
+    try:
+        parsed.port
+    except ValueError:
+        raise ValueError('public origin has an invalid port')
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ('', '/') or parsed.query or parsed.fragment or any(c.isspace() for c in origin):
+        raise ValueError('public origin must be an HTTP(S) origin without a path or credentials')
+    return origin.rstrip('/')
+
+
+def field(value, label, default, validator):
+    if value is not None:
+        result = validator(value)
+        say(f'{label}: {result} (supplied)')
+        return result
+    while True:
+        answer = prompt(label, default)
+        try:
+            return validator(answer)
+        except ValueError as error:
+            say(str(error))
 
 
 def manifest_valid(manifest):
@@ -167,8 +327,8 @@ def prerequisites(args):
         commands = [['sudo', 'apt-get', 'update'], ['sudo', 'apt-get', 'install', '-y', 'podman', 'podman-compose', 'uidmap', 'make', 'systemd']] if manager == 'apt' else [['sudo', 'dnf', 'install', '-y', 'podman', 'podman-compose', 'shadow-utils', 'make', 'systemd']]
         print('Package commands:\n' + '\n'.join(shlex.join(c) for c in commands), flush=True)
         choice = args.install_packages
-        if choice is None and interactive():
-            choice = prompt('Install missing prerequisites? yes/no', 'no') == 'yes'
+        if choice is None:
+            choice = yesno('Install missing prerequisites (--install-packages/--no-install-packages) with the sudo commands shown above?')
         if not choice:
             raise ValueError('missing prerequisites: ' + ', '.join(missing))
         for command in commands:
@@ -185,24 +345,27 @@ def prerequisites(args):
 
 def configure(root, args, manifest):
     path = root / '.env'
+    existed = path.exists()
+    repaired = existed and any(not (root / name).exists() for name in ('data/config/valkey.conf', 'data/config/catalog-key', 'data/config/catalog-hosts'))
     env = read_env(path)
     if path.exists():
         required = ('POSTGRES_PASSWORD', 'VALKEY_PASSWORD', 'PUBLIC_ORIGIN', 'PORT', 'COOKIE_SECURE')
         if any(not env.get(key) for key in required):
             raise ValueError('incomplete .env; restore original credentials/configuration before retrying')
-    else:
-        port = args.port or (prompt('Local port', '8080') if interactive() else '8080')
-        origin = args.public_origin or (prompt('Public origin', f'http://localhost:{port}') if interactive() else f'http://localhost:{port}')
+    if not path.exists() or getattr(args, 'action', None) == 'modify':
+        say('The proxy listens on loopback. Choose its local port; use an HTTPS public origin when an external proxy terminates TLS.')
+        port = field(args.port, 'Local port (--port)', env.get('PORT', '8080'), validate_port)
+        origin = field(args.public_origin, 'Public origin (--public-origin)', env.get('PUBLIC_ORIGIN', f'http://localhost:{port}'), validate_origin)
         parsed = urllib.parse.urlsplit(origin)
-        if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ('', '/') or parsed.query or parsed.fragment:
-            raise ValueError('public origin must be an HTTP(S) origin without a path or credentials')
-        if not str(port).isdigit() or not 1024 <= int(port) <= 65535:
-            raise ValueError('local port must be between 1024 and 65535')
-        env = dict(POSTGRES_PASSWORD=secrets.token_hex(32), VALKEY_PASSWORD=secrets.token_hex(32), PUBLIC_ORIGIN=origin.rstrip('/'), PORT=str(port), COOKIE_SECURE=str(parsed.scheme == 'https').lower())
+        env.setdefault('POSTGRES_PASSWORD', secrets.token_hex(32))
+        env.setdefault('VALKEY_PASSWORD', secrets.token_hex(32))
+        env.update(PUBLIC_ORIGIN=origin.rstrip('/'), PORT=str(port), COOKIE_SECURE=str(parsed.scheme == 'https').lower())
     # Restrict secret alphabets to values safe in URLs, Valkey directives and dotenv.
     for key in ('POSTGRES_PASSWORD', 'VALKEY_PASSWORD'):
         if not re.fullmatch('[A-Za-z0-9_-]+', env[key]):
             raise ValueError(f'{key} contains unsupported characters; preserve and configure manually')
+    if REPORTER:
+        REPORTER.secrets.update(env[key] for key in ('POSTGRES_PASSWORD', 'VALKEY_PASSWORD'))
     env.setdefault('CATALOG_ENABLED', 'false')
     # Persist the source credentials before creating any derived secret files.
     write_env(path, env)
@@ -224,6 +387,7 @@ def configure(root, args, manifest):
     env['SANDBOX_RUNTIME'] = str(root / '.dev/gvisor/current/runsc')
     env['PODMAN_SOCKET'] = str(Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'j0coder-podman.sock')
     write_env(path, env)
+    say(f"DONE — Configuration {'repaired using preserved credentials' if repaired else 'preserved' if existed and getattr(args, 'action', None) != 'modify' else 'saved'}\nOrigin: {env['PUBLIC_ORIGIN']}\nPort: {env['PORT']}\nSecure cookies: {env['COOKIE_SECURE']}")
     return env
 
 
@@ -235,37 +399,62 @@ def compose(root, *args, **kwargs):
 def bootstrap(root, args):
     state = compose(root, 'exec', '-T', 'api', 'api', 'bootstrap-status', capture_output=True).stdout.strip()
     if state == 'administrator-present':
-        print('Existing administrator retained.')
+        say('DONE — Existing administrator retained.')
         return
     if state != 'empty':
         raise ValueError('recovery required: existing users have no administrator')
-    username = args.admin_username or (prompt('Administrator username', 'admin') if interactive() else None)
+    say('Username: 1–64 ASCII letters, digits, _ or -. Password: 12–256 bytes, single line. Password typing will not display characters.')
+    username = field(args.admin_username, 'Administrator username (--admin-username)', 'admin', lambda value: value if re.fullmatch('[A-Za-z0-9_-]{1,64}', value) else (_ for _ in ()).throw(ValueError('invalid administrator username')))
     if args.admin_password_file:
         password = Path(args.admin_password_file).read_text().removesuffix('\n')
-    elif interactive():
-        with open('/dev/tty', 'w') as tty:
-            password = getpass.getpass('Administrator password: ', stream=tty)
-            if password != getpass.getpass('Confirm password: ', stream=tty):
-                raise ValueError('passwords do not match')
     else:
-        raise ValueError('unattended onboarding requires ADMIN_USERNAME and ADMIN_PASSWORD_FILE')
+        while True:
+            say('\nINPUT REQUIRED — Administrator password (or supply --admin-password-file)')
+            try:
+                with open('/dev/tty', 'w') as tty:
+                    password = getpass.getpass('> Administrator password: ', stream=tty)
+                    confirmation = getpass.getpass('> Confirm password: ', stream=tty)
+            except OSError as error:
+                raise OSError('Administrator password requires /dev/tty; supply --admin-password-file') from error
+            if password != confirmation:
+                say('Passwords do not match; try again.')
+            elif not 12 <= len(password.encode()) <= 256 or '\n' in password or '\r' in password:
+                say('Password must be 12–256 bytes and single-line; try again.')
+            else:
+                break
+    if REPORTER:
+        REPORTER.secrets.add(password)
     if not username or not re.fullmatch('[A-Za-z0-9_-]{1,64}', username) or not 12 <= len(password.encode()) <= 256 or '\n' in password or '\r' in password:
         raise ValueError('username must be 1–64 ASCII letters/digits/_/-; password must be 12–256 bytes and single-line')
     compose(root, 'exec', '-T', 'api', 'api', 'bootstrap-admin', username, '--if-empty', input=password + '\n')
-    print(f'Administrator username: {username}')
+    say(f'Administrator username: {username}')
+    return username
 
 
 def wait_ready(root, env):
-    for _ in range(120):
+    with progress('Waiting for readiness'):
+        return _wait_ready(root, env)
+
+
+def _wait_ready(root, env):
+    for attempt in range(120):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{env['PORT']}/readyz", timeout=2) as response:
                 if response.status == 200:
+                    # podman-compose ps does not accept a service argument.
+                    ids = compose(root, 'ps', '-q', capture_output=True).stdout.split()
+                    containers = json.loads(run(['podman', 'inspect', *ids], capture_output=True).stdout) if ids else []
+                    services = {}
+                    for container in containers:
+                        labels = container['Config'].get('Labels') or {}
+                        service = labels.get('com.docker.compose.service') or labels.get('io.podman.compose.service')
+                        services.setdefault(service, []).append(container)
                     # Check every configured service, including worker/editor/controller.
                     for service in ('postgres', 'valkey', 'api', 'catalog-controller', 'worker', 'editor', 'proxy'):
-                        ids = compose(root, 'ps', '-q', service, capture_output=True).stdout.split()
-                        if len(ids) != 1:
-                            raise ValueError(f'missing service: {service}')
-                        state = json.loads(run(['podman', 'inspect', ids[0]], capture_output=True).stdout)[0]['State']
+                        matches = services.get(service, [])
+                        if len(matches) != 1:
+                            raise ValueError(f'expected one container for service: {service}; found {len(matches)}')
+                        state = matches[0]['State']
                         if not state['Running']:
                             raise ValueError(f'failed service: {service}')
                     return
@@ -304,10 +493,13 @@ def supervise(root, env):
 
 def autostart(root, args, env):
     choice = args.autostart
-    if choice is None and interactive():
-        choice = prompt('Enable reboot startup? yes/no', 'no') == 'yes'
+    if choice is not None:
+        say('Reboot startup choice supplied: ' + ('yes' if choice else 'no'))
+    if choice is None:
+        choice = yesno('Enable reboot startup (--autostart)? The user service supervises the application.')
     if not choice:
-        return
+        say('DONE — Reboot startup skipped (existing service settings retained).')
+        return 'skipped; existing settings retained'
     if subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 'j0coder.service']).returncode == 0:
         run(['systemctl', '--user', 'stop', 'j0coder.service'])
     compose(root, 'down')
@@ -323,27 +515,127 @@ def autostart(root, args, env):
     linger = run(['loginctl', 'show-user', str(os.getuid()), '-p', 'Linger', '--value'], capture_output=True).stdout.strip()
     if linger != 'yes':
         print('Reboot startup requires: sudo loginctl enable-linger ' + shlex.quote(getpass.getuser()))
-        if interactive() and prompt('Enable lingering with sudo? yes/no', 'no') == 'yes':
+        if yesno('Enable lingering with sudo? Lingering starts the user service before login.'):
             run(['sudo', 'loginctl', 'enable-linger', getpass.getuser()])
             linger = 'yes'
-    print('Reboot startup fully configured.' if linger == 'yes' else 'User service enabled; reboot startup awaits lingering.')
+    result = 'enabled' if linger == 'yes' else 'user service enabled; awaiting lingering'
+    say('DONE — Reboot startup: ' + result)
+    return result
+
+
+def stop_installation(root, env, disable=False, purge=False):
+    unit = Path.home() / '.config/systemd/user/j0coder.service'
+    if unit.exists():
+        run(['systemctl', '--user', 'disable' if disable else 'stop', *(['--now'] if disable else []), 'j0coder.service'])
+    compose(root, 'down', *(['--volumes'] if purge else []))
+    run(['bash', str(root / 'scripts/gvisor-controller.sh'), 'stop'], cwd=root, env={**os.environ, **env})
+    if disable and unit.exists():
+        unit.unlink()
+        run(['systemctl', '--user', 'daemon-reload'])
+
+
+def start_installation(root, env):
+    if subprocess.run(['systemctl', '--user', 'is-enabled', '--quiet', 'j0coder.service']).returncode == 0:
+        run(['systemctl', '--user', 'start', 'j0coder.service'])
+    else:
+        run(['bash', str(root / 'scripts/gvisor-controller.sh'), 'start'], cwd=root, env={**os.environ, **env})
+        run(['bash', str(root / 'scripts/preflight.sh')], cwd=root, env={**os.environ, **env})
+        compose(root, 'up', '-d', '--force-recreate')
+    wait_ready(root, env)
+
+
+def upgrade(root, args):
+    if not (root / '.deployment-installation').exists():
+        raise ValueError('release upgrades require a deployment installation; update source checkouts with Git')
+    manifest = resolve_release(args.version)
+    # Validate every download before stopping the current installation.
+    with tempfile.TemporaryDirectory(dir=root) as staging:
+        bundle, runtime = Path(staging) / 'bundle', Path(staging) / 'runtime'
+        archive(manifest['bundle'], bundle)
+        archive(manifest['gvisor'], runtime)
+        files = ('compose.yaml', 'Makefile', 'deploy/nginx.conf', 'scripts/setup.py', 'scripts/setup.sh', 'scripts/install.sh', 'scripts/preflight.sh', 'scripts/gvisor-controller.sh')
+        if any(not (bundle / name).is_file() for name in files) or not os.access(runtime / 'runsc', os.X_OK) or not (runtime / 'gvisor-bin').is_dir():
+            raise ValueError('incomplete release archives')
+        for image in (manifest['app_image'], manifest['toolchain_image']):
+            run(['podman', 'pull', image])
+        stop_installation(root, read_env(root / '.env'))
+        # Backups retain the previous release and configuration for recovery.
+        backup = root / '.dev' / ('upgrade-backup-' + secrets.token_hex(6))
+        backup.mkdir(parents=True)
+        for name in (*files, '.env', '.release.json'):
+            source = root / name
+            if source.exists():
+                target = backup / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        current = root / '.dev/gvisor/current'
+        if current.exists() or current.is_symlink():
+            os.replace(current, backup / 'runtime')
+        os.replace(runtime, current)
+        atomic(current / '.complete', manifest['version'])
+        for name in files:
+            target = root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(bundle / name, target)
+        atomic(root / '.release.json', json.dumps(manifest) + '\n')
+        atomic(root / '.bundle-complete', manifest['version'])
+        atomic(root / '.deployment-installation', manifest['version'])
+        env = configure(root, args, manifest)
+        print(f'Previous release backup: {backup}. Database migrations may require a database backup to roll back.')
+        start_installation(root, env)
+
+
+def uninstall(root, args, env):
+    message = 'Delete persistent volumes and local configuration? Type delete' if args.purge else 'Uninstall services and preserve data? yes/no'
+    if not args.yes and not (prompt(message, 'no') == 'delete' if args.purge else yesno(message)):
+        print('Uninstall cancelled.')
+        return
+    stop_installation(root, env, disable=True, purge=args.purge)
+    if args.purge:
+        # Only remove installer-owned configuration, never a checkout or arbitrary directory.
+        for name in ('.env', '.release.json', '.bundle-complete', '.deployment-installation'):
+            (root / name).unlink(missing_ok=True)
+        for name in ('data/config', '.dev/gvisor'):
+            path = root / name
+            if path.is_symlink():
+                path.unlink()
+            elif path.exists():
+                shutil.rmtree(path)
+    say('Services uninstalled. ' + ('Persistent volumes and configuration deleted.' if args.purge else 'Data, configuration, and installation files retained; make setup reinstalls.'))
 
 
 def main():
+    global REPORTER
+    REPORTER = None
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', nargs='?', default='up', choices=['up', 'install', 'down', 'status', 'logs', 'supervise'])
+    parser.add_argument('action', nargs='?', default='setup', choices=['setup', 'up', 'install', 'modify', 'upgrade', 'uninstall', 'down', 'status', 'logs', 'supervise'])
     parser.add_argument('--install-dir', default=os.environ.get('J0CODER_INSTALL_DIR', str(Path.home() / '.local/share/j0coder')))
     parser.add_argument('--version', default=os.environ.get('J0CODER_VERSION'))
     for key in ('public-origin', 'port', 'admin-username', 'admin-password-file'):
         parser.add_argument('--' + key, default=os.environ.get(key.replace('-', '_').upper()))
     parser.add_argument('--install-packages', action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument('--autostart', action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument('--action', dest='installer_action', choices=['install', 'modify', 'upgrade', 'uninstall'], help='downloadable installer operation')
+    parser.add_argument('--purge', action='store_true', help='uninstall: delete persistent volumes and configuration')
+    parser.add_argument('--verbose', action='store_true', help='stream diagnostic output; private logs are always saved for setup')
+    parser.add_argument('--yes', action='store_true', help='confirm uninstall without a prompt')
     args = parser.parse_args()
-    root = Path(args.install_dir).expanduser().resolve() if args.action == 'install' else ROOT
+    downloadable = args.action == 'install'
+    if args.installer_action:
+        args.action = args.installer_action
+    if args.purge and args.action != 'uninstall':
+        parser.error('--purge is only valid for uninstall')
+    root = Path(args.install_dir).expanduser().resolve() if downloadable else ROOT
     root.mkdir(parents=True, exist_ok=True)
     os.umask(0o077)
-    stage = 'installation lock'
+    stage = 'initialization'
     try:
+        if args.action not in ('supervise', 'status', 'logs'):
+            REPORTER = Reporter(root, args.verbose)
+            REPORTER.secrets.update(value for key, value in read_env(root / '.env').items() if 'PASSWORD' in key)
+            pinned = json.loads((root / '.release.json').read_text()).get('version') if (root / '.release.json').exists() else None
+            say(f"j0coder — {args.action}\nInstallation: {root}\nRelease: {args.version or pinned or 'latest compatible stable'}\nLog: {REPORTER.path}\nSetup pauses for missing answers. Enter accepts displayed defaults.")
+        stage = 'installation lock'
         if args.action == 'supervise':
             # Supervision must start while onboarding holds its installation lock.
             stage = 'service supervision'
@@ -352,6 +644,10 @@ def main():
         with open(root / '.setup.lock', 'a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             env = read_env(root / '.env')
+            if args.port is not None:
+                validate_port(args.port)
+            if args.public_origin is not None:
+                validate_origin(args.public_origin)
             if args.action in ('status', 'logs'):
                 compose(root, 'ps' if args.action == 'status' else 'logs', *([] if args.action == 'status' else ['--tail=100']))
                 return
@@ -360,18 +656,40 @@ def main():
                 compose(root, 'down')
                 run(['bash', str(root / 'scripts/gvisor-controller.sh'), 'stop'], cwd=root, env={**os.environ, **env})
                 return
+            if args.action in ('up', 'modify', 'upgrade', 'uninstall'):
+                if not env or not (root / '.release.json').exists():
+                    raise ValueError('installation is not configured; run make setup first')
+                stage = args.action
+                if args.action == 'up' and args.version and args.version != json.loads((root / '.release.json').read_text())['version']:
+                    raise ValueError('use make upgrade to select a different release')
+                if args.action == 'uninstall':
+                    uninstall(root, args, env)
+                elif args.action == 'upgrade':
+                    upgrade(root, args)
+                else:
+                    if args.action == 'modify':
+                        manifest = manifest_valid(json.loads((root / '.release.json').read_text()))
+                        env = configure(root, args, manifest)
+                        stop_installation(root, env)
+                    start_installation(root, env)
+                    if args.action == 'modify' and args.autostart is None:
+                        autostart(root, args, env)
+                    if args.action == 'modify' and args.autostart is not None:
+                        if args.autostart:
+                            autostart(root, args, env)
+                        else:
+                            run(['systemctl', '--user', 'disable', '--now', 'j0coder.service'])
+                            start_installation(root, env)
+                return
             stage = 'prerequisites'
-            if not interactive():
-                # Ordinary starts work in terminals without a controlling /dev/tty.
-                # Privileged setup and reboot integration remain explicit opt-ins.
-                if args.install_packages is None:
-                    args.install_packages = False
-                if args.autostart is None:
-                    args.autostart = False
+            REPORTER.begin(1, 'Prerequisites')
             prerequisites(args)
+            REPORTER.done('Prerequisites checked')
             stage = 'release provisioning'
+            REPORTER.begin(2, 'Release artifacts')
             state = root / '.release.json'
             manifest = manifest_valid(json.loads(state.read_text())) if state.exists() else resolve_release(args.version)
+            say('Release ' + manifest['version'] + (' reused from saved pin' if state.exists() else ' selected'))
             if args.version and args.version != manifest['version']:
                 raise ValueError('installation is pinned to ' + manifest['version'] + '; explicit upgrades are not supported')
             if not state.exists():
@@ -389,6 +707,9 @@ def main():
                         target.parent.mkdir(parents=True, exist_ok=True)
                         os.replace(source, target)
                 atomic(root / '.bundle-complete', manifest['version'])
+                REPORTER.done('Deployment bundle downloaded')
+            else:
+                REPORTER.done('Deployment bundle reused' if (root / '.deployment-installation').exists() else 'Deployment bundle skipped for source checkout')
             runtime = root / '.dev/gvisor/current'
             if not (runtime / '.complete').exists():
                 runtime.parent.mkdir(parents=True, exist_ok=True)
@@ -401,29 +722,81 @@ def main():
                         os.replace(runtime, runtime.parent / ('previous-' + secrets.token_hex(6)))
                     os.replace(staging, runtime)
                     atomic(runtime / '.complete', manifest['version'])
+                REPORTER.done('Sandbox runtime downloaded')
+            else:
+                REPORTER.done('Sandbox runtime reused')
             if not os.access(runtime / 'runsc', os.X_OK) or not (runtime / 'gvisor-bin').is_dir():
                 raise ValueError('gVisor archive lacks executable runsc or companion binaries')
+            REPORTER.done('Release artifacts checked: ' + manifest['version'])
             stage = 'configuration'
+            REPORTER.begin(3, 'Configure application')
             env = configure(root, args, manifest)
             stage = 'image pulls'
+            REPORTER.begin(4, 'Image downloads')
             for image in (env['APP_IMAGE'], env['TOOLCHAIN_IMAGE']):
-                if subprocess.run(['podman', 'image', 'exists', image]).returncode != 0:
+                if subprocess.run(['podman', 'image', 'exists', image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+                    say('Pulling image: ' + image)
                     run(['podman', 'pull', image])
+                    REPORTER.done('Image downloaded: ' + image)
+                else:
+                    REPORTER.done('Image reused: ' + image)
             stage = 'controller and preflight'
+            REPORTER.begin(5, 'Sandbox checks')
             active = subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 'j0coder.service']).returncode == 0
             if not active:
                 run(['bash', str(root / 'scripts/gvisor-controller.sh'), 'start'], cwd=root, env={**os.environ, **env})
             run(['bash', str(root / 'scripts/preflight.sh')], cwd=root, env={**os.environ, **env})
+            REPORTER.done('Sandbox checked')
             stage = 'Compose startup'
+            REPORTER.begin(6, 'Application startup and readiness')
             compose(root, 'up', '-d', '--force-recreate')
             wait_ready(root, env)
+            REPORTER.done('Application ready')
             stage = 'administrator onboarding'
-            bootstrap(root, args)
+            REPORTER.begin(7, 'Administrator onboarding')
+            username = bootstrap(root, args)
+            REPORTER.done('Administrator created' if username else 'Existing administrator retained')
             stage = 'reboot integration'
-            autostart(root, args, env)
-            print(f"Login: {env['PUBLIC_ORIGIN']}\nInstallation: {root}\nLifecycle: make up | make down | make status | make logs")
+            REPORTER.begin(8, 'Reboot startup')
+            reboot = autostart(root, args, env)
+            say(f"Release: {manifest['version']}\nAdministrator: {username or 'existing administrator retained'}\nReboot startup: {reboot}\nLogin: {env['PUBLIC_ORIGIN']}\nInstallation: {root}\nLifecycle: make up | make down | make status | make logs")
     except (Exception, KeyboardInterrupt) as error:
-        raise SystemExit(f'{stage} failed: {error}. Persistent data retained; rerun make up to resume.')
+        cause = str(error) or 'interrupted'
+        details = ''
+        if isinstance(error, subprocess.CalledProcessError):
+            details = f'\nCommand: {shlex.join(map(str, error.cmd))}\nExit code: {error.returncode}'
+        recovery = ['python3', str(root / 'scripts/setup.py'), args.action]
+        if downloadable:
+            recovery = ['sh', 'install.sh', '--action', args.action, '--install-dir', str(root)]
+        version = args.version or (manifest['version'] if 'manifest' in locals() else None)
+        if version:
+            recovery += ['--version', version]
+        message = f'{stage} failed: {cause}{details}'
+        if REPORTER:
+            message += '\nRecent diagnostics:\n' + '\n'.join(REPORTER.lines) + f'\nFull log: {REPORTER.path}'
+            message = REPORTER.clean(message)
+        if args.purge:
+            recovery.append('--purge')
+        for name in ('port', 'public_origin', 'admin_username', 'admin_password_file'):
+            if getattr(args, name) is not None:
+                recovery += ['--' + name.replace('_', '-'), getattr(args, name)]
+        for name in ('install_packages', 'autostart'):
+            if getattr(args, name) is not None:
+                recovery.append('--' + ('' if getattr(args, name) else 'no-') + name.replace('_', '-'))
+        if downloadable:
+            recovery_text = 'curl -fsSL https://raw.githubusercontent.com/UltimateBoomer/j0coder/main/scripts/install.sh | sh -s -- ' + shlex.join(recovery[2:])
+        else:
+            recovery_text = shlex.join(recovery)
+        message += '\nRecovery: ' + recovery_text
+        if REPORTER:
+            message = REPORTER.clean(message)
+            REPORTER.log.write(message + '\n')
+            REPORTER.log.flush()
+        raise SystemExit(message)
+    finally:
+        if REPORTER:
+            REPORTER.log.close()
+            REPORTER = None
 
 
 if __name__ == '__main__':

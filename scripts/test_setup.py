@@ -18,6 +18,153 @@ class SetupTests(unittest.TestCase):
         self.args = argparse.Namespace(port='8080', public_origin='https://practice.example', version=None)
         self.manifest = dict(version='v1', installer_version=1, app_image='ghcr.io/example/app@sha256:' + 'a' * 64, toolchain_image='ghcr.io/example/toolchain@sha256:' + 'b' * 64, bundle=dict(sha256='c' * 64), gvisor=dict(sha256='d' * 64))
 
+    def test_modify_preserves_secrets_and_updates_cookie(self):
+        before = setup.configure(self.root, self.args, self.manifest)
+        self.args.action = 'modify'
+        self.args.port = '9090'
+        self.args.public_origin = 'http://localhost:9090'
+        after = setup.configure(self.root, self.args, self.manifest)
+        for key in ('POSTGRES_PASSWORD', 'VALKEY_PASSWORD'):
+            self.assertEqual(before[key], after[key])
+        self.assertEqual(after['PORT'], '9090')
+        self.assertEqual(after['COOKIE_SECURE'], 'false')
+        self.args.port = '80'
+        with self.assertRaises(ValueError):
+            setup.configure(self.root, self.args, self.manifest)
+        self.assertEqual(setup.read_env(self.root / '.env'), after)
+
+    def test_up_requires_setup_and_never_installs(self):
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'up']), patch.object(setup, 'prerequisites') as prerequisites:
+            with self.assertRaisesRegex(SystemExit, 'run make setup first'):
+                setup.main()
+            prerequisites.assert_not_called()
+        setup.configure(self.root, self.args, self.manifest)
+        (self.root / '.release.json').write_text(json.dumps(self.manifest))
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'up']), patch.object(setup, 'start_installation') as start, patch.object(setup, 'prerequisites') as prerequisites, patch.object(setup, 'bootstrap') as bootstrap, patch.object(setup, 'prompt', side_effect=AssertionError('unexpected prompt')):
+            setup.main()
+            start.assert_called_once()
+            prerequisites.assert_not_called()
+            bootstrap.assert_not_called()
+
+    def test_uninstall_preserves_data_unless_purged(self):
+        env = setup.configure(self.root, self.args, self.manifest)
+        args = argparse.Namespace(purge=False, yes=True)
+        with patch.object(setup, 'stop_installation') as stop:
+            setup.uninstall(self.root, args, env)
+            stop.assert_called_once_with(self.root, env, disable=True, purge=False)
+            self.assertTrue((self.root / '.env').exists())
+            args.purge = True
+            unrelated = self.root / 'source.rs'
+            unrelated.write_text('keep')
+            setup.uninstall(self.root, args, env)
+            self.assertFalse((self.root / '.env').exists())
+            self.assertFalse((self.root / 'data/config').exists())
+            self.assertTrue(unrelated.exists())
+
+    def test_uninstall_cancellation_does_not_stop(self):
+        with patch.object(setup, 'prompt', return_value='no'), patch.object(setup, 'stop_installation') as stop:
+            setup.uninstall(self.root, argparse.Namespace(purge=True, yes=False), {})
+            stop.assert_not_called()
+
+    def test_upgrade_replaces_release_and_preserves_credentials(self):
+        before = setup.configure(self.root, self.args, self.manifest)
+        (self.root / '.deployment-installation').write_text('v1')
+        (self.root / '.release.json').write_text(json.dumps(self.manifest))
+        runtime = self.root / '.dev/gvisor/current'
+        runtime.mkdir(parents=True)
+        (runtime / 'runsc').write_text('old runtime')
+        updated = dict(self.manifest, version='v2', app_image='ghcr.io/example/app@sha256:' + 'e' * 64)
+        def extract(asset, destination):
+            destination.mkdir(parents=True)
+            if asset == updated['bundle']:
+                for name in ('compose.yaml', 'Makefile', 'deploy/nginx.conf', 'scripts/setup.py', 'scripts/setup.sh', 'scripts/install.sh', 'scripts/preflight.sh', 'scripts/gvisor-controller.sh'):
+                    target = destination / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text('new release')
+            else:
+                (destination / 'runsc').write_text('new runtime')
+                (destination / 'runsc').chmod(0o755)
+                (destination / 'gvisor-bin').mkdir()
+        with patch.object(setup, 'resolve_release', return_value=updated), patch.object(setup, 'archive', side_effect=extract), patch.object(setup, 'run'), patch.object(setup, 'stop_installation') as stop, patch.object(setup, 'start_installation') as start:
+            setup.upgrade(self.root, self.args)
+            stop.assert_called_once()
+            start.assert_called_once()
+        after = setup.read_env(self.root / '.env')
+        self.assertEqual(after['POSTGRES_PASSWORD'], before['POSTGRES_PASSWORD'])
+        self.assertEqual(after['VALKEY_PASSWORD'], before['VALKEY_PASSWORD'])
+        self.assertEqual(after['APP_IMAGE'], updated['app_image'])
+        self.assertEqual(json.loads((self.root / '.release.json').read_text())['version'], 'v2')
+        backup = next((self.root / '.dev').glob('upgrade-backup-*'))
+        self.assertEqual((backup / 'runtime/runsc').read_text(), 'old runtime')
+        self.assertEqual(setup.read_env(backup / '.env'), before)
+
+    def test_upgrade_bad_archive_does_not_stop_or_change_pins(self):
+        (self.root / '.deployment-installation').write_text('v1')
+        (self.root / '.release.json').write_text(json.dumps(self.manifest))
+        with patch.object(setup, 'resolve_release', return_value=self.manifest), patch.object(setup, 'archive', side_effect=ValueError('archive checksum mismatch')), patch.object(setup, 'stop_installation') as stop:
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                setup.upgrade(self.root, argparse.Namespace(version='v2'))
+            stop.assert_not_called()
+        self.assertEqual(json.loads((self.root / '.release.json').read_text()), self.manifest)
+
+    def test_prompt_works_on_nonseekable_terminal(self):
+        import os
+        import pty
+        import select
+        import subprocess
+        import sys
+        master, slave = pty.openpty()
+        def attach_terminal():
+            import fcntl
+            import termios
+            os.setsid()
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        process = subprocess.Popen([sys.executable, '-c', "import setup; print('ANSWER=' + setup.prompt('Choice', 'no'))"], cwd=Path(__file__).parent, stdin=slave, stdout=slave, stderr=slave, preexec_fn=attach_terminal)
+        os.close(slave)
+        try:
+            self.assertTrue(select.select([master], [], [], 5)[0], 'prompt did not appear')
+            output = b''
+            while b'Choice [no]: ' not in output:
+                self.assertTrue(select.select([master], [], [], 5)[0])
+                output += os.read(master, 4096)
+            self.assertIn(b'INPUT REQUIRED', output)
+            os.write(master, b'yes\n')
+            process.wait(timeout=5)
+            while select.select([master], [], [], 0.1)[0]:
+                try:
+                    output += os.read(master, 4096)
+                except OSError:
+                    break
+            self.assertEqual(process.returncode, 0, output.decode())
+            self.assertIn(b'ANSWER=yes', output)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            os.close(master)
+
+    def test_readiness_supports_provider_without_service_filter(self):
+        from unittest.mock import MagicMock
+        services = ('postgres', 'valkey', 'api', 'catalog-controller', 'worker', 'editor', 'proxy')
+        containers = [dict(Config=dict(Labels={('com.docker.compose.service' if i % 2 else 'io.podman.compose.service'): service}), State=dict(Running=True)) for i, service in enumerate(services)]
+        response = MagicMock()
+        response.__enter__.return_value.status = 200
+        with patch.object(setup.urllib.request, 'urlopen', return_value=response), patch.object(setup, 'compose', return_value=argparse.Namespace(stdout=' '.join(services))) as compose, patch.object(setup, 'run', return_value=argparse.Namespace(stdout=json.dumps(containers))) as inspect:
+            setup.wait_ready(self.root, {'PORT': '8080'})
+            compose.assert_called_once_with(self.root, 'ps', '-q', capture_output=True)
+            containers[4]['State']['Running'] = False
+            inspect.return_value.stdout = json.dumps(containers)
+            with self.assertRaisesRegex(ValueError, 'failed service: worker'):
+                setup.wait_ready(self.root, {'PORT': '8080'})
+            containers.pop(4)
+            inspect.return_value.stdout = json.dumps(containers)
+            with self.assertRaisesRegex(ValueError, 'service: worker; found 0'):
+                setup.wait_ready(self.root, {'PORT': '8080'})
+            containers.append(containers[0])
+            inspect.return_value.stdout = json.dumps(containers)
+            with self.assertRaisesRegex(ValueError, 'service: postgres; found 2'):
+                setup.wait_ready(self.root, {'PORT': '8080'})
+
     def test_repeat_and_repair_preserves_secrets(self):
         first = setup.configure(self.root, self.args, self.manifest)
         self.assertEqual(first['COOKIE_SECURE'], 'true')
@@ -152,8 +299,9 @@ class SetupTests(unittest.TestCase):
                 (destination / 'runsc').chmod(0o755)
                 (destination / 'gvisor-bin').mkdir()
         with ExitStack() as stack:
+            from contextlib import redirect_stdout
+            output = stack.enter_context(redirect_stdout(io.StringIO()))
             stack.enter_context(patch('sys.argv', args))
-            stack.enter_context(patch.object(setup, 'interactive', return_value=False))
             prerequisites = stack.enter_context(patch.object(setup, 'prerequisites'))
             resolve = stack.enter_context(patch.object(setup, 'resolve_release', return_value=self.manifest))
             stack.enter_context(patch.object(setup, 'run'))
@@ -173,9 +321,267 @@ class SetupTests(unittest.TestCase):
                 setup.main()
                 archives.assert_not_called()
             resolve.assert_called_once()
-            self.assertIs(prerequisites.call_args.args[0].install_packages, False)
-            self.assertIs(autostart.call_args.args[1].autostart, False)
+            self.assertIsNone(prerequisites.call_args.args[0].install_packages)
+            self.assertIsNone(autostart.call_args.args[1].autostart)
             self.assertTrue((self.root / '.dev/gvisor/current/.complete').exists())
+            transcript = output.getvalue()
+            completed = transcript.split('[1/8] Prerequisites')[-1]
+            positions = [completed.index(f'[{number}/8]') for number in range(2, 9)]
+            self.assertEqual(positions, sorted(positions))
+            self.assertIn('Deployment bundle reused', completed)
+            self.assertIn('Sandbox runtime reused', completed)
+
+    def test_configuration_always_prompts_for_missing_values(self):
+        self.args.port = None
+        self.args.public_origin = None
+        with patch.object(setup, 'prompt', side_effect=['8080', 'http://localhost:8080']) as prompt:
+            env = setup.configure(self.root, self.args, self.manifest)
+        self.assertEqual(prompt.call_count, 2)
+        self.assertEqual(env['PUBLIC_ORIGIN'], 'http://localhost:8080')
+
+    def test_missing_terminal_does_not_silently_default_configuration(self):
+        self.args.port = None
+        self.args.public_origin = None
+        with patch('builtins.open', side_effect=OSError('no controlling terminal')):
+            with self.assertRaisesRegex(OSError, 'no controlling terminal'):
+                setup.configure(self.root, self.args, self.manifest)
+        self.assertFalse((self.root / '.env').exists())
+
+    def test_setup_keeps_interactive_choices_unspecified(self):
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'setup']), patch.object(setup, 'prerequisites', side_effect=ValueError('prerequisites reached')) as prerequisites:
+            with self.assertRaisesRegex(SystemExit, 'prerequisites reached'):
+                setup.main()
+        self.assertIsNone(prerequisites.call_args.args[0].install_packages)
+        self.assertIsNone(prerequisites.call_args.args[0].autostart)
+
+    def test_shell_entry_has_no_terminal_guard(self):
+        import subprocess
+        result = subprocess.run(['sh', str(Path(__file__).parent / 'setup.sh'), '--help'], input='', text=True, capture_output=True, start_new_session=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('--install-packages', result.stdout)
+
+    def test_lifecycle_commands_do_not_prompt(self):
+        for action in ('status', 'logs', 'down'):
+            with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', action]), patch.object(setup, 'prompt', side_effect=AssertionError('unexpected prompt')), patch.object(setup, 'compose') as compose, patch.object(setup, 'run'), patch.object(setup.subprocess, 'run'):
+                setup.main()
+                compose.assert_called_once()
+
+    def test_missing_packages_prompt_before_normal_sudo(self):
+        args = argparse.Namespace(install_packages=None)
+        info = argparse.Namespace(returncode=0, stdout=json.dumps(dict(host=dict(security=dict(rootless=True), cgroupVersion='v2', cgroupManager='systemd'))))
+        with patch.object(setup.os, 'uname', return_value=argparse.Namespace(sysname='Linux', machine='x86_64')), patch.object(setup.os, 'getuid', return_value=1000), patch.object(setup.shutil, 'which', side_effect=lambda name: None if name == 'newuidmap' else '/bin/' + name), patch.object(setup.subprocess, 'run', return_value=info), patch.object(setup, 'run', return_value=info) as run, patch.object(setup, 'prompt', return_value='yes') as prompt:
+            setup.prerequisites(args)
+        prompt.assert_called_once()
+        self.assertEqual(run.call_args_list[0].args[0], ['sudo', 'apt-get', 'update'])
+        self.assertEqual(run.call_args_list[1].args[0][:2], ['sudo', 'apt-get'])
+
+    def reporter(self, verbose=False):
+        reporter = setup.Reporter(self.root, verbose)
+        self.addCleanup(reporter.log.close)
+        self.addCleanup(setattr, setup, 'REPORTER', None)
+        setup.REPORTER = reporter
+        return reporter
+
+    def test_private_logs_redaction_and_private_capture(self):
+        import contextlib
+        import sys
+        reporter = self.reporter(True)
+        reporter.secrets.add('sensitive-password')
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            setup.run([sys.executable, '-c', "print('sensitive-password')"])
+            result = setup.run([sys.executable, '-c', "import sys; print('private-inspection'); print('private-stderr', file=sys.stderr)"], capture_output=True)
+        self.assertEqual(result.stdout, 'private-inspection\n')
+        self.assertNotIn('sensitive-password', output.getvalue())
+        self.assertNotIn('private-inspection', reporter.path.read_text())
+        self.assertNotIn('private-stderr', reporter.path.read_text())
+        self.assertIn('[REDACTED]', reporter.path.read_text())
+        self.assertEqual(reporter.path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(reporter.path.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_summary_suppresses_commands_and_failure_excerpt_is_bounded(self):
+        import contextlib
+        import sys
+        reporter = self.reporter()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(setup.subprocess.CalledProcessError) as failure:
+                setup.run([sys.executable, '-c', "import sys; [print('line-' + str(i)) for i in range(40)]; sys.exit(7)"])
+        self.assertEqual(output.getvalue(), '')
+        self.assertEqual(failure.exception.returncode, 7)
+        self.assertEqual(len(reporter.lines), 30)
+        self.assertEqual(reporter.lines[0], 'line-10')
+
+    def test_verbose_streams_before_command_finishes(self):
+        import contextlib
+        import sys
+        import threading
+        reporter = self.reporter(True)
+        appeared = threading.Event()
+        class Sink(io.StringIO):
+            def write(self, value):
+                if 'streamed' in value:
+                    appeared.set()
+                return super().write(value)
+        with contextlib.redirect_stdout(Sink()):
+            worker = threading.Thread(target=setup.run, args=([sys.executable, '-c', "import time; print('streamed', flush=True); time.sleep(.5)"],))
+            worker.start()
+            self.assertTrue(appeared.wait(.4))
+            self.assertTrue(worker.is_alive())
+            worker.join(2)
+
+    def test_field_retries_only_invalid_answer_and_yesno_aliases(self):
+        with patch.object(setup, 'prompt', side_effect=['80', '8081']) as prompt:
+            self.assertEqual(setup.field(None, 'Local port', '8080', setup.validate_port), '8081')
+            self.assertEqual(prompt.call_count, 2)
+        with patch.object(setup, 'prompt', side_effect=['perhaps', 'Y']) as prompt:
+            self.assertTrue(setup.yesno('Choice'))
+            self.assertEqual(prompt.call_count, 2)
+        with patch.object(setup, 'prompt', return_value='N'):
+            self.assertFalse(setup.yesno('Choice'))
+
+    def terminal_session(self, code, exchanges):
+        import os
+        import pty
+        import select
+        import subprocess
+        import sys
+        import time
+        master, slave = pty.openpty()
+        def attach():
+            import fcntl
+            import termios
+            os.setsid()
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        process = subprocess.Popen([sys.executable, '-c', code], cwd=Path(__file__).parent, stdin=slave, stdout=slave, stderr=slave, preexec_fn=attach)
+        os.close(slave)
+        output = b''
+        cursor = 0
+        try:
+            for marker, answer in exchanges:
+                deadline = time.monotonic() + 5
+                while marker not in output[cursor:]:
+                    self.assertLess(time.monotonic(), deadline, output.decode())
+                    if select.select([master], [], [], .1)[0]:
+                        output += os.read(master, 4096)
+                cursor = len(output)
+                os.write(master, answer)
+            process.wait(timeout=5)
+            while select.select([master], [], [], .1)[0]:
+                try:
+                    output += os.read(master, 4096)
+                except OSError:
+                    break
+            self.assertEqual(process.returncode, 0, output.decode())
+            return output.decode()
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            os.close(master)
+
+    def test_terminal_defaults_and_invalid_answers(self):
+        output = self.terminal_session("import setup; print('RESULT=' + str(setup.yesno('Choice'))); print('PORT=' + setup.field(None, 'Local port', '8080', setup.validate_port))", [(b'> Choice', b'maybe\n'), (b'> Choice', b'Y\n'), (b'> Local port', b'80\n'), (b'> Local port', b'\n')])
+        self.assertIn('Invalid answer', output)
+        self.assertIn('RESULT=True', output)
+        self.assertIn('PORT=8080', output)
+
+    def test_terminal_password_hidden_and_mismatch_retried(self):
+        code = "import setup, argparse; from pathlib import Path; setup.compose=lambda *a, **k: argparse.Namespace(stdout='empty'); setup.bootstrap(Path('.'), argparse.Namespace(admin_username='admin', admin_password_file=None))"
+        output = self.terminal_session(code, [(b'> Administrator password:', b'hidden-secret-123\n'), (b'> Confirm password:', b'different-secret-456\n'), (b'> Administrator password:', b'hidden-secret-123\n'), (b'> Confirm password:', b'hidden-secret-123\n')])
+        self.assertIn('Passwords do not match', output)
+        self.assertNotIn('hidden-secret-123', output)
+        self.assertNotIn('different-secret-456', output)
+        self.assertIn('Administrator username: admin', output)
+
+    def test_readiness_elapsed_and_timeout(self):
+        import contextlib
+        with patch.object(setup.urllib.request, 'urlopen', side_effect=setup.urllib.error.URLError('unready')), patch.object(setup.time, 'sleep'), patch.object(setup, 'progress', wraps=setup.progress) as progress, contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaisesRegex(ValueError, 'readiness timed out'):
+                setup.wait_ready(self.root, {'PORT': '8080'})
+        progress.assert_called_once_with('Waiting for readiness')
+
+    def test_failure_recovery_retains_install_path_and_version(self):
+        args = ['setup.py', 'install', '--install-dir', str(self.root), '--version', 'v1']
+        with patch('sys.argv', args), patch.object(setup, 'prerequisites', side_effect=ValueError('readable cause')):
+            with self.assertRaises(SystemExit) as failure:
+                setup.main()
+        message = str(failure.exception)
+        self.assertIn('prerequisites failed: readable cause', message)
+        self.assertIn('--install-dir', message)
+        self.assertIn(str(self.root), message)
+        self.assertIn('--version v1', message)
+        self.assertIn('Full log:', message)
+        self.assertNotIn('Persistent data retained', message)
+
+    def test_explicit_stdout_suppression_never_logs_environment(self):
+        import sys
+        reporter = self.reporter(True)
+        setup.run([sys.executable, '-c', "print('UNRELATED_TOKEN=private-token')"], stdout=setup.subprocess.DEVNULL)
+        self.assertNotIn('private-token', reporter.path.read_text())
+
+    def test_runner_drains_unterminated_output_without_deadlock(self):
+        import sys
+        reporter = self.reporter()
+        setup.run([sys.executable, '-c', "import sys; sys.stdout.write('partial'); sys.stdout.flush(); sys.stderr.write('x'*1000000); sys.stderr.flush(); print('done')"])
+        self.assertIn('partialdone', reporter.path.read_text())
+
+    def test_field_terminal_eof_is_not_retried(self):
+        with patch.object(setup, 'prompt', side_effect=ValueError('terminal input closed')) as prompt:
+            with self.assertRaisesRegex(ValueError, 'terminal input closed'):
+                setup.field(None, 'Local port', '8080', setup.validate_port)
+            prompt.assert_called_once()
+
+    def test_elapsed_progress_uses_ten_second_intervals(self):
+        import threading
+        appeared = threading.Event()
+        with patch.object(setup, 'say', side_effect=lambda value: appeared.set()):
+            with setup.progress('Work'):
+                self.assertFalse(appeared.wait(.1))
+                self.assertTrue(appeared.wait(11))
+
+    def test_actual_piped_shell_installer_prompts_on_controlling_terminal(self):
+        import shlex
+        coordinator = self.root / 'coordinator.py'
+        script_dir = str(Path(__file__).resolve().parent)
+        coordinator.write_text("import sys; sys.path.insert(0, " + repr(script_dir) + "); import setup; print('PIPE-ANSWER=' + setup.prompt('Piped choice', 'default'))")
+        fake_bin = self.root / 'bin'
+        fake_bin.mkdir()
+        curl = fake_bin / 'curl'
+        curl.write_text('#!/bin/sh\ncp ' + shlex.quote(str(coordinator)) + ' "$4"\n')
+        curl.chmod(0o755)
+        installer = Path(__file__).parent.resolve() / 'install.sh'
+        command = 'cat ' + shlex.quote(str(installer)) + ' | sh -s -- --no-install-packages --no-autostart'
+        code = 'import os, subprocess; os.environ["PATH"] = ' + repr(str(fake_bin) + ':' + setup.os.environ['PATH']) + '; raise SystemExit(subprocess.call(' + repr(command) + ', shell=True))'
+        output = self.terminal_session(code, [(b'> Piped choice [default]:', b'\n')])
+        self.assertIn('PIPE-ANSWER=default', output)
+        self.assertIn('Downloading setup coordinator', output)
+
+    def test_failure_redacts_diagnostics_and_preserves_purge_recovery(self):
+        setup.configure(self.root, self.args, self.manifest)
+        (self.root / '.release.json').write_text(json.dumps(self.manifest))
+        secret = setup.read_env(self.root / '.env')['POSTGRES_PASSWORD']
+        def fail(*args, **kwargs):
+            setup.REPORTER.diagnostic('diagnostic ' + secret)
+            raise setup.subprocess.CalledProcessError(9, ['fake-command', secret])
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'uninstall', '--purge', '--yes']), patch.object(setup, 'stop_installation', side_effect=fail):
+            with self.assertRaises(SystemExit) as failure:
+                setup.main()
+        message = str(failure.exception)
+        self.assertNotIn(secret, message)
+        self.assertIn('--purge', message)
+        self.assertIn('Exit code: 9', message)
+        self.assertIn('diagnostic [REDACTED]', message)
+        self.assertNotIn(secret, next((self.root / '.dev/setup-logs').glob('*.log')).read_text())
+
+    def test_corrupt_pin_has_structured_failure_and_closed_log(self):
+        (self.root / '.release.json').write_text('{broken')
+        with patch.object(setup, 'ROOT', self.root), patch('sys.argv', ['setup.py', 'setup']):
+            with self.assertRaises(SystemExit) as failure:
+                setup.main()
+        self.assertIn('initialization failed', str(failure.exception))
+        self.assertIn('Full log:', str(failure.exception))
+        self.assertIn('Recovery:', str(failure.exception))
+        self.assertIsNone(setup.REPORTER)
 
 
 if __name__ == '__main__':

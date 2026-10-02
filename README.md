@@ -26,7 +26,7 @@ The supplied `compose.yaml` runs the full application, PostgreSQL, Valkey, and a
 From a checkout, run:
 
 ```sh
-make up
+make setup
 ```
 
 Or install without Git or a build toolchain:
@@ -49,7 +49,7 @@ First setup resolves the latest complete stable release, downloads checksum-veri
 
 Terminal prompts use `/dev/tty`, including hidden and confirmed administrator password entry, so piped installation works. The default origin is `http://localhost:8080`, with ingress bound to loopback. For a public installation, choose the exact HTTPS browser origin and put your existing TLS reverse proxy in front of the local port; forward editor WebSockets too. Cookie security follows the chosen origin. Git import is disabled by default and placeholder mounts are created automatically. Follow the [catalog guide](docs/catalog.md) to enable import.
 
-The default installation directory is `$HOME/.local/share/j0coder`. Installer arguments include `--install-dir`, `--version`, `--public-origin`, `--port`, `--admin-username`, `--admin-password-file`, `--install-packages`/`--no-install-packages`, and `--autostart`/`--no-autostart`. Environment equivalents are `J0CODER_INSTALL_DIR`, `J0CODER_VERSION`, `PUBLIC_ORIGIN`, `PORT`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD_FILE`. Without a controlling terminal, package installation and autostart default to disabled. Explicitly opt in when desired; supply the username and a private password file for unattended first onboarding:
+The default installation directory is `$HOME/.local/share/j0coder`. Installer arguments include `--install-dir`, `--version`, `--public-origin`, `--port`, `--admin-username`, `--admin-password-file`, `--install-packages`/`--no-install-packages`, `--autostart`/`--no-autostart`. Environment equivalents are `J0CODER_INSTALL_DIR`, `J0CODER_VERSION`, `PUBLIC_ORIGIN`, `PORT`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD_FILE`. Setup always assumes an interactive terminal and reads missing answers through `/dev/tty`, including hidden password entry. Supplied arguments and environment values bypass their corresponding prompts. Package installation and reboot integration require explicit flags or confirmation at their prompts:
 
 ```sh
 sh install.sh --no-install-packages --no-autostart \
@@ -62,15 +62,17 @@ The administrator password is sent through stdin and never written to `.env`, pr
 Run lifecycle commands inside the installation directory:
 
 ```sh
-make up
+make setup
 # Optional setup flags, including selecting this beta:
-make up SETUP_ARGS="--version v0.1.1-beta.1"
+make setup SETUP_ARGS="--version v0.1.1-beta.1"
+# Start an existing installation:
+make up
 make status
 make logs
 make down
 ```
 
-Repeated startup retains release pins, credentials, accounts and persistent volumes. Missing derived configuration is repaired using existing secrets. Incomplete credential configuration is refused; restore the original `.env` before retrying. Failures name the stage; rerun `make up` to resume. `make down` preserves database and queue volumes and stops the user service without disabling it. Restored databases retain their administrators. Existing users with no administrator require deliberate account recovery; setup will not create another account automatically. `api bootstrap-status` and `api bootstrap-admin USERNAME --if-empty` expose the same database-based safeguards locally.
+Repeated startup retains release pins, credentials, accounts and persistent volumes. Missing derived configuration is repaired using existing secrets. Incomplete credential configuration is refused; restore the original `.env` before retrying. Failures name the stage; rerun `make setup` to resume. `make down` preserves database and queue volumes and stops the user service without disabling it. Restored databases retain their administrators. Existing users with no administrator require deliberate account recovery; setup will not create another account automatically. `api bootstrap-status` and `api bootstrap-admin USERNAME --if-empty` expose the same database-based safeguards locally.
 
 After successful setup you can opt into `j0coder.service`, a systemd user service that supervises the dedicated controller and recreates Compose containers after controller restarts. Reboot startup uses cached pinned artifacts without package installation, upgrades or onboarding. User lingering is needed to start before login; the installer offers the `sudo loginctl enable-linger` command and reports whether reboot setup is complete. Use `systemctl --user disable --now j0coder.service` to disable autostart. One installation per Linux user is supported.
 
@@ -120,7 +122,7 @@ scripts/restore.sh "$HOME/backups/j0coder-2026-09-20"
 make images
 make dev-gvisor
 scripts/gvisor-controller.sh start
-make up
+make setup
 ```
 
 Protect backups as secrets. For Kubernetes installations, back up the external PostgreSQL and Valkey services according to their operators' procedures and retain the deployed image digests.
@@ -246,3 +248,33 @@ The versioned REST contract is [openapi.json](openapi.json), also served at `/ap
 - [Problem curation plan](docs/problem-curation-plan.md)
 - [Testing](docs/testing.md)
 - [Verification record](docs/verification.md)
+
+Setup and lifecycle commands:
+
+```sh
+make setup SETUP_ARGS="--version v0.1.1-beta.1"  # install or resume onboarding
+make up                                       # start configured installation
+make modify SETUP_ARGS="--port 8081 --public-origin https://practice.example"
+make upgrade SETUP_ARGS="--version <release-tag>"
+make uninstall                                # confirm removal of services; retain data
+make uninstall SETUP_ARGS="--purge"            # confirm deletion of volumes and configuration
+```
+
+`modify` prompts for unspecified origin and port, preserves database and queue passwords, and restarts services. Use `--autostart` or `--no-autostart` to enable or disable reboot startup. Administrator credentials are managed through the application; modify does not reset accounts. `up` uses cached configuration and does not perform installation or onboarding.
+
+Upgrade is supported for downloaded deployments; source checkouts are updated with Git. It verifies archives and pulls images before stopping services, retains a previous-release file backup, and preserves persistent volumes. Back up PostgreSQL before upgrading: database migrations can prevent a downgrade. An omitted version selects the latest complete stable release.
+
+Uninstall disables and removes the user service, stops the controller, and removes Compose containers and networks. Files remain available for reinstalling with `make setup`; `--purge` additionally deletes persistent volumes and generated configuration/runtime files. It does not remove system packages or user lingering. Use `--yes` to explicitly confirm either uninstall operation without its confirmation prompt.
+
+The downloadable installer accepts `--action modify`, `--action upgrade`, or `--action uninstall`, together with `--install-dir` pointing to the existing deployment. Its default action remains installation.
+
+Setup prints eight numbered stages and pauses for missing answers through `/dev/tty`, including when the downloaded installer is piped to `sh`. Enter accepts the displayed default; yes/no prompts also accept y/n. Password entry is hidden. Routine command diagnostics are saved in private per-run logs under `<installation>/.dev/setup-logs/` (directory 0700, files 0600). Machine-readable inspection output and credential input are excluded; known passwords are redacted.
+
+For live diagnostic output:
+
+```sh
+make setup SETUP_ARGS="--verbose"
+sh install.sh --verbose
+```
+
+Failures show the stage, recent diagnostics, log location, and an action-specific recovery command. `make status` and `make logs` continue to display their output, and the reboot supervisor writes diagnostics to the systemd journal.

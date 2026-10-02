@@ -11,12 +11,16 @@ TOOLCHAIN_IMAGE ?= localhost/j0coder-toolchain:1
 .DEFAULT_GOAL := help
 
 .PHONY: help configure check build test app-image toolchain-image images pin-images helm-check
-.PHONY: preflight up down status logs dev-gvisor dev-up dev-attach dev-down kube-dev-up kube-dev-down
+.PHONY: preflight setup up modify upgrade uninstall down status logs dev-gvisor dev-up dev-attach dev-down kube-dev-up kube-dev-down
 
 # Repository setup
 help:
 	@printf '%s\n' \
 	  'Setup:' \
+	  '  setup           Install and onboard, or resume setup' \
+	  '  modify          Change origin, port, and reboot startup' \
+	  '  upgrade         Upgrade a downloaded deployment' \
+	  '  uninstall       Remove services (use --purge to delete data)' \
 	  '  configure       Create .env and local service configuration' \
 	  '  dev-gvisor      Install the project-local patched gVisor runtime' \
 	  '' \
@@ -33,7 +37,7 @@ help:
 	  '' \
 	  'Runtime:' \
 	  '  preflight       Validate the configured gVisor sandbox' \
-	  '  up              Install and start the release-backed stack' \
+	  '  up              Start an existing installation' \
 	  '  dev-up          Start native services and Compose database/queue dependencies' \
 	  '  dev-attach      Attach to the development tmux session' \
 	  '  dev-down        Stop native services, dependencies, and gVisor controller' \
@@ -79,8 +83,8 @@ pin-images: configure toolchain-image app-image
 preflight:
 	./scripts/preflight.sh
 
-up:
-	./scripts/setup.sh up $(SETUP_ARGS)
+setup up modify upgrade uninstall:
+	./scripts/setup.sh $@ $(SETUP_ARGS)
 
 down status logs:
 	./scripts/setup.sh $@
