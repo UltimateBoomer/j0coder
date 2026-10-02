@@ -17,6 +17,7 @@ import selectors
 import codecs
 import threading
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -26,6 +27,16 @@ import urllib.request
 
 REPO = 'UltimateBoomer/j0coder'
 ROOT = Path(__file__).resolve().parent.parent
+OUTPUT_LOCK = threading.RLock()
+SPINNER_STREAM = None
+
+
+def console(value):
+    with OUTPUT_LOCK:
+        if SPINNER_STREAM is not None:
+            SPINNER_STREAM.write('\r\033[2K')
+            SPINNER_STREAM.flush()
+        print(value, flush=True)
 
 
 class Reporter:
@@ -53,7 +64,7 @@ class Reporter:
     def say(self, value):
         value = self.clean(value)
         self.write_log(value)
-        print(value, flush=True)
+        console(value)
 
     def write_log(self, value):
         if self.log is not None:
@@ -66,7 +77,7 @@ class Reporter:
         self.lines.extend(value.splitlines())
         self.lines = self.lines[-30:]
         if self.verbose:
-            print(value, flush=True)
+            console(value)
 
     def begin(self, number, title):
         self.stage = title
@@ -84,16 +95,37 @@ def say(value):
     if REPORTER:
         REPORTER.say(value)
     else:
-        print(value, flush=True)
+        console(value)
 
 
 @contextlib.contextmanager
 def progress(label):
+    global SPINNER_STREAM
+    label = REPORTER.clean(label) if REPORTER else label
     stopped = threading.Event()
     started = time.monotonic()
+    stream = sys.stdout
+    # Readiness checks invoke commands inside an existing progress context.
+    # The outer context keeps ownership until it exits.
+    with OUTPUT_LOCK:
+        animated = stream.isatty() and SPINNER_STREAM is None
+    frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    def draw(frame):
+        with OUTPUT_LOCK:
+            stream.write(f'\r\033[2K{frames[frame % len(frames)]} {label} · {int(time.monotonic() - started)}s')
+            stream.flush()
     def update():
-        while not stopped.wait(10):
-            say(f'{label}: {int(time.monotonic() - started)} seconds elapsed')
+        frame = 0
+        while not stopped.wait(.1 if animated else 10):
+            if animated:
+                frame += 1
+                draw(frame)
+            else:
+                say(f'{label}: {int(time.monotonic() - started)} seconds elapsed')
+    if animated:
+        with OUTPUT_LOCK:
+            SPINNER_STREAM = stream
+            draw(0)
     thread = threading.Thread(target=update, daemon=True)
     thread.start()
     try:
@@ -101,6 +133,11 @@ def progress(label):
     finally:
         stopped.set()
         thread.join()
+        if animated:
+            with OUTPUT_LOCK:
+                stream.write('\r\033[2K')
+                stream.flush()
+                SPINNER_STREAM = None
 
 
 def run(args, **kwargs):

@@ -591,6 +591,43 @@ class SetupTests(unittest.TestCase):
                 self.assertFalse(appeared.wait(.1))
                 self.assertTrue(appeared.wait(11))
 
+    def test_terminal_spinner_clears_on_command_failure_and_keeps_logs_plain(self):
+        import contextlib
+        import sys
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+        reporter = self.reporter(True)
+        terminal = Terminal()
+        with contextlib.redirect_stdout(terminal):
+            with self.assertRaises(setup.subprocess.CalledProcessError):
+                setup.run([sys.executable, '-c', "import time, sys; time.sleep(.25); print('command failed', flush=True); sys.exit(7)"])
+            setup.say('Next step')
+        output = terminal.getvalue()
+        self.assertIn('⠋ Command running', output)
+        self.assertIn('⠙ Command running', output)
+        self.assertIn('\r\033[2Kcommand failed\n', output)
+        self.assertTrue(output.endswith('\r\033[2KNext step\n'))
+        self.assertIsNone(setup.SPINNER_STREAM)
+        self.assertNotIn('\033', reporter.path.read_text())
+
+    def test_nested_progress_keeps_outer_spinner_and_clears_output(self):
+        import contextlib
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+        terminal = Terminal()
+        with contextlib.redirect_stdout(terminal):
+            with setup.progress('Waiting for readiness'):
+                with setup.progress('Command running'):
+                    setup.say('Inner output')
+                self.assertIs(setup.SPINNER_STREAM, terminal)
+                setup.say('Outer output')
+            self.assertIsNone(setup.SPINNER_STREAM)
+        self.assertNotIn('⠋ Command running', terminal.getvalue())
+        self.assertIn('\r\033[2KOuter output\n', terminal.getvalue())
+        self.assertTrue(terminal.getvalue().endswith('\r\033[2K'))
+
     def test_actual_piped_shell_installer_prompts_on_controlling_terminal(self):
         import shlex
         coordinator = self.root / 'coordinator.py'
