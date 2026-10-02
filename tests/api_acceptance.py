@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Integration checks against a disposable running API; no mock storage or database."""
-import http.cookiejar,json,os,pathlib,urllib.request,urllib.error,uuid,unittest
+import http.cookiejar,json,os,pathlib,urllib.request,urllib.error,uuid,unittest,subprocess
 ORIGIN=os.environ.get('TEST_ORIGIN','http://127.0.0.1:18080')
+ADMIN_ORIGIN=os.environ.get('TEST_ADMIN_ORIGIN','http://127.0.0.1:18082')
+def manage(*args,stdin=None):
+ return subprocess.check_output(['target/debug/api','manage',*args],input=stdin,text=True).strip()
 class Client:
- def __init__(self):self.http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()));self.csrf=''
+ def __init__(self,origin=ORIGIN):self.origin=origin;self.http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()));self.csrf=''
  def request(self,path,method='GET',body=None,headers=None):
-  req=urllib.request.Request(ORIGIN+'/api/v1'+path,method=method,data=json.dumps(body).encode() if body is not None else None,headers={'Origin':ORIGIN,'Content-Type':'application/json','X-CSRF-Token':self.csrf,**(headers or {})})
+  req=urllib.request.Request(self.origin+'/api/v1'+path,method=method,data=json.dumps(body).encode() if body is not None else None,headers={'Origin':self.origin,'Content-Type':'application/json','X-CSRF-Token':self.csrf,**(headers or {})})
   try:
    with self.http.open(req) as r:
     data=r.read();return r.status,json.loads(data) if data else None
@@ -19,9 +22,10 @@ class Client:
 class Acceptance(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
-  cls.admin=Client();cls.admin.login('admin','Integration-password-123')
+  cls.admin=Client(ADMIN_ORIGIN);cls.admin.login('admin','Integration-password-123')
   cls.user=Client();cls.name='test'+uuid.uuid4().hex[:12];cls.password='Integration-user-password'
-  assert cls.admin.request('/admin/users','POST',dict(username=cls.name,password=cls.password))[0]==201
+  manage('create-user',cls.name,stdin=cls.password+'\n')
+  manage('policy',cls.name,'pending','10');manage('policy',cls.name,'submissions_minute','100')
   cls.user.login(cls.name,cls.password)
   cls.sample=json.loads(pathlib.Path('samples/1.json').read_text());cls.sample['title']='API integration '+uuid.uuid4().hex[:8]
   status,data=cls.admin.request('/admin/problems','POST',cls.sample);assert status==200
@@ -36,10 +40,10 @@ class Acceptance(unittest.TestCase):
   without_interface={k:v for k,v in self.sample.items() if k!='interface'}
   self.assertEqual(self.admin.request('/admin/problems','POST',without_interface)[0],422)
  def test_auth_and_csrf(self):
-  self.assertEqual(Client().request('/problems')[0],401)
-  self.assertEqual(self.user.request('/admin/problems')[0],403)
-  self.assertEqual(self.admin.request('/admin/users','POST',dict(username='invalid',password='some-password-here'),{'X-CSRF-Token':'wrong'})[0],403)
-  self.assertEqual(self.admin.request('/admin/users','POST',dict(username='invalid',password='some-password-here'), {'Origin':'https://evil.example'})[0],403)
+  self.assertEqual(Client().request('/problems')[0],200 if Client().request('/capabilities')[1]['guest_browsing'] else 401)
+  self.assertEqual(self.user.request('/admin/problems')[0],404)
+  self.assertEqual(self.admin.request('/admin/problems/validate','POST',self.sample,{'X-CSRF-Token':'wrong'})[0],403)
+  self.assertEqual(self.admin.request('/admin/problems/validate','POST',self.sample, {'Origin':'https://evil.example'})[0],403)
  def test_hidden_and_browse(self):
   code,data=self.user.request('/problems/'+self.problem);self.assertEqual(code,200)
   self.assertEqual(len(data['problem']['tests']),2)
@@ -74,7 +78,7 @@ class Acceptance(unittest.TestCase):
   self.assertEqual(self.admin.request('/admin/problems/'+self.problem+'/publish','POST')[0],200)
  def test_solution_drafts(self):
   subject=Client();name='draft'+uuid.uuid4().hex[:12];password='Integration-draft-password'
-  self.assertEqual(self.admin.request('/admin/users','POST',dict(username=name,password=password))[0],201)
+  manage('create-user',name,stdin=password+'\n')
   subject.login(name,password)
   path='/solutions/'+self.version+'/cpp'
   self.assertEqual(Client().request(path)[0],401)

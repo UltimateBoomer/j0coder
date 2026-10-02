@@ -2,6 +2,10 @@ export type Filters={q:string;difficulty:string;tag:string};
 export type Route=
  | {kind:'problems';filters:Filters}
  | {kind:'problem';problemId:string}
+ | {kind:'login'}
+ | {kind:'settings'}
+ | {kind:'register'}
+ | {kind:'reset-password'}
  | {kind:'admin'}
  | {kind:'admin-new'}
  | {kind:'admin-edit';problemId:string}
@@ -12,6 +16,10 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 export function parseRoute(location:Pick<Location,'pathname'|'search'>):Route{
  const path=location.pathname.replace(/\/+$/,'')||'/';
  if(path==='/'){const params=new URLSearchParams(location.search);return {kind:'problems',filters:{q:params.get('q')||'',difficulty:params.get('difficulty')||'',tag:params.get('tag')||''}}}
+ if(path==='/login')return {kind:'login'};
+ if(path==='/settings')return {kind:'settings'};
+ if(path==='/register')return {kind:'register'};
+ if(path==='/reset-password')return {kind:'reset-password'};
  if(path==='/admin/problems')return {kind:'admin'};
  if(path==='/admin/problems/new')return {kind:'admin-new'};
  let match=path.match(/^\/problems\/([^/]+)$/);

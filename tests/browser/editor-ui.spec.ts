@@ -1,4 +1,5 @@
-import {test,expect} from '../../web/node_modules/@playwright/test/index';
+import {test} from './account-fixtures';
+import {expect} from '../../web/node_modules/@playwright/test/index';
 
 test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  test.setTimeout(90000);
@@ -12,6 +13,7 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  });
  await page.route('**/api/v1/**',route=>{
   const path=new URL(route.request().url()).pathname;
+  if(path.endsWith("/capabilities")||path.includes("/me/"))return route.fallback();
   if(path.includes('/solutions/'))return route.fulfill(route.request().method()==='GET'?{status:404,json:{error:'solution not found'}}:{status:204});
   const data=path.endsWith('/session')?{id:'user-id',username:'tester',admin:false,csrf:'csrf'}:path.endsWith(`/problems/${id}`)?problem:[];
   return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
@@ -31,7 +33,7 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  await expect(page.locator('html')).toHaveAttribute('data-theme','light');
  await expect(page.getByLabel('Theme')).not.toBeVisible();
  await page.getByLabel('User menu').click();
- await page.getByLabel('Theme').selectOption('dark');
+ await page.getByLabel('Theme').selectOption('dark');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  const darkDropdown=await dropdownStyle('Theme');
  expect(darkDropdown.scheme).toBe('dark');
@@ -60,14 +62,14 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  const darkEditorBackground=await editorBackground();
  expect(await dropdownStyle('Language')).toEqual(darkDropdown);
  await page.getByLabel('User menu').click();
- await page.getByLabel('Theme').selectOption('light');
+ await page.getByLabel('Theme').selectOption('light');await expect(page.locator('html')).toHaveAttribute('data-theme','light');
  await expect.poll(editorBackground).not.toBe(darkEditorBackground);
  const lightDropdown=await dropdownStyle('Theme');
  expect(lightDropdown.scheme).toBe('light');
  expect(lightDropdown.background).not.toBe(darkDropdown.background);
  expect(lightDropdown.optionBackground).toBe(lightDropdown.background);
  expect(await dropdownStyle('Language')).toEqual(lightDropdown);
- await page.getByLabel('Theme').selectOption('dark');
+ await page.getByLabel('Theme').selectOption('dark');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await expect.poll(editorBackground).toBe(darkEditorBackground);
  await page.getByLabel('User menu').click();
  const source=page.locator('.monaco-editor .view-lines').first();

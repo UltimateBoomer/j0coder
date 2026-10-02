@@ -1,4 +1,5 @@
-import {test,expect} from '../../web/node_modules/@playwright/test/index';
+import {test} from './account-fixtures';
+import {expect} from '../../web/node_modules/@playwright/test/index';
 
 const ids={function:'00000000-0000-4000-8000-000000000101',stateful:'00000000-0000-4000-8000-000000000102',legacy:'00000000-0000-4000-8000-000000000103'};
 const limits={time_ms:2000,memory_mib:256,output_bytes:1048576};
@@ -17,6 +18,7 @@ const legacyProblem={...base,interface:{kind:'function',name:'solve',params:[{na
 test.beforeEach(async({page})=>{
  await page.route('**/api/v1/**',route=>{
   const path=new URL(route.request().url()).pathname;
+  if(path.endsWith("/capabilities")||path.includes("/me/"))return route.fallback();
   if(path.endsWith('/session'))return route.fulfill({json:{id:'user-id',username:'admin',admin:true,csrf:'test'}});
   if(path.endsWith('/admin/problems'))return route.fulfill({json:[]});
   if(path.endsWith('/admin/catalog'))return route.fulfill({json:{state:{},runs:[],settings:null}});

@@ -39,11 +39,25 @@ spec:
           {{- if ne $component "worker" }}
           ports:
             - {name: http, containerPort: {{ if eq $component "editor" }}8081{{ else }}8080{{ end }}}
+            {{- if and (eq $component "api") $root.Values.security.admin.enabled }}
+            - {name: admin, containerPort: 8082}
+            {{- end }}
           {{- end }}
           env:
             - {name: PUBLIC_ORIGIN, value: {{ $root.Values.publicOrigin | quote }}}
             - {name: COOKIE_SECURE, value: {{ $root.Values.cookieSecure | quote }}}
             - {name: MIGRATE_ON_START, value: "false"}
+            - {name: REGISTRATION_MODE, value: {{ $root.Values.security.registrationMode | quote }}}
+            - {name: GUEST_BROWSING_ENABLED, value: {{ $root.Values.security.guestBrowsing | quote }}}
+            - {name: DEFAULT_USER_POLICY, value: {{ $root.Values.security.defaultUserPolicy | quote }}}
+            - {name: TRUSTED_PROXY_CIDRS, value: {{ $root.Values.security.trustedProxyCidrs | quote }}}
+            - {name: GLOBAL_PENDING_LIMIT, value: {{ $root.Values.security.globalPendingLimit | quote }}}
+            - {name: EDITOR_CAPACITY, value: {{ $root.Values.security.editorCapacity | quote }}}
+            {{- if eq $component "api" }}
+            - {name: WEB_ADMIN_ENABLED, value: {{ $root.Values.security.admin.enabled | quote }}}
+            - {name: ADMIN_BIND, value: "0.0.0.0:8082"}
+            - {name: ADMIN_ORIGIN, value: {{ $root.Values.security.admin.origin | quote }}}
+            {{- end }}
             - {name: SANDBOX_BACKEND, value: kubernetes}
             - {name: SANDBOX_NAMESPACE, value: {{ include "j0coder.sandboxNamespace" $root | quote }}}
             - {name: SANDBOX_RUNTIME_CLASS, value: {{ $root.Values.sandbox.runtimeClass | quote }}}

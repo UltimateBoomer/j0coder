@@ -42,6 +42,43 @@ async fn renew_session(
     Ok(renewed != 0)
 }
 
+async fn authorization(
+    c: &mut valkey::aio::ConnectionManager,
+    t: &Ticket,
+) -> anyhow::Result<Option<crate::security::EditorLease>> {
+    let raw: Option<String> = c.get(format!("auth:session:{}", t.session)).await?;
+    let lease = raw
+        .map(|r| serde_json::from_str::<crate::security::EditorLease>(&r))
+        .transpose()?;
+    Ok(
+        lease
+            .filter(|l| l.user == t.user && l.generation == t.generation && l.session == t.session),
+    )
+}
+async fn authorized_renew(
+    c: &mut valkey::aio::ConnectionManager,
+    t: &Ticket,
+    session: &str,
+) -> anyhow::Result<bool> {
+    let Some(lease) = authorization(c, t).await? else {
+        return Ok(false);
+    };
+    // Remove stale ranks before deciding which excess sessions to close.
+    let active: Vec<String> = c.zrange(format!("editor:user:{}", t.user), 0, -1).await?;
+    let created: Vec<String> = c
+        .zrange(format!("editor:created:{}", t.user), 0, -1)
+        .await?;
+    for id in created.iter().filter(|id| !active.contains(id)) {
+        let _: usize = c.zrem(format!("editor:created:{}", t.user), id).await?;
+    }
+    let rank: Option<u32> = c
+        .zrank(format!("editor:created:{}", t.user), session)
+        .await?;
+    if rank.is_none_or(|r| r >= lease.policy.editor_sessions) {
+        return Ok(false);
+    }
+    renew_session(c, t.user, t.language, session).await
+}
 pub async fn cleanup_orphans(
     backend: &Backend,
     previously_orphaned: &HashSet<String>,
@@ -71,6 +108,8 @@ impl EditorState {
 }
 #[derive(Serialize, Deserialize)]
 struct Ticket {
+    session: String,
+    generation: i64,
     user: uuid::Uuid,
     language: Language,
 }
@@ -84,17 +123,40 @@ pub async fn ticket(
     Json(r): Json<Request>,
 ) -> Result<Json<Value>, Error> {
     let u = crate::api::user(&a, &h, true).await?;
+    if a.private
+        || !crate::accounts::Preferences::load(&a.db, u.id)
+            .await?
+            .semantic_completion
+    {
+        return Err(Error(
+            StatusCode::FORBIDDEN,
+            "semantic completion disabled".into(),
+        ));
+    }
+    let policy = crate::security::Policy::load(&a.db, u.id).await?;
     let mut c = crate::queue::connection().await?;
-    let token = format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
-    );
+    let lease = crate::security::EditorLease {
+        user: u.id,
+        session: u.session.clone(),
+        generation: u.generation,
+        policy,
+    };
+    let _: () = valkey::cmd("SET")
+        .arg(format!("auth:session:{}", u.session))
+        .arg(serde_json::to_string(&lease).unwrap())
+        .arg("EX")
+        .arg(45)
+        .query_async(&mut c)
+        .await
+        .map_err(|_| crate::security::unavailable())?;
+    let token = crate::security::token();
     let _: () = c
         .set_ex(
             format!("editor:ticket:{token}"),
             serde_json::to_string(&Ticket {
                 user: u.id,
+                session: u.session,
+                generation: u.generation,
                 language: r.language,
             })
             .unwrap(),
@@ -119,6 +181,9 @@ pub async fn upgrade(
     {
         return Err(Error(StatusCode::FORBIDDEN, "origin rejected".into()));
     }
+    if !crate::security::valid_token(&q.ticket) {
+        return Err(Error(StatusCode::UNAUTHORIZED, "expired ticket".into()));
+    }
     let mut c = crate::queue::connection().await?;
     let raw: Option<String> = valkey::cmd("GETDEL")
         .arg(format!("editor:ticket:{}", q.ticket))
@@ -129,22 +194,28 @@ pub async fn upgrade(
         &raw.ok_or_else(|| Error(StatusCode::UNAUTHORIZED, "expired ticket".into()))?,
     )
     .map_err(|e| anyhow::anyhow!(e))?;
+    let lease = authorization(&mut c, &t)
+        .await
+        .map_err(|_| crate::security::unavailable())?
+        .ok_or_else(|| Error(StatusCode::UNAUTHORIZED, "session revoked".into()))?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().timestamp();
-    let script = r#"redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1]);redis.call('ZREMRANGEBYSCORE',KEYS[2],'-inf',ARGV[1]);redis.call('ZREMRANGEBYSCORE',KEYS[3],'-inf',ARGV[1]);if redis.call('ZCARD',KEYS[1])>=tonumber(ARGV[4]) or redis.call('ZCARD',KEYS[2])>=2 or redis.call('ZCARD',KEYS[3])>=tonumber(ARGV[5]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[3],ARGV[2],ARGV[3]);return 1"#;
+    let script = r#"redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1]);redis.call('ZREMRANGEBYSCORE',KEYS[2],'-inf',ARGV[1]);redis.call('ZREMRANGEBYSCORE',KEYS[3],'-inf',ARGV[1]);if redis.call('ZCARD',KEYS[1])>=tonumber(ARGV[4]) or redis.call('ZCARD',KEYS[2])>=tonumber(ARGV[6]) or redis.call('ZCARD',KEYS[3])>=tonumber(ARGV[5]) then return 0 end;redis.call('ZADD',KEYS[1],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[2],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[3],ARGV[2],ARGV[3]);redis.call('ZADD',KEYS[4],ARGV[1],ARGV[3]);return 1"#;
     let capacity: i32 = valkey::Script::new(script)
         .key("editor:active")
         .key(format!("editor:user:{}", t.user))
         .key(format!("editor:language:{}", t.language.identifier()))
+        .key(format!("editor:created:{}", t.user))
         .arg(now)
         .arg(now + SESSION_LEASE_SECS)
         .arg(&id)
-        .arg(crate::env("EDITOR_CAPACITY", "8"))
+        .arg(crate::env("EDITOR_CAPACITY", "3"))
         .arg(match t.language {
             Language::Java => 4,
             Language::Kotlin => 2,
-            _ => 8,
+            _ => 3,
         })
+        .arg(lease.policy.editor_sessions)
         .invoke_async(&mut c)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
@@ -163,6 +234,7 @@ pub async fn upgrade(
             if let Err(e) = result {
                 tracing::warn!(error=%e,"editor session closed")
             }
+            let _: valkey::RedisResult<usize> = c.zrem(format!("editor:created:{user}"), &id).await;
             let _: valkey::RedisResult<usize> = c.zrem("editor:active", &id).await;
             let _: valkey::RedisResult<usize> = c.zrem(format!("editor:user:{user}"), &id).await;
             let _: valkey::RedisResult<usize> = c
@@ -258,7 +330,7 @@ async fn bridge(
                 let _ = socket.send(Message::Close(None)).await;
             }
             _ = tick.tick() => {
-                if !renew_session(&mut c, t.user, t.language, session).await? {
+                if !authorized_renew(&mut c,&t,session).await? {
                     disconnected = true;
                     let _ = socket.send(Message::Close(None)).await;
                 }
@@ -297,6 +369,9 @@ async fn bridge(
                         }
                     } => {
                         let Some(Ok(Message::Text(text))) = message else { break; };
+                        let lease=authorization(&mut c,&t).await?.ok_or_else(||anyhow::anyhow!("session revoked"))?;
+                        let wait=crate::security::buckets(&[(format!("editor:{}:messages",t.user),lease.policy.editor_messages*60,lease.policy.editor_messages*2,1),(format!("editor:{}:bytes",t.user),lease.policy.editor_bytes*60,lease.policy.editor_bytes*2,text.len() as u32)]).await?;
+                        if wait>0 {anyhow::bail!("editor traffic limited")}
                         let mut value: Value = serde_json::from_str(&text)?;
                         if !safe_message(&value, t.language) {
                             if let Some(id) = value.get("id") {
@@ -322,7 +397,7 @@ async fn bridge(
                     }
                     _ = tick.tick() => {
                         if activity.elapsed()>Duration::from_secs(300) { break; }
-                        if !renew_session(&mut c,t.user,t.language,session).await? { break; }
+                        if !authorized_renew(&mut c,&t,session).await? { break; }
                     }
                     _ = shutdown.cancelled() => {
                         let _ = send_frame(&mut stdin, &json!({"jsonrpc":"2.0","id":"service-shutdown","method":"shutdown"})).await;

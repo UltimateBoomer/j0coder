@@ -1,4 +1,5 @@
-import {test,expect,type Page} from '../../web/node_modules/@playwright/test/index';
+import {test} from './account-fixtures';
+import {expect,type Page} from '../../web/node_modules/@playwright/test/index';
 
 const id=(index:number)=>`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`;
 const rows=Array.from({length:245},(_,index)=>({

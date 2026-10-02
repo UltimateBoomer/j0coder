@@ -12,7 +12,7 @@ Use it as a personal practice workspace or host a shared problem library for a t
 - **Learn at your own pace:** read examples and constraints, and reveal hints one at a time.
 - **Save your progress:** keep solution drafts per language and revisit your run history.
 - **Get feedback:** run solutions against visible and hidden tests, inspect verdicts and diagnostics, and compare visible outputs with expected results.
-- **Create your own library:** author and publish problems through the web interface, or maintain an optional Git-managed catalog. Problems can test functions or stateful data structures.
+- **Create your own library:** author and publish problems through the host CLI or optional private web interface, or maintain an optional Git-managed catalog. Problems can test functions or stateful data structures.
 - **Keep tests private:** hidden inputs and expected outputs stay on the server. Published problem versions are immutable, and code runs in isolated sandboxes with time and memory limits.
 
 ## Set up your own installation
@@ -244,6 +244,9 @@ The versioned REST contract is [openapi.json](openapi.json), also served at `/ap
 ## Documentation
 
 - [Architecture and scaling](docs/architecture.md)
+- [Account security, guest mode, settings, and operations](docs/security.md)
+- [Small-scale hosting, identity, and anti-bot research](docs/hosting.md)
+- [Hetzner and reusable Terraform deployment](deploy/terraform/README.md)
 - [Git-managed catalog](docs/catalog.md)
 - [Problem curation plan](docs/problem-curation-plan.md)
 - [Testing](docs/testing.md)
@@ -260,7 +263,7 @@ make uninstall                                # confirm removal of services; ret
 make uninstall SETUP_ARGS="--purge"            # confirm deletion of volumes and configuration
 ```
 
-`modify` prompts for unspecified origin and port, preserves database and queue passwords, and restarts services. Use `--autostart` or `--no-autostart` to enable or disable reboot startup. Administrator credentials are managed through the application; modify does not reset accounts. `up` uses cached configuration and does not perform installation or onboarding.
+`modify` prompts for unspecified origin and port, preserves database and queue passwords, and restarts services. Use `--autostart` or `--no-autostart` to enable or disable reboot startup. Administrator credentials are managed through the host CLI; modify does not reset accounts. `up` uses cached configuration and does not perform installation or onboarding.
 
 Upgrade is supported for downloaded deployments; source checkouts are updated with Git. It verifies archives and pulls images before stopping services, retains a previous-release file backup, and preserves persistent volumes. Back up PostgreSQL before upgrading: database migrations can prevent a downgrade. An omitted version selects the latest complete stable release.
 

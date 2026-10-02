@@ -104,7 +104,7 @@ sequenceDiagram
     E->>P: Destroy sandbox on close or timeout
 ```
 
-The editor has no PostgreSQL credentials. Tickets are short-lived and one use. The service restricts LSP methods and workspace URIs. Valkey enforces a shared session cap and a two-session per-user cap with renewable 45-second reservations. Sessions close after five minutes without client messages; the sandbox has a one-hour runtime limit. Editor replicas periodically remove sandboxes whose reservations have expired.
+The editor has no PostgreSQL credentials. Tickets are short-lived, one use, and bound to a revocable account/session lease. The service restricts LSP methods and workspace URIs. Valkey enforces a shared session cap and a policy-controlled per-user cap (one by default) with renewable 45-second reservations. Sessions close after five minutes without client messages; the sandbox has a one-hour runtime limit. Editor replicas periodically remove sandboxes whose reservations have expired.
 
 ## Catalog reconciliation
 

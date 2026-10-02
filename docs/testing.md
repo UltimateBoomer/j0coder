@@ -21,6 +21,10 @@ export VALKEY_URL=redis://127.0.0.1:16379
 export PUBLIC_ORIGIN=http://127.0.0.1:18080
 export API_BIND=127.0.0.1:18080
 export COOKIE_SECURE=false
+export WEB_ADMIN_ENABLED=true
+export ADMIN_BIND=127.0.0.1:18082
+export ADMIN_ORIGIN=http://127.0.0.1:18082
+export TEST_ADMIN_ORIGIN=http://127.0.0.1:18082
 cargo build --locked
 printf '%s\n' 'Integration-password-123' | target/debug/api bootstrap-admin admin
 target/debug/api
@@ -47,3 +51,11 @@ When finished, stop the test API process, then remove only the test dependencies
 ```sh
 podman rm -f j0coder-test-pg j0coder-test-valkey
 ```
+
+## Account security acceptance
+
+`tests/security_acceptance.py` uses the host CLI and real HTTP, PostgreSQL and Valkey. It requires `SECURITY_TEST_DISPOSABLE=yes`, native `target/debug/api`, a test API on 18080/private API on 18082, `GUEST_BROWSING_ENABLED=true`, and disposable containers named `j0coder-hardening-pg` and `j0coder-hardening-valkey` (override with `TEST_PG_CONTAINER` / `TEST_VALKEY_CONTAINER`, retaining the prefix). Set `TEST_CONTAINER_ENGINE=podman` (default) or `docker`, and export `DATABASE_URL` and `VALKEY_URL` pointing only to those dependencies. It creates test accounts/problems and clears anonymous read and dedicated redemption limiter keys in that test Valkey database, so use a fresh disposable environment. It tests admin audience separation, guest restrictions, CSRF, owner isolation, preference validation, single-use concurrent invitations, submission/HTTP quota overrides, hashed sessions, reset/suspension, queued cancellation, recovery under exhausted quotas and redemption spam limits.
+
+The mocked `security-settings.spec.ts` covers guest-local code/preferences and absence of protected API requests, account editor defaults and semantic retry cancellation. These browser checks do not execute a real language server or sandbox. Terraform validation/mocked tests are documented separately in `deploy/terraform/README.md`.
+
+Implementation verification on 2026-10-02: the Rust suite and Clippy passed, including real PostgreSQL/Valkey queue recovery and one-connection admission checks. The legacy-data security migration, nine security acceptance tests, six legacy API acceptance tests, 19 mocked browser tests and three enabled live browser tests passed. The full sandbox/semantic browser scenario remained skipped without `TEST_RUNNER=1`. Svelte checks/build, setup tests, Terraform validation/four mocked tests, Helm rendering, Compose rendering and Nginx configuration checks passed. Hosted CI, a new full gVisor/editor deployment, cloud provisioning and disaster recovery were not validated by these checks.

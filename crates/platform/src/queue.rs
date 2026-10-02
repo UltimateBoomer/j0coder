@@ -150,6 +150,7 @@ if redis.call('EXISTS',KEYS[2])==1 then redis.call('XACK',KEYS[4],'workers',ARGV
 if not redis.call('SET',KEYS[1],ARGV[1],'NX','PX',30000) then return 0 end
 local attempt=redis.call('INCR',KEYS[3]); redis.call('EXPIRE',KEYS[3],604800); return attempt
 "#;
+const ADMIT: &str = "UPDATE submissions SET status='running',token=$2,attempt=$3,updated_at=now() WHERE id=$1 AND attempt<$3 AND status!='completed' AND job->>'generation'=$4";
 const RENEW: &str = r#"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('PEXPIRE',KEYS[1],30000) else return 0 end"#;
 const COMPLETE: &str = r#"
 if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end
@@ -237,6 +238,44 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
             };
             let job: Job = serde_json::from_str(&payload)?;
             anyhow::ensure!(supported_job_schema(job.schema), "unsupported job");
+            let mut gate = db.begin().await?;
+            let row=sqlx::query("WITH owner AS MATERIALIZED (SELECT id,suspended FROM users WHERE id=(SELECT user_id FROM submissions WHERE id=$1) FOR UPDATE) SELECT owner.suspended,s.status,s.job->>'generation' AS generation FROM owner JOIN submissions s ON s.user_id=owner.id WHERE s.id=$1 FOR UPDATE OF s").bind(job.id).fetch_optional(&mut *gate).await?;
+            if row.as_ref().is_none_or(|r| {
+                r.get::<String, _>("status") == "completed"
+                    || r.get::<String, _>("generation") != job.generation.to_string()
+            }) {
+                gate.commit().await?;
+                let _: usize = c.xack(JOBS, "workers", &[&m.id]).await?;
+                continue;
+            }
+            if row.as_ref().is_some_and(|r| r.get::<bool, _>("suspended")) {
+                // A live admitted owner may finish; suspension only blocks new work.
+                if row
+                    .as_ref()
+                    .is_some_and(|r| r.get::<String, _>("status") == "running")
+                {
+                    let live: bool = c
+                        .exists(format!("practice:{}:{}:lease", job.id, job.generation))
+                        .await?;
+                    if live {
+                        gate.commit().await?;
+                        continue;
+                    }
+                }
+                let outcome = Outcome {
+                    elapsed_ms: 0,
+                    verdict: Verdict::Cancelled,
+                    passed: 0,
+                    total: 0,
+                    cases: vec![],
+                    diagnostic: None,
+                };
+                sqlx::query("UPDATE submissions SET status='completed',result=$2,updated_at=now() WHERE id=$1").bind(job.id).bind(serde_json::to_value(outcome)?).execute(&mut *gate).await?;
+                gate.commit().await?;
+                let _: usize = c.xack(JOBS, "workers", &[&m.id]).await?;
+                continue;
+            }
+            gate.commit().await?;
             let prefix = format!("practice:{}:{}", job.id, job.generation);
             let lease = format!("{prefix}:lease");
             let done = format!("{prefix}:done");
@@ -255,6 +294,37 @@ async fn work_loop(name: &str, db: &PgPool, shutdown: &crate::shutdown::Shutdown
                 continue;
             }
             let attempt = attempt + job.attempt_base;
+            // Serialize admission with suspension; once running, this attempt may finish.
+            let mut admission = db.begin().await?;
+            let active: Option<bool> = sqlx::query_scalar("WITH owner AS MATERIALIZED (SELECT id,suspended FROM users WHERE id=(SELECT user_id FROM submissions WHERE id=$1) FOR UPDATE) SELECT NOT owner.suspended FROM owner JOIN submissions s ON s.user_id=owner.id WHERE s.id=$1 AND s.status!='completed' AND s.job->>'generation'=$2 AND s.attempt<$3 FOR UPDATE OF s")
+                .bind(job.id).bind(job.generation.to_string()).bind(attempt as i32).fetch_optional(&mut *admission).await?;
+            let owns_lease: i32 = valkey::Script::new(RENEW)
+                .key(&lease)
+                .arg(&token)
+                .invoke_async(&mut c)
+                .await?;
+            if active != Some(true) || owns_lease != 1 {
+                admission.commit().await?;
+                let _: i32 = valkey::Script::new(RELEASE)
+                    .key(&lease)
+                    .arg(&token)
+                    .invoke_async(&mut c)
+                    .await?;
+                // A retry may now own this stream entry. Never ACK a stale attempt.
+                continue;
+            }
+            let recorded = sqlx::query(ADMIT)
+                .bind(job.id)
+                .bind(&token)
+                .bind(attempt as i32)
+                .bind(job.generation.to_string())
+                .execute(&mut *admission)
+                .await?;
+            if recorded.rows_affected() == 0 {
+                admission.commit().await?;
+                continue;
+            }
+            admission.commit().await?;
             let execution_start = std::time::Instant::now();
             let started = Event {
                 schema: 1,
@@ -442,6 +512,19 @@ mod integration {
             .invoke_async(&mut c)
             .await?;
         assert_eq!(next, 2);
+        let stale_renew: i32 = valkey::Script::new(RENEW)
+            .key(&lease)
+            .arg("first")
+            .invoke_async(&mut c)
+            .await?;
+        assert_eq!(stale_renew, 0);
+        let stale_release: i32 = valkey::Script::new(RELEASE)
+            .key(&lease)
+            .arg("first")
+            .invoke_async(&mut c)
+            .await?;
+        assert_eq!(stale_release, 0);
+
         let stale: i32 = valkey::Script::new(COMPLETE)
             .key(&lease)
             .key(&done)
@@ -521,6 +604,38 @@ mod integration {
             comparison: Comparison::default(),
         };
         sqlx::query("INSERT INTO submissions(id,user_id,version_id,idempotency_key,request_hash,source,job) VALUES($1,$2,$3,'test','test','test',$4)").bind(id).bind(u).bind(version).bind(serde_json::to_value(&job)?).execute(&db).await?;
+        assert_eq!(
+            sqlx::query(ADMIT)
+                .bind(id)
+                .bind("newer")
+                .bind(2i32)
+                .bind(generation.to_string())
+                .execute(&db)
+                .await?
+                .rows_affected(),
+            1
+        );
+        assert_eq!(
+            sqlx::query(ADMIT)
+                .bind(id)
+                .bind("stale")
+                .bind(1i32)
+                .bind(generation.to_string())
+                .execute(&db)
+                .await?
+                .rows_affected(),
+            0
+        );
+        let fenced: (i32, String) =
+            sqlx::query_as("SELECT attempt,token FROM submissions WHERE id=$1")
+                .bind(id)
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(fenced, (2, "newer".into()));
+        sqlx::query("UPDATE submissions SET attempt=0,token=NULL,status='queued' WHERE id=$1")
+            .bind(id)
+            .execute(&db)
+            .await?;
         let (source, tests) = load_payload(&db, &job).await?;
         assert_eq!(source, "test");
         assert_eq!(tests.len(), 1);

@@ -1,4 +1,5 @@
-import {test,expect} from '../../web/node_modules/@playwright/test/index';
+import {test} from './account-fixtures';
+import {expect} from '../../web/node_modules/@playwright/test/index';
 
 test('the full catalog stays in a viewport-sized virtual list',async({page})=>{
  const rows=Array.from({length:245},(_,i)=>({

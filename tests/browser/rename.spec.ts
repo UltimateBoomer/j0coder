@@ -1,4 +1,5 @@
-import {test,expect} from '../../web/node_modules/@playwright/test/index';
+import {test,preferences} from './account-fixtures';
+import {expect} from '../../web/node_modules/@playwright/test/index';
 
 const id='00000000-0000-4000-8000-000000000031';
 const detail={id,version:'00000000-0000-4000-8000-000000000032',problem:{title:'Rename sample',statement:'Return a value.',difficulty:'easy',tags:['arrays'],interface:{kind:'function',name:'solve',params:[],returns:'int'},limits:{time_ms:2000,memory_mib:256},tests:[]},starters:{cpp:'int solve() { return 1; }',python:'def solve():\n    return 1'}};
@@ -9,8 +10,11 @@ for(const scenario of [
 ] as const){
  test(scenario.name,async({page})=>{
   await page.emulateMedia({colorScheme:'light'});
+  let saved={...preferences,theme:scenario.current?'dark':'system',blind_mode:scenario.blind};
   await page.route('**/api/v1/**',route=>{
    const path=new URL(route.request().url()).pathname;
+  if(path.endsWith("/me/preferences")){if(route.request().method()==="PATCH")saved={...saved,...route.request().postDataJSON()};return route.fulfill({json:saved})}
+  if(path.endsWith("/capabilities")||path.includes("/me/"))return route.fallback();
    if(path.endsWith('/editor-ticket'))return route.fulfill({status:503,json:{error:'editor unavailable'}});
    if(path.includes('/solutions/'))return route.fulfill(route.request().method()==='GET'?{status:404,json:{error:'not found'}}:{status:204});
    return route.fulfill({json:path.endsWith('/session')?{id:'rename-user',username:'tester',admin:false,csrf:'csrf'}:path.endsWith(`/problems/${id}`)?detail:[]});
@@ -38,7 +42,7 @@ for(const scenario of [
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme',nextTheme);
   await expect(page.getByRole('button',{name:scenario.blind?'Enable blind mode':'Show problem details'})).toHaveAttribute('aria-pressed',String(!scenario.blind));
-  const settings=await page.evaluate(()=>Object.fromEntries(['j0coder:theme','j0coder:blind-mode'].map(key=>[key,localStorage.getItem(key)])));
-  expect(settings).toEqual({'j0coder:theme':nextTheme,'j0coder:blind-mode':String(!scenario.blind)});
+  const settings=await page.evaluate(()=>JSON.parse(localStorage.getItem('j0coder:preferences:rename-user')||'{}'));
+  expect(settings.theme).toBe(nextTheme);expect(settings.blind_mode).toBe(!scenario.blind);
  });
 }

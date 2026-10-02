@@ -1,10 +1,13 @@
+pub mod accounts;
 pub mod api;
 pub mod catalog;
 pub mod contract;
 pub mod editor;
 mod languages;
+pub mod manage;
 pub mod queue;
 pub mod sandbox;
+pub mod security;
 pub mod shutdown;
 pub fn env(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.into())

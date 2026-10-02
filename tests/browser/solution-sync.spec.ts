@@ -1,4 +1,5 @@
-import {test,expect,type BrowserContext,type Page} from '../../web/node_modules/@playwright/test/index';
+import {test,preferences} from './account-fixtures';
+import {expect,type BrowserContext,type Page} from '../../web/node_modules/@playwright/test/index';
 
 const problemId='00000000-0000-4000-8000-000000000011';
 const firstVersion='00000000-0000-4000-8000-000000000012';
@@ -11,6 +12,8 @@ async function mockBackend(context:BrowserContext,backend:Backend){
  await context.route('**/api/v1/**',async route=>{
   const request=route.request();
   const path=new URL(request.url()).pathname;
+  if(path.endsWith("/capabilities"))return route.fulfill({json:{guest_browsing:false,registration:"invite",web_admin:false}});
+  if(path.endsWith("/me/preferences"))return route.fulfill({json:preferences});
   const solution=path.match(/^\/api\/v1\/solutions\/([^/]+)\/(cpp|python|java|kotlin)$/);
   if(solution){
    const key=`${solution[1]}:${solution[2]}`;
@@ -177,6 +180,8 @@ test('submits Java and Kotlin source with basic editor fallback',async({page})=>
  await page.route('**/api/v1/submissions**',async route=>{
   const request=route.request();
   const path=new URL(request.url()).pathname;
+  if(path.endsWith("/capabilities"))return route.fulfill({json:{guest_browsing:false,registration:"invite",web_admin:false}});
+  if(path.endsWith("/me/preferences"))return route.fulfill({json:preferences});
   if(request.method()==='POST'){
    const body=request.postDataJSON();submitted.push({language:body.language,source:body.source});
    return route.fulfill({json:{id:'run-'+submitted.length}});

@@ -1,0 +1,99 @@
+#!/bin/bash
+set -euo pipefail
+# Provider attachment can finish after cloud-init starts; never initialize storage without it.
+for attempt in $(seq 1 180); do
+  test -b '${device}' && break
+  sleep 1
+done
+test -b '${device}'
+udevadm settle
+uuid=$(blkid -s UUID -o value '${device}')
+test -n "$uuid"
+mkdir -p /srv/j0coder
+if ! grep -q ' /srv/j0coder ' /etc/fstab; then
+  printf 'UUID=%s /srv/j0coder ext4 defaults 0 2\n' "$uuid" >> /etc/fstab
+fi
+mountpoint -q /srv/j0coder || mount /srv/j0coder
+install -d -o j0coder -g j0coder -m 700 /srv/j0coder/containers
+install -d -o j0coder -g j0coder -m 700 /home/j0coder/.config/containers /home/j0coder/.config/systemd/user/j0coder.service.d
+printf '[storage]\ndriver="overlay"\ngraphroot="/srv/j0coder/containers"\n' > /home/j0coder/.config/containers/storage.conf
+chown j0coder:j0coder /home/j0coder/.config/containers/storage.conf
+cat > /usr/local/bin/j0coder-storage-check <<CHECK
+#!/bin/sh
+set -eu
+mountpoint -q /srv/j0coder
+test "\$(findmnt -n -o UUID --target /srv/j0coder)" = "$uuid"
+CHECK
+chmod 755 /usr/local/bin/j0coder-storage-check
+printf '[Service]\nExecStartPre=/usr/local/bin/j0coder-storage-check\n' > /home/j0coder/.config/systemd/user/j0coder.service.d/storage.conf
+loginctl enable-linger j0coder
+systemctl disable --now caddy
+cat > /etc/caddy/Caddyfile <<CADDY
+${domain} {
+  reverse_proxy 127.0.0.1:8080
+}
+CADDY
+cat > /usr/local/sbin/j0coder-onboard <<'ONBOARD'
+#!/bin/bash
+set -euo pipefail
+/usr/local/bin/j0coder-storage-check
+# DNS must already point to this host. IPv6 records must match enabled connectivity.
+python3 - <<'PY'
+import socket
+socket.getaddrinfo('${domain}',443)
+PY
+uid=$(id -u j0coder)
+# Download the coordinator at the explicit release tag, not mutable main.
+install -d -o j0coder -g j0coder -m 700 /home/j0coder/.local/share/j0coder
+coordinator=$(mktemp /home/j0coder/.local/share/j0coder/coordinator.XXXXXX.py)
+trap 'rm -f "$coordinator"' EXIT
+curl --proto '=https' --tlsv1.2 -fsSL 'https://raw.githubusercontent.com/UltimateBoomer/j0coder/${version}/scripts/setup.py' -o "$coordinator"
+chown j0coder:j0coder "$coordinator"
+sudo -H -u j0coder env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus python3 "$coordinator" install --version '${version}' --install-dir /home/j0coder/.local/share/j0coder --public-origin 'https://${domain}' --port 8080 --no-install-packages --autostart
+# Installer owns secret generation; change only non-secret feature switches.
+sudo -H -u j0coder python3 - <<'PY'
+from pathlib import Path
+p=Path('/home/j0coder/.local/share/j0coder/.env')
+updates={'GUEST_BROWSING_ENABLED':'${guest}','WEB_ADMIN_ENABLED':'${admin}','REGISTRATION_MODE':'${registration}','TRUSTED_PROXY_CIDRS':'127.0.0.0/8,::1/128,10.89.44.0/24'}
+lines=[line for line in p.read_text().splitlines() if line.split('=',1)[0] not in updates]
+p.write_text('\n'.join(lines+[f'{k}={v}' for k,v in updates.items()])+'\n')
+p.chmod(0o600)
+PY
+sudo -H -u j0coder env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus /home/j0coder/.local/share/j0coder/scripts/setup.sh up
+curl --fail --silent http://127.0.0.1:8080/readyz > /dev/null
+systemctl enable --now caddy
+systemctl enable --now j0coder-backup.timer
+printf 'Installation ready at https://${domain}\n'
+ONBOARD
+chmod 750 /usr/local/sbin/j0coder-onboard
+cat > /usr/local/sbin/j0coder-backup <<'BACKUP'
+#!/bin/bash
+set -euo pipefail
+/usr/local/bin/j0coder-storage-check
+uid=$(id -u j0coder)
+base=/home/j0coder/backups
+install -d -o j0coder -g j0coder -m 700 "$base"
+sudo -H -u j0coder env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus /home/j0coder/.local/share/j0coder/scripts/backup.sh "$base/$(date -u +%Y%m%dT%H%M%SZ)"
+# Only remove our timestamped backup directories, newest seven survive.
+find "$base" -mindepth 1 -maxdepth 1 -type d -name '????????T??????Z' -printf '%f\n' | sort -r | tail -n +8 | while read -r name; do rm -rf -- "$base/$name"; done
+BACKUP
+chmod 750 /usr/local/sbin/j0coder-backup
+cat > /etc/systemd/system/j0coder-backup.service <<'UNIT'
+[Unit]
+Description=Consistent j0coder cold backup (brief maintenance downtime)
+RequiresMountsFor=/srv/j0coder
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/j0coder-backup
+UNIT
+cat > /etc/systemd/system/j0coder-backup.timer <<'UNIT'
+[Unit]
+Description=Daily j0coder backup
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+printf 'Host ready. Set DNS, then run sudo /usr/local/sbin/j0coder-onboard over SSH.\n' > /etc/motd

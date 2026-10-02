@@ -84,7 +84,7 @@ jobs:
             sleep 1
           done
           curl --fail --silent --output /dev/null "$TEST_ORIGIN"
-          npm test --prefix web -- editor-ui.spec.ts header-search.spec.ts problem-list.spec.ts solution-sync.spec.ts rename.spec.ts
+          npm test --prefix web -- editor-ui.spec.ts header-search.spec.ts problem-list.spec.ts solution-sync.spec.ts rename.spec.ts security-settings.spec.ts constraints.spec.ts
 
   integration:
     needs: changes
@@ -97,6 +97,12 @@ jobs:
       API_BIND: 127.0.0.1:18080
       COOKIE_SECURE: 'false'
       TEST_ORIGIN: http://127.0.0.1:18080
+      TEST_ADMIN_ORIGIN: http://127.0.0.1:18082
+      SECURITY_TEST_DISPOSABLE: "yes"
+      TEST_CONTAINER_ENGINE: docker
+      WEB_ADMIN_ENABLED: "true"
+      ADMIN_BIND: 127.0.0.1:18082
+      ADMIN_ORIGIN: http://127.0.0.1:18082
     services:
       postgres:
         image: postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
@@ -131,6 +137,9 @@ jobs:
       - run: cargo build --locked --bin api
       - run: printf '%s\n' 'Integration-password-123' | target/debug/api bootstrap-admin admin
       - run: cargo test --locked --lib queue::integration -- --ignored --test-threads=1
+      - run: cargo test --locked --lib api::admission_tests -- --ignored
+        env:
+          SECURITY_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
       - run: cargo test --locked --test bootstrap -- --ignored
         env:
           BOOTSTRAP_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
@@ -139,7 +148,9 @@ jobs:
       - run: cd web && npx playwright install --with-deps chromium
       - name: Run API and live browser acceptance tests
         run: |
-          target/debug/api > /tmp/j0coder-api.log 2>&1 &
+          docker rename '${{ job.services.postgres.id }}' j0coder-hardening-pg
+          docker rename '${{ job.services.valkey.id }}' j0coder-hardening-valkey
+          GUEST_BROWSING_ENABLED=true target/debug/api > /tmp/j0coder-api.log 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true; cat /tmp/j0coder-api.log' EXIT
           for attempt in {1..60}; do
@@ -147,8 +158,21 @@ jobs:
             sleep 1
           done
           curl --fail --silent --output /dev/null "$TEST_ORIGIN/readyz"
+          SECURITY_TEST_DISPOSABLE=yes TEST_CONTAINER_ENGINE=docker python3 tests/security_migration.py
+          SECURITY_TEST_DISPOSABLE=yes TEST_CONTAINER_ENGINE=docker python3 tests/security_acceptance.py
+          kill "$server"
+          wait "$server"
+          docker exec j0coder-hardening-valkey valkey-cli FLUSHDB
+          target/debug/api > /tmp/j0coder-api.log 2>&1 &
+          server=$!
+          for attempt in {1..60}; do
+            if curl --fail --silent --output /dev/null "$TEST_ORIGIN/readyz"; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --output /dev/null "$TEST_ORIGIN/readyz"
+          target/debug/api manage policy admin api_rate 10000
           python3 tests/api_acceptance.py
-          npm test --prefix web -- practice.spec.ts routing.spec.ts
+          npm test --prefix web -- practice.spec.ts routing.spec.ts --workers=1
 
   helm:
     needs: changes

@@ -409,7 +409,7 @@ def bootstrap(root, args):
         return
     if state != 'empty':
         raise ValueError('recovery required: existing users have no administrator')
-    say('Username: 1–64 ASCII letters, digits, _ or -. Password: 12–256 bytes, single line. Password typing will not display characters.')
+    say('Username: 1–64 ASCII letters, digits, _ or -. Password: at least 15 characters, at most 256 bytes, single line. Password typing will not display characters.')
     username = field(args.admin_username, 'Administrator username (--admin-username)', 'admin', lambda value: value if re.fullmatch('[A-Za-z0-9_-]{1,64}', value) else (_ for _ in ()).throw(ValueError('invalid administrator username')))
     if args.admin_password_file:
         password = Path(args.admin_password_file).read_text().removesuffix('\n')
@@ -424,14 +424,14 @@ def bootstrap(root, args):
                 raise OSError('Administrator password requires /dev/tty; supply --admin-password-file') from error
             if password != confirmation:
                 say('Passwords do not match; try again.')
-            elif not 12 <= len(password.encode()) <= 256 or '\n' in password or '\r' in password:
-                say('Password must be 12–256 bytes and single-line; try again.')
+            elif (len(password) < 15 or len(password.encode()) > 256) or '\n' in password or '\r' in password:
+                say('Password must be at least 15 characters, at most 256 bytes and single-line; try again.')
             else:
                 break
     if REPORTER:
         REPORTER.secrets.add(password)
-    if not username or not re.fullmatch('[A-Za-z0-9_-]{1,64}', username) or not 12 <= len(password.encode()) <= 256 or '\n' in password or '\r' in password:
-        raise ValueError('username must be 1–64 ASCII letters/digits/_/-; password must be 12–256 bytes and single-line')
+    if not username or not re.fullmatch('[A-Za-z0-9_-]{1,64}', username) or (len(password) < 15 or len(password.encode()) > 256) or '\n' in password or '\r' in password:
+        raise ValueError('username must be 1–64 ASCII letters/digits/_/-; password must be at least 15 characters, at most 256 bytes and single-line')
     compose(root, 'exec', '-T', 'api', 'api', 'bootstrap-admin', username, '--if-empty', input=password + '\n')
     say(f'Administrator username: {username}')
     return username

@@ -1,9 +1,10 @@
-import {test,expect,type Page} from '../../web/node_modules/@playwright/test/index';
+import {test,createProblem,createUser,adminOrigin,publicOrigin} from './host-fixtures';
+import {expect,type Page} from '../../web/node_modules/@playwright/test/index';
 
 async function signIn(page:Page,username='admin',password='Integration-password-123'){
  await page.getByLabel('Username',{exact:true}).fill(username);
  await page.getByLabel('Password',{exact:true}).fill(password);
- await page.getByRole('button',{name:'Sign in'}).click();
+ await page.getByRole('button',{name:'Sign in →',exact:true}).click();
 }
 
 test('routes preserve authentication intent, filters, and browser history',async({page})=>{
@@ -12,8 +13,7 @@ test('routes preserve authentication intent, filters, and browser history',async
  const headers={'Origin':process.env.TEST_ORIGIN||'http://127.0.0.1:18080','X-CSRF-Token':session.csrf};
  const uniqueTag=`route-tag-${Date.now()}`;
  const definition={title:`Routing sample ${Date.now()}`,statement:'Return the input.',difficulty:'medium',tags:[uniqueTag],schema:3,interface:{kind:'function',name:'echo',params:[{name:'value',ty:'string'}],returns:'string'},limits:{time_ms:2000,memory_mib:256,output_bytes:1048576},tests:[{args:['hello'],expected:'hello',hidden:false}]};
- const draft=await (await page.request.post('/api/v1/admin/problems',{headers,data:definition})).json();
- await page.request.post(`/api/v1/admin/problems/${draft.id}/publish`,{headers});
+ const draft=createProblem(definition);
 
  await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Sign out'}).click();await expect(page.getByLabel('Username',{exact:true})).toBeVisible();
  await page.goto(`/problems/${draft.id}`);expect(page.url()).toContain(`/problems/${draft.id}`);
@@ -37,13 +37,13 @@ test('routes preserve authentication intent, filters, and browser history',async
 });
 
 test('admin routes and route error states are addressable',async({page})=>{
- await page.goto('/');await signIn(page);await page.getByRole('button',{name:'Authoring'}).click();await expect(page).toHaveURL(/\/admin\/problems$/);
+ await page.goto(adminOrigin+'/');await signIn(page);await page.getByRole('button',{name:'Authoring'}).click();await expect(page).toHaveURL(/\/admin\/problems$/);
  const session=await (await page.request.get('/api/v1/session')).json();const headers={'Origin':process.env.TEST_ORIGIN||'http://127.0.0.1:18080','X-CSRF-Token':session.csrf};
  await page.getByRole('button',{name:'+ New problem'}).click();await expect(page).toHaveURL(/\/admin\/problems\/new$/);
  const title=`Unsaved route ${Date.now()}`;const textarea=page.getByLabel('Problem definition (JSON)');const value=JSON.parse(await textarea.inputValue());value.title=title;await textarea.fill(JSON.stringify(value));await page.getByRole('button',{name:'Save draft'}).click();
  await expect(page).toHaveURL(/\/admin\/problems\/[0-9a-f-]+$/);await expect(page.getByRole('status')).toContainText('Draft saved');await page.reload();await expect(textarea).toHaveValue(new RegExp(title));
- await page.goto('/unknown/path');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
- await page.goto('/problems/not-a-uuid');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
- await page.goto('/problems/00000000-0000-4000-8000-000000000000');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
- const student=`route${Date.now()}`;await page.request.post('/api/v1/admin/users',{headers,data:{username:student,password:'Routing-student-password'}});await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Sign out'}).click();await expect(page.getByLabel('Username',{exact:true})).toBeVisible();await page.goto('/admin/problems');await signIn(page,student,'Routing-student-password');await expect(page.getByRole('heading',{name:'Access denied'})).toBeVisible();
+ await page.goto(adminOrigin+'/unknown/path');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
+ await page.goto(adminOrigin+'/problems/not-a-uuid');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
+ await page.goto(adminOrigin+'/problems/00000000-0000-4000-8000-000000000000');await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
+ const student=`route${Date.now()}`;createUser(student,'Routing-student-password');await page.getByLabel('User menu').click();await page.getByRole('button',{name:'Sign out'}).click();await expect(page.getByLabel('Username',{exact:true})).toBeVisible();await page.goto(publicOrigin+'/admin/problems');await signIn(page,student,'Routing-student-password');await expect(page.getByRole('heading',{name:'Access denied'})).toBeVisible();
 });

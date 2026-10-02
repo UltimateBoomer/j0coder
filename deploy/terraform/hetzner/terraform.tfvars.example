@@ -1,0 +1,6 @@
+domain          = "practice.example.com"
+release_version = "v0.2.0" # Use an actually published complete release.
+ssh_public_keys = ["ssh-ed25519 REPLACE_WITH_YOUR_PUBLIC_KEY"]
+operator_cidrs  = ["192.0.2.1/32"] # Your real operator IP/CIDR.
+# guest_browsing = true
+# web_admin = true  # Access only through an SSH tunnel.

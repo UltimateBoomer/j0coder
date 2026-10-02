@@ -24,7 +24,8 @@ spec:
     matchExpressions: [{key: app.kubernetes.io/component, operator: In, values: [api, editor]}]
   policyTypes: [Ingress]
   ingress:
-    - from:
+    - ports: [{protocol: TCP, port: 8080}, {protocol: TCP, port: 8081}]
+      from:
         - namespaceSelector: {{ toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 12 }}
           podSelector: {{ toYaml .Values.networkPolicy.ingressPodSelector | nindent 12 }}
         {{- range .Values.networkPolicy.ingressCidrs }}

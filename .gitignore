@@ -14,3 +14,11 @@ web/test-results/
 /.release.json
 /.setup.lock
 /release-assets
+
+# Terraform working data and credentials; provider lockfiles remain tracked.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example

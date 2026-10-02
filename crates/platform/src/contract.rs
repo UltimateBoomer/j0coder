@@ -766,6 +766,7 @@ pub enum Verdict {
     MemoryLimit,
     OutputLimit,
     InfrastructureFailure,
+    Cancelled,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaseResult {

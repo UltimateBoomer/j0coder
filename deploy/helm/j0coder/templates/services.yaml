@@ -37,3 +37,27 @@ spec:
             pathType: Prefix
             backend: {service: {name: {{ .Release.Name }}-api, port: {number: 8080}}}
 {{- end }}
+
+{{- if .Values.security.admin.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: {{ .Release.Name }}-admin, namespace: {{ .Release.Namespace }}}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: api}
+  ports: [{name: admin, port: 8082, targetPort: admin}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: {{ .Release.Name }}-private-admin, namespace: {{ .Release.Namespace }}}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {{ toYaml .Values.security.admin.namespaceSelector | nindent 12 }}
+          podSelector: {{ toYaml .Values.security.admin.podSelector | nindent 12 }}
+      ports: [{protocol: TCP, port: 8082}]
+{{- end }}

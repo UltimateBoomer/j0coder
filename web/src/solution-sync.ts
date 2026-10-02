@@ -91,8 +91,8 @@ export class SolutionSync {
     state.retryMs=1000;
     if(localStorage.getItem(this.key(language))===source)localStorage.removeItem(this.pendingKey(language));
     return true;
-   }catch{
-    state.retryMs=Math.min(state.retryMs*2,30000);
+   }catch(error){
+    state.retryMs=Math.max(error instanceof ApiError?error.retryAfter:0,Math.min(state.retryMs*2,30000));
     return false;
    }
   })();
