@@ -1,3 +1,4 @@
+import {selectValue} from './select-helpers';
 import {test} from './account-fixtures';
 import {expect,type Page} from '../../web/node_modules/@playwright/test/index';
 
@@ -33,6 +34,7 @@ async function mockApp(page:Page){
 }
 
 test('header search works on problem and authoring pages with keyboard and pointer navigation',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
  const catalog=await mockApp(page);
  await page.goto(`/problems/${id(0)}`);
  await expect(page.getByRole('heading',{name:'Problem 000'})).toBeVisible();
@@ -58,6 +60,7 @@ test('header search works on problem and authoring pages with keyboard and point
  await page.getByRole('option',{name:/Problem 120/}).click();
  await expect(page).toHaveURL(new RegExp(`/problems/${id(120)}$`));
  expect(catalog.requests()).toBe(3);
+ expect(errors).toEqual([]);
 });
 
 test('header results are ranked, independent of page filters, and virtualized while scrolling',async({page})=>{
@@ -65,7 +68,7 @@ test('header results are ranked, independent of page filters, and virtualized wh
  await page.goto('/');
  await expect(page.locator('.count')).toHaveText('245 problems');
  await page.getByLabel('Search problems',{exact:true}).fill('Problem 001');
- await page.getByLabel('Difficulty').selectOption('hard');
+ await selectValue(page.getByRole('combobox',{name:'Difficulty',exact:true}),'hard');
  await expect(page.locator('.count')).toHaveText('0 problems');
  const search=page.getByRole('combobox',{name:'Find a problem'});
  await search.fill('Problem');

@@ -21,6 +21,8 @@
 !web/vite.config.ts
 !web/src/
 !web/src/**
+!web/public/
+!web/public/**
 
 !deploy/
 !deploy/**

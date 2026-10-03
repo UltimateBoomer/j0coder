@@ -1,0 +1,44 @@
+import {test} from './account-fixtures';
+import {expect} from '../../web/node_modules/@playwright/test/index';
+
+for(const width of [1440,1024,768,375])test(`terminal catalog fits ${width}px and loads local fonts`,async({page})=>{
+ await page.setViewportSize({width,height:900});
+ await page.route('**/api/v1/session',route=>route.fulfill({json:{id:'student',username:'student',admin:false,csrf:'test'}}));
+ await page.route('**/api/v1/problems?*',route=>route.fulfill({json:[{id:'00000000-0000-4000-8000-000000000001',version:'v1',title:'A very long problem title '.repeat(12),summary:'A long summary '.repeat(20),difficulty:'medium',difficulty_score:5,tags:['arrays']}]}));
+ await page.goto('/');
+ await expect(page.locator('.problem-row')).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ const background=await page.locator('.catalog-background').boundingBox();
+ expect(background!.x).toBe(0);
+ expect(background!.width).toBe(width);
+ expect(await page.locator('.problem-row').evaluate(node=>node.getBoundingClientRect().height)).toBe(88);
+ expect(await page.evaluate(async()=>{await document.fonts.load('400 14px "JetBrains Mono"');await document.fonts.load('500 14px "JetBrains Mono"');await document.fonts.load('600 14px "JetBrains Mono"');return [400,500,600].every(weight=>document.fonts.check(`${weight} 14px "JetBrains Mono"`))})).toBe(true);
+ const description=page.locator('.problem-title small');
+ expect(await description.locator('span').evaluate(node=>node.getAnimations().length)).toBe(0);
+ await page.locator('.problem-row .number').hover();
+ await expect.poll(()=>description.locator('span').evaluate(node=>node.getAnimations().length)).toBe(1);
+ const motion=await description.locator('span').evaluate(node=>{
+  const animation=node.getAnimations()[0];animation.pause();animation.currentTime=Number(animation.effect!.getTiming().duration)/4;
+  return getComputedStyle(node).transform;
+ });
+ expect(motion).not.toBe('none');expect(motion).not.toBe('matrix(1, 0, 0, 1, 0, 0)');
+ expect(await description.evaluate(node=>getComputedStyle(node).overflowX)).toBe('hidden');
+ await page.getByRole('heading',{name:'Problems',exact:true}).hover();
+ await expect.poll(()=>description.locator('span').evaluate(node=>node.getAnimations().length)).toBe(0);
+ expect(await description.locator('span').evaluate(node=>getComputedStyle(node).transform)).toBe('none');
+ await page.locator('.problem-row').focus();await page.locator('.problem-row .number').hover();
+ await expect.poll(()=>description.locator('span').evaluate(node=>node.getAnimations().length)).toBe(1);
+ await page.getByLabel('Search problems',{exact:true}).focus();
+ await expect.poll(()=>description.locator('span').evaluate(node=>node.getAnimations().length)).toBe(0);
+ await page.getByRole('heading',{name:'Problems',exact:true}).hover();
+ await page.locator('.problem-row .number').hover();
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await expect.poll(()=>description.locator('span').evaluate(node=>node.getAnimations().length)).toBe(0);
+ await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.screenshot({path:`/tmp/j0coder-catalog-${width}.png`});
+ await page.emulateMedia({colorScheme:'dark'});
+ await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+ await page.screenshot({path:`/tmp/j0coder-catalog-dark-${width}.png`});
+ await page.getByLabel('Search problems',{exact:true}).fill('no matching title');
+ await expect(page.getByText('No matching problems.')).toBeVisible();
+});

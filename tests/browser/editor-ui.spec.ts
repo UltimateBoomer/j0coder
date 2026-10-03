@@ -1,3 +1,4 @@
+import {selectValue} from './select-helpers';
 import {test} from './account-fixtures';
 import {expect} from '../../web/node_modules/@playwright/test/index';
 
@@ -6,11 +7,15 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  const id='00000000-0000-4000-8000-000000000001';
  const version='00000000-0000-4000-8000-000000000002';
  const problem={id,version,problem:{title:'UI sample',statement:'Return the value.',hints:['Use **addition**. <script>alert(1)</script>','Return the result.'],difficulty:'medium',tags:['arrays'],interface:{kind:'function',name:'solve',params:[],returns:'int'},limits:{time_ms:2000,memory_mib:256},tests:[{args:[1],expected:1,hidden:false}]},starters:{cpp:'int solve() { return 1; }',python:'def solve():\n    return 1'}};
- const dropdownStyle=(label:string)=>page.getByLabel(label,{exact:true}).evaluate(select=>{
-  const control=getComputedStyle(select);
-  const option=getComputedStyle(select.querySelector('option:not(:checked)')!);
-  return {scheme:control.colorScheme,background:control.backgroundColor,text:control.color,optionBackground:option.backgroundColor,optionText:option.color};
- });
+ const dropdownStyle=async(label:string)=>{
+  const control=page.getByRole('combobox',{name:label,exact:true});
+  await control.click();
+  const style=await control.evaluate(node=>{const css=getComputedStyle(node);return {scheme:css.colorScheme,background:css.backgroundColor,text:css.color}});
+  style.background=await page.locator('.select-popup:popover-open').evaluate(node=>getComputedStyle(node).backgroundColor);
+  const option=await page.locator('.select-popup:popover-open .themed-option[aria-selected=false]:not(.active)').first().evaluate(node=>{const css=getComputedStyle(node);return {optionBackground:css.backgroundColor,optionText:css.color}});
+  await control.press('Escape');
+  return {...style,...option};
+ };
  await page.route('**/api/v1/**',route=>{
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith("/capabilities")||path.includes("/me/"))return route.fallback();
@@ -31,9 +36,9 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await page.emulateMedia({colorScheme:'light'});
  await expect(page.locator('html')).toHaveAttribute('data-theme','light');
- await expect(page.getByLabel('Theme')).not.toBeVisible();
+ await expect(page.getByRole('combobox',{name:'Theme',exact:true})).not.toBeVisible();
  await page.getByLabel('User menu').click();
- await page.getByLabel('Theme').selectOption('dark');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+ await selectValue(page.getByRole('combobox',{name:'Theme',exact:true}),'dark');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  const darkDropdown=await dropdownStyle('Theme');
  expect(darkDropdown.scheme).toBe('dark');
@@ -60,16 +65,18 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  await expect(page.locator('.code-pane > .semantic')).toHaveCount(0);
  const editorBackground=()=>page.locator('.monaco-editor').first().evaluate(node=>getComputedStyle(node).backgroundColor);
  const darkEditorBackground=await editorBackground();
+ expect(darkEditorBackground).toBe('rgb(25, 25, 28)');
+ expect(await page.locator('.monaco-editor .view-lines').first().evaluate(node=>getComputedStyle(node).fontFamily)).toContain('JetBrains Mono');
  expect(await dropdownStyle('Language')).toEqual(darkDropdown);
  await page.getByLabel('User menu').click();
- await page.getByLabel('Theme').selectOption('light');await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+ await selectValue(page.getByRole('combobox',{name:'Theme',exact:true}),'light');await expect(page.locator('html')).toHaveAttribute('data-theme','light');
  await expect.poll(editorBackground).not.toBe(darkEditorBackground);
  const lightDropdown=await dropdownStyle('Theme');
  expect(lightDropdown.scheme).toBe('light');
  expect(lightDropdown.background).not.toBe(darkDropdown.background);
  expect(lightDropdown.optionBackground).toBe(lightDropdown.background);
  expect(await dropdownStyle('Language')).toEqual(lightDropdown);
- await page.getByLabel('Theme').selectOption('dark');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+ await selectValue(page.getByRole('combobox',{name:'Theme',exact:true}),'dark');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await expect.poll(editorBackground).toBe(darkEditorBackground);
  await page.getByLabel('User menu').click();
  const source=page.locator('.monaco-editor .view-lines').first();
@@ -87,7 +94,7 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
  await expect.poll(()=>page.evaluate(v=>localStorage.getItem(`practice:user-id:${v}:cpp`),version)).toBe(problem.starters.cpp);
  await page.reload();
  await expect(page.locator('.monaco-editor .view-lines').first()).toContainText('return 1',{timeout:45000});
- await page.getByLabel('Language').selectOption('python');
+ await selectValue(page.getByRole('combobox',{name:'Language',exact:true}),'python');
  await expect(source).toContainText('def solve()');
  await page.locator('.monaco-editor').first().click();
  await page.keyboard.press('ControlOrMeta+A');
@@ -113,7 +120,18 @@ test('editor appearance, privacy controls, resizing, and reset',async({page})=>{
   const after=await page.locator(panel).evaluate((node,vertical)=>vertical?node.getBoundingClientRect().height:node.getBoundingClientRect().width,dy!==0);
   expect(after).toBeGreaterThan(before+30);
  }
+ // Review the workspace at the same responsive widths as the catalog.
+ await page.locator('.monaco-editor').first().click();
+ await page.keyboard.press('ControlOrMeta+A');
+ await page.keyboard.insertText('def solve():\n    # != == => <= >= -> ===\n    return 1');
+ for(const width of [1440,1024,768,375]){
+  await page.setViewportSize({width,height:900});
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  if(width<=800)expect(await page.locator('.workspace').evaluate(node=>node.getBoundingClientRect().height)).toBeGreaterThan(900);
+  await page.screenshot({path:`/tmp/j0coder-editor-${width}.png`,fullPage:true});
+ }
+ await page.setViewportSize({width:1440,height:900});
  await page.getByRole('button',{name:'Problems',exact:true}).click();
- await expect(page.getByLabel('Difficulty')).toBeVisible();
+ await expect(page.getByRole('combobox',{name:'Difficulty',exact:true})).toBeVisible();
  expect(await dropdownStyle('Difficulty')).toEqual(darkDropdown);
 });

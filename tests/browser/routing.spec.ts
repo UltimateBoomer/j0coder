@@ -1,3 +1,4 @@
+import {selectValue} from './select-helpers';
 import {test,createProblem,createUser,adminOrigin,publicOrigin} from './host-fixtures';
 import {expect,type Page} from '../../web/node_modules/@playwright/test/index';
 
@@ -22,15 +23,15 @@ test('routes preserve authentication intent, filters, and browser history',async
  const result=page.getByRole('button',{name:new RegExp(definition.title)});
  await page.getByLabel('Search problems').fill('Routng sample');await expect(result).toBeVisible();
  await page.getByLabel('Search problems').fill(uniqueTag);await expect(result).toBeVisible();
- await page.getByLabel('Difficulty').selectOption('hard');await expect(result).toHaveCount(0);await expect(page.locator('.count')).toHaveText('0 problems');await expect(page.getByText('No matching problems.')).toBeVisible();
- await page.getByLabel('Difficulty').selectOption('medium');await expect(result).toBeVisible();
+ await selectValue(page.getByRole('combobox',{name:'Difficulty',exact:true}),'hard');await expect(result).toHaveCount(0);await expect(page.locator('.count')).toHaveText('0 problems');await expect(page.getByText('No matching problems.')).toBeVisible();
+ await selectValue(page.getByRole('combobox',{name:'Difficulty',exact:true}),'medium');await expect(result).toBeVisible();
  await page.getByLabel('Search problems').fill('no-such-problem-query');await expect(page.locator('.count')).toHaveText('0 problems');
- await page.getByLabel('Search problems').fill('');await page.getByLabel('Difficulty').selectOption('');await expect(page).toHaveURL(/\/$/);await expect(result).toBeVisible();
+ await page.getByLabel('Search problems').fill('');await selectValue(page.getByRole('combobox',{name:'Difficulty',exact:true}),'');await expect(page).toHaveURL(/\/$/);await expect(result).toBeVisible();
  const titles=await page.locator('.problem-title').evaluateAll(nodes=>nodes.map(node=>node.childNodes[0]?.textContent||''));expect(titles).toEqual([...titles].sort((a,b)=>a.localeCompare(b)));
- await page.getByLabel('Search problems').fill('Routing sample');await page.getByLabel('Difficulty').selectOption('medium');
+ await page.getByLabel('Search problems').fill('Routing sample');await selectValue(page.getByRole('combobox',{name:'Difficulty',exact:true}),'medium');
  await expect(page).toHaveURL(/\?q=Routing(\+|%20)sample&difficulty=medium$/);
  await page.getByRole('button',{name:new RegExp(definition.title)}).click();await page.goBack();
- await expect(page.getByLabel('Search problems')).toHaveValue('Routing sample');await expect(page.getByLabel('Difficulty')).toHaveValue('medium');await expect(page.getByLabel('Tag')).toHaveCount(0);
+ await expect(page.getByLabel('Search problems')).toHaveValue('Routing sample');await expect(page.getByRole('combobox',{name:'Difficulty',exact:true})).toHaveAttribute('data-value','medium');await expect(page.getByLabel('Tag')).toHaveCount(0);
  await page.goForward();await expect(page.getByRole('heading',{name:definition.title})).toBeVisible();
  await page.reload();await expect(page.getByRole('heading',{name:definition.title})).toBeVisible();
  await page.goto(`/?q=Routng%20sample&difficulty=medium&tag=${uniqueTag}`);await expect(result).toBeVisible();await expect(page.getByLabel('Search problems')).toHaveValue('Routng sample');
