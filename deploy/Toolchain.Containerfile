@@ -24,15 +24,15 @@ RUN mkdir -p /opt/jackson /opt/judge \
     && echo '959a2ffb2d591436f51f183c6a521fc89347912f711bf0cae008cdf045d95319  /opt/jackson/jackson-annotations.jar' | sha256sum -c - \
     && echo 'ffab4d957daa2796cf24cb66d0b78a7090f1bcbe17c3a4578f09affaaf137089  /opt/jackson/jackson-core.jar' | sha256sum -c - \
     && echo '34bbeb4526fff4f8565b12106bf85a6afcbae858966d489b54214ac46b2e26e8  /opt/jackson/jackson-databind.jar' | sha256sum -c -
-COPY deploy/JudgeMain.java /opt/judge/JudgeMain.java
+COPY crates/platform/src/languages/jvm/JudgeMain.java /opt/judge/JudgeMain.java
 RUN javac --release 21 -cp '/opt/jackson/*' -d /opt/judge /opt/judge/JudgeMain.java
 RUN ln -s /usr/bin/clang++-16 /usr/local/bin/clang++ \
     && ln -s /usr/bin/clangd-16 /usr/local/bin/clangd \
     && mkdir /input /workspace \
     && touch /workspace/solution.cpp /workspace/solution.py /workspace/Solution.java /workspace/solution.kt \
     && chmod 1777 /workspace
-COPY deploy/harness.py /opt/harness.py
-COPY deploy/compile_flags.txt /workspace/compile_flags.txt
-COPY deploy/pyrightconfig.json /workspace/pyrightconfig.json
+COPY crates/platform/src/languages/harness.py /opt/harness.py
+COPY crates/platform/src/languages/cpp/compile_flags.txt /workspace/compile_flags.txt
+COPY crates/platform/src/languages/python/pyrightconfig.json /workspace/pyrightconfig.json
 ENV PYTHONDONTWRITEBYTECODE=1
 USER 65534:65534

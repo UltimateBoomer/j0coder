@@ -8,8 +8,6 @@
 !crates/platform/Cargo.toml
 !crates/platform/src/
 !crates/platform/src/**
-!crates/platform/templates/
-!crates/platform/templates/**
 
 !migrations/
 !migrations/**

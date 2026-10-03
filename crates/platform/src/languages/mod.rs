@@ -222,10 +222,10 @@ impl Language {
             } => render_template(
                 "function_starter",
                 match self {
-                    Language::Cpp => include_str!("../../templates/function_starter.cpp.j2"),
-                    Language::Python => include_str!("../../templates/function_starter.py.j2"),
-                    Language::Java => include_str!("../../templates/function_starter.java.j2"),
-                    Language::Kotlin => include_str!("../../templates/function_starter.kt.j2"),
+                    Language::Cpp => include_str!("cpp/function_starter.cpp.j2"),
+                    Language::Python => include_str!("python/function_starter.py.j2"),
+                    Language::Java => include_str!("java/function_starter.java.j2"),
+                    Language::Kotlin => include_str!("kotlin/function_starter.kt.j2"),
                 },
                 InterfaceContext {
                     source: "",
@@ -249,15 +249,15 @@ impl Language {
             } => render_template(
                 "data_structure_starter",
                 match self {
-                    Language::Cpp => include_str!("../../templates/data_structure_starter.cpp.j2"),
+                    Language::Cpp => include_str!("cpp/data_structure_starter.cpp.j2"),
                     Language::Python => {
-                        include_str!("../../templates/data_structure_starter.py.j2")
+                        include_str!("python/data_structure_starter.py.j2")
                     }
                     Language::Java => {
-                        include_str!("../../templates/data_structure_starter.java.j2")
+                        include_str!("java/data_structure_starter.java.j2")
                     }
                     Language::Kotlin => {
-                        include_str!("../../templates/data_structure_starter.kt.j2")
+                        include_str!("kotlin/data_structure_starter.kt.j2")
                     }
                 },
                 InterfaceContext {
@@ -306,9 +306,9 @@ impl Language {
     ) -> Result<String> {
         if matches!(self, Language::Java | Language::Kotlin) {
             let template = if self == Language::Java {
-                include_str!("../../templates/wrapper.java.j2")
+                include_str!("java/wrapper.java.j2")
             } else {
-                include_str!("../../templates/wrapper.kt.j2")
+                include_str!("kotlin/wrapper.kt.j2")
             };
             return render_template(
                 "jvm_wrapper",
@@ -323,16 +323,16 @@ impl Language {
         let i = self.implementation();
         let template = match (self, interface) {
             (Language::Cpp, Interface::Function { .. }) => {
-                include_str!("../../templates/function_wrapper.cpp.j2")
+                include_str!("cpp/function_wrapper.cpp.j2")
             }
             (Language::Python, Interface::Function { .. }) => {
-                include_str!("../../templates/function_wrapper.py.j2")
+                include_str!("python/function_wrapper.py.j2")
             }
             (Language::Cpp, Interface::DataStructure { .. }) => {
-                include_str!("../../templates/data_structure_wrapper.cpp.j2")
+                include_str!("cpp/data_structure_wrapper.cpp.j2")
             }
             (Language::Python, Interface::DataStructure { .. }) => {
-                include_str!("../../templates/data_structure_wrapper.py.j2")
+                include_str!("python/data_structure_wrapper.py.j2")
             }
             _ => unreachable!(),
         };

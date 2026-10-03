@@ -15,7 +15,6 @@ RUN --mount=type=cache,id=j0coder-cargo-registry,target=/usr/local/cargo/registr
     && cargo build --locked --release --lib \
     && cargo clean -p j0coder --release
 COPY crates/platform/src crates/platform/src
-COPY crates/platform/templates crates/platform/templates
 COPY migrations migrations
 COPY openapi.json ./
 RUN --mount=type=cache,id=j0coder-cargo-registry,target=/usr/local/cargo/registry \

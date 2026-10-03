@@ -10,6 +10,6 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='j0coder-jvm-adapter-') as directory:
-    for source in (root / 'deploy/JudgeMain.java', root / 'tests/JvmAdapterFixtures.java'):
+    for source in (root / 'crates/platform/src/languages/jvm/JudgeMain.java', root / 'tests/JvmAdapterFixtures.java'):
         shutil.copyfile(source, Path(directory) / source.name)
     subprocess.run(['java', '--class-path', sys.argv[1], str(Path(directory) / 'JvmAdapterFixtures.java')], check=True)

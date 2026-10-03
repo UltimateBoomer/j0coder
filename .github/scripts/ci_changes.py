@@ -18,7 +18,9 @@ def checks_for(path):
         return {"app_image", "toolchain_image"}
     if path.startswith(".github/") or path == "Makefile":
         return ALL
-    if path in {"crates/platform/src/contract.rs", "crates/platform/src/schema.rs", "crates/platform/src/accounts.rs", "crates/platform/src/api.rs", "crates/platform/src/bin/schema-export.rs", "crates/platform/Cargo.toml", "Cargo.toml", "Cargo.lock", "problem.schema.json"} or path.startswith("crates/platform/src/languages/"):
+    if path.startswith("crates/platform/src/languages/"):
+        return {"rust", "web", "integration", "app_image", "toolchain_image"}
+    if path in {"crates/platform/src/contract.rs", "crates/platform/src/schema.rs", "crates/platform/src/accounts.rs", "crates/platform/src/api.rs", "crates/platform/src/bin/schema-export.rs", "crates/platform/Cargo.toml", "Cargo.toml", "Cargo.lock", "problem.schema.json"}:
         return {"rust", "web", "integration", "app_image"}
     if path in {"Cargo.toml", "Cargo.lock"} or path.startswith(("crates/", "migrations/")):
         return {"rust", "integration", "app_image"}
@@ -40,7 +42,7 @@ def checks_for(path):
         return {"app_image"}
     if path == "deploy/nginx.conf":
         return {"config"}
-    if path in {"deploy/Toolchain.Containerfile", "deploy/harness.py", "deploy/compile_flags.txt", "deploy/pyrightconfig.json"}:
+    if path in {"deploy/Toolchain.Containerfile"}:
         return {"toolchain_image"}
     if path in {".dockerignore", ".containerignore"}:
         return {"app_image", "toolchain_image"}

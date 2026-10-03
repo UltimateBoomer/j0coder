@@ -18,6 +18,10 @@ class ChangesTest(unittest.TestCase):
         for path in ["crates/platform/src/contract.rs", "crates/platform/src/languages/java.rs", "crates/platform/src/schema.rs", "problem.schema.json"]:
             self.assertIn("web", checks_for(path))
 
+    def test_language_assets(self):
+        for path in ["crates/platform/src/languages/cpp/function_wrapper.cpp.j2", "crates/platform/src/languages/jvm/JudgeMain.java", "crates/platform/src/languages/harness.py"]:
+            self.assertIn("toolchain_image", checks_for(path))
+
     def test_web_changes(self):
         self.assertEqual(checks_for("web/src/App.svelte"),
                          {"web", "integration", "app_image"})
