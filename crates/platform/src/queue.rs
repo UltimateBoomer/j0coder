@@ -565,7 +565,26 @@ mod integration {
     #[tokio::test]
     #[ignore = "requires isolated PostgreSQL and Valkey"]
     async fn database_event_reordering_and_reconciliation() -> Result<()> {
-        let db = PgPool::connect(&std::env::var("DATABASE_URL")?).await?;
+        // Queue fixtures deliberately omit API problem fields. Keep them out of
+        // the public schema used by subsequent API and browser acceptance tests.
+        let url = std::env::var("DATABASE_URL")?;
+        let schema = format!("queue_{}", Uuid::new_v4().simple());
+        let root = PgPool::connect(&url).await?;
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&root)
+            .await?;
+        let search_path = schema.clone();
+        let db = sqlx::postgres::PgPoolOptions::new()
+            .after_connect(move |connection, _| {
+                let command = format!("SET search_path TO {search_path}");
+                Box::pin(async move {
+                    sqlx::query(&command).execute(connection).await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await?;
+        sqlx::migrate!("../../migrations").run(&db).await?;
         let u = Uuid::new_v4();
         let p = Uuid::new_v4();
         let version = Uuid::new_v4();
@@ -717,6 +736,11 @@ mod integration {
             .await?;
         assert_eq!(status, "completed");
         consumer.abort();
+        let _ = consumer.await;
+        db.close().await;
+        sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+            .execute(&root)
+            .await?;
         Ok(())
     }
 }
